@@ -12,7 +12,7 @@ El objetivo principal de esta fase es culminar los procesos de distribución seg
 
 - [ ] **Firma digital Windows:** Integración con [SignPath Foundation](docs/releases/SIGNPATH.md) para firma digital de instaladores y ejecutables bajo la política de proyectos Open Source.
 - [ ] **Notarización macOS:** Automatización de la firma con Apple Developer ID y proceso de *stapling* en los flujos de GitHub Actions.
-- [ ] **Publicación de Releases oficiales:** Empaquetado automatizado de instaladores NSIS para Windows y archivos .dmg para macOS en cada versión etiquetada (1.0.0).
+- [ ] **Publicación de Releases oficiales:** Empaquetado automatizado de instaladores NSIS para Windows y archivos .dmg para macOS en cada versión etiquetada (v1.0.0).
 - [ ] **Validación en máquinas limpias:** Verificación final de instalación desatendida y convivencia con SmartScreen y Gatekeeper en sistemas operativos limpios.
 
 ---
@@ -52,4 +52,4 @@ Mejoras orientadas a extender la disponibilidad de RavenGit y optimizar flujos d
 ## Contribuciones y Sugerencias
 
 ¿Tienes alguna idea o necesidad para el roadmap?
-Te invitamos a abrir una discusión o *issue* en nuestro repositorio de GitHub siguiendo las pautas de [CONTRIBUTING.md](CONTRIBUTING.md).
+Cuando se anuncie el canal público del proyecto, comparte la propuesta allí y sigue las pautas de [CONTRIBUTING.md](CONTRIBUTING.md). La migración y publicación del repositorio siguen pendientes.

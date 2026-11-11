@@ -17,7 +17,7 @@ Lateral: Repositorios ▾       Diálogo: Repositorios          Cerrar
                              Abrir carpeta…
 ```
 
-La biblioteca local incluye varias colecciones con nombre y orden, filtro y asignación exclusiva por repositorio; Todos los repositorios y Sin colección siguen disponibles. Gestionar colecciones permite crear/renombrar, subir/bajar y quitar con confirmación. Quitar una colección conserva sus repositorios y preferencias en Sin colección. Se admiten hasta 30 colecciones, nombres únicos de 1–80 caracteres e identidades estables. Transferir configuración entre equipos, exportar/importar, cuentas y sincronización quedan pendientes. [Detalle y evidencia](../validacion/Colecciones_locales.md).
+La biblioteca local incluye varias colecciones con nombre y orden, filtro y asignación exclusiva por repositorio; Todos los repositorios y Sin colección siguen disponibles. Gestionar colecciones permite crear/renombrar, subir/bajar y quitar con confirmación. Quitar una colección conserva sus repositorios y preferencias en Sin colección. Se admiten hasta 30 colecciones, nombres únicos de 1–80 caracteres e identidades estables. Transferir configuración entre equipos, exportar/importar, cuentas y sincronización quedan pendientes. `Detalle y evidencia` (archivo no incluido en este repositorio: `Colecciones_locales.md`).
 
 ## Comportamiento
 

@@ -40,4 +40,4 @@ La configuración de bundle existente ya referencia estos nombres. Se reemplazan
 
 ## Comprobación posterior macOS · 22 de octubre
 
-Bundle ARM64 generado y render nativo revisado. El ICNS empaquetado coincide byte por byte con el de fuentes y el SVG está en `dist`; [hashes y alcance](../validacion/MacOS_actual_2026-10-22.md). No se confunde esa comparación con aceptar la representación en Dock/Finder o una distribución firmada.
+Bundle ARM64 generado y render nativo revisado. El ICNS empaquetado coincide byte por byte con el de fuentes y el SVG está en `dist`; `hashes y alcance` (archivo no incluido en este repositorio: `MacOS_actual_2026-10-22.md`). No se confunde esa comparación con aceptar la representación en Dock/Finder o una distribución firmada.

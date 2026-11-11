@@ -448,4 +448,4 @@ Los textos encontrados se refieren a archivos de licencia/avisos presentes en lo
 - NSIS y sus plugins, descarga WebView2, runtime Rust y otros componentes de herramientas requieren revisión de avisos propia; no están certificados por este inventario.
 - `.agents/skills` contiene material externo y requiere atribución o exclusión de la copia pública; no forma parte de la app distribuida.
 
-[Resultados y acciones de apertura](../validacion/Revision_publicacion_2026-10-29.md).
+`Resultados y acciones de apertura` (archivo no incluido en este repositorio: `Revision_publicacion_2026-10-29.md`).

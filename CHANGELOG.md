@@ -8,7 +8,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/
 
 ## [1.0.0-beta.1] - 2026-11-10
 
-Primera versión candidata pública (Beta 1) de RavenGit, lista para validación y pruebas de distribución en Windows x64 y macOS.
+Beta 1 de Windows x64 preparada para validación privada. No es una versión estable ni una entrega pública; la aceptación en otra máquina y la validación de macOS siguen pendientes. Consulta el [estado de la beta](docs/releases/1.0.0-beta.1.md).
 
 ### Añadido
 
@@ -23,7 +23,7 @@ Primera versión candidata pública (Beta 1) de RavenGit, lista para validación
 - Preparación selectiva de cambios a nivel de archivo individual y bloque de código (*hunk staging*).
 - **Preparación múltiple:** selección por casillas y preparación en lote (*stage all / stage selected*) en una sola transacción atómica de índice.
 - Detección de bloqueos de Git (index.lock) con avisos descriptivos de protección.
-- Creación de commits con detección de autor, validación de mensajes y opción de mend (modificar último commit) con respaldo automático del commit reemplazado.
+- Creación de commits con detección de autor, validación de mensajes y opción de amend (modificar último commit) con respaldo automático del commit reemplazado.
 
 #### Restauración y Deshacer (*Worktree Restore & Redo*)
 - Diálogo modal accesible para restaurar archivos modificados del árbol de trabajo hacia el índice.
@@ -33,7 +33,7 @@ Primera versión candidata pública (Beta 1) de RavenGit, lista para validación
 
 #### Rebase Interactivo
 - Editor visual para secuencias de 1 a 50 commits lineales.
-- Acciones soportadas: pick, eword (editar mensaje), squash (combinar con commit anterior), ixup (combinar descartando mensaje) y drop (descartar commit).
+- Acciones soportadas: pick, reword (editar mensaje), squash (combinar con commit anterior), fixup (combinar descartando mensaje) y drop (descartar commit).
 - Reordenamiento visual de commits en el plan interactivo.
 - Generación de respaldo automático de la referencia de la rama antes de ejecutar reescrituras de historia.
 - Detección de pausas por conflicto, con controles integrados para resolver y continuar o abortar limpiamente.
@@ -41,7 +41,7 @@ Primera versión candidata pública (Beta 1) de RavenGit, lista para validación
 #### Conflictos y Operaciones Avanzadas
 - Editor textual integrado de conflictos con acceso a tres versiones: Base, Local y Entrante.
 - Guardado de resoluciones con respaldo automático antes de modificar el archivo en disco.
-- Panel guiado de recuperación de operaciones interrumpidas para merge, ebase, cherry-pick y evert.
+- Panel guiado de recuperación de operaciones interrumpidas para merge, rebase, cherry-pick y revert.
 - Controles explícitos de **Continuar** y **Abortar** con verificación de estado del índice.
 
 #### Stash, Ramas y Etiquetas

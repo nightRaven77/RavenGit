@@ -2,7 +2,7 @@
 
 Revisión: 29/10/2026. El usuario indicó modalidad **Open Source** y pidió preparar el proyecto y automatizar futuras entregas. Estado: configuración local inicial; **no se ha creado el proyecto remoto, emitido certificado, enviado solicitud ni firmado un archivo**. La beta existente sigue sin firma.
 
-[Lista previa a la apertura pública](OPEN_SOURCE_CHECKLIST.md) · [Validación local de esta preparación](../validacion/SignPath_preparacion_2026-10-29.md).
+[Lista previa a la apertura pública](OPEN_SOURCE_CHECKLIST.md) · `Validación local de esta preparación` (archivo no incluido en este repositorio: `SignPath_preparacion_2026-10-29.md`).
 
 ## Decisiones y acceso pendientes
 

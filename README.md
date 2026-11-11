@@ -4,11 +4,13 @@
 [![Tauri](https://img.shields.io/badge/Tauri-v2-orange.svg)](https://v2.tauri.app)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-dea584.svg)](https://www.rust-lang.org)
-[![Plataformas](https://img.shields.io/badge/Plataformas-Windows%20%7C%20macOS-lightgrey.svg)](docs/releases/1.0.0-beta.1.md)
+[![Plataforma en validación](https://img.shields.io/badge/Plataforma-Windows%20x64%20beta-lightgrey.svg)](docs/releases/1.0.0-beta.1.md)
 
-**RavenGit** es un cliente Git de escritorio gráfico, ligero y de arquitectura **local-first**, diseñado para ofrecer máxima velocidad, transparencia operativa y seguridad en cada operación con tus repositorios.
+**RavenGit** es un cliente Git de escritorio de arquitectura **local-first**, construido para explorar el historial y trabajar con repositorios desde una interfaz gráfica.
 
-Construido sobre **Tauri 2**, **React 19** y un núcleo seguro en **Rust**, RavenGit combina una interfaz visual limpia y accesible con la solidez del motor Git de tu sistema.
+Está construido con **Tauri 2**, **React 19** y **Rust**, y utiliza Git instalado en el sistema para operar sobre los repositorios.
+
+> **Estado:** `1.0.0-beta.1` es un candidato de Windows x64 para validación privada. La aceptación en una máquina limpia y la matriz funcional instalada siguen pendientes. La preparación para macOS no equivale a una versión validada o distribuida. Consulta las [notas de la beta](docs/releases/1.0.0-beta.1.md).
 
 ---
 
@@ -33,14 +35,14 @@ Construido sobre **Tauri 2**, **React 19** y un núcleo seguro en **Rust**, Rave
 
 ### 🔀 Rebase Interactivo Visual
 - Editor visual para secuencias de 1 a 50 commits lineales.
-- Acciones intuitivas: pick, eword, squash, ixup y drop.
+- Acciones intuitivas: pick, reword, squash, fixup y drop.
 - Reordenamiento de commits con arrastre o botones de subida/bajada.
 - Copias de seguridad automáticas antes de iniciar reescrituras de historia.
 
 ### ⚡ Resolución Visual de Conflictos
 - Editor textual integrado con acceso a las versiones **Base**, **Local** y **Entrante**.
 - Respaldo automático antes de guardar resoluciones.
-- Flujos guiados de recuperación y aborto seguro para merge, ebase, cherry-pick y evert.
+- Flujos guiados de recuperación y aborto para merge, rebase, cherry-pick y revert.
 
 ### 📦 Stash, Ramas y Etiquetas
 - **Stash avanzado:** almacena y recupera cambios preservando capas de preparación y archivos sin seguimiento.
@@ -54,8 +56,8 @@ Construido sobre **Tauri 2**, **React 19** y un núcleo seguro en **Rust**, Rave
 - **Autenticación delegada:** soporte para remotos HTTPS y SSH integrándose con el agente OpenSSH y los asistentes de credenciales del sistema.
 
 ### ♿ Accesibilidad y Rendimiento
-- Operación 100% realizable mediante teclado (atajos estándar, foco visual continuo, navegación con Tab, Espacio, Enter y Escape).
-- Diseño adaptable y probado en resoluciones compactas desde **900 × 640 píxeles**.
+- Navegación por teclado con foco visible y controles habituales; la aceptación completa de accesibilidad sigue pendiente.
+- Interfaz con tamaño mínimo de ventana de **900 × 640 píxeles**; la validación integral de escalado sigue pendiente.
 - Escala optimizada para gestionar cientos de archivos preparados sin congelar la interfaz.
 
 ---
@@ -64,7 +66,7 @@ Construido sobre **Tauri 2**, **React 19** y un núcleo seguro en **Rust**, Rave
 
 - **Git:** Git 2.38 o superior instalado y accesible en la variable de entorno PATH.
 - **Windows:** Windows 10 u 11 (x64) con el runtime de [Microsoft Edge WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (generalmente preinstalado en el sistema).
-- **macOS:** macOS 11.0 (Big Sur) o superior (Apple Silicon y compatibilidad Intel).
+- **macOS:** la compilación está preparada para Apple Silicon; instalación, compatibilidad y distribución aún requieren validación. Consulta [Preparación de macOS](docs/releases/MACOS_BETA.md).
 
 ---
 
@@ -76,9 +78,9 @@ Construido sobre **Tauri 2**, **React 19** y un núcleo seguro en **Rust**, Rave
 
 ### Clonar y ejecutar en desarrollo
 
-`ash
+```bash
 # Clonar el repositorio
-git clone git@github.com:nightRaven77/RavenGit.git
+git clone URL_DEL_REPOSITORIO RavenGit
 cd RavenGit
 
 # Instalar dependencias de frontend
@@ -86,33 +88,33 @@ npm install
 
 # Iniciar la aplicación en modo desarrollo
 npm run tauri dev
-`
+```
 
 ### Ejecutar pruebas automatizadas
 
-`ash
+```bash
 # Pruebas unitarias y de componentes (React/Vitest)
 npm test
 
 # Pruebas unitarias de Rust
 cargo test --manifest-path src-tauri/Cargo.toml
-`
+```
 
 ### Compilación para producción
 
-`ash
+```bash
 # Compilar frontend y binario nativo
 npm run build
 npm run tauri build
-`
+```
 
 ---
 
 ## Firma de Código y Entregas
 
 RavenGit implementa políticas estrictas de verificación e integridad de binarios:
-- En **Windows**, la integración de firma digital Authenticode se gestiona mediante [SignPath Foundation](docs/releases/SIGNPATH.md) para proyectos de código abierto.
-- En **macOS**, los ejecutables se preparan para su distribución con firma y verificación de Gatekeeper.
+- En **Windows**, la firma Authenticode está preparada para solicitarse mediante [SignPath Foundation](docs/releases/SIGNPATH.md); el proyecto remoto y la firma siguen pendientes.
+- En **macOS**, hay una guía de compilación para Apple Silicon; la firma de distribución y la verificación de Gatekeeper siguen pendientes.
 - Consulta las notas de versión y candidatas en [docs/releases/](docs/releases/1.0.0-beta.1.md).
 
 ---

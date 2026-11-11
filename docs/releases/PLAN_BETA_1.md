@@ -25,9 +25,9 @@ El instalador construido puede revisarse antes de aprobar la instalación. No se
 
 ## Ejecución en otra máquina Windows
 
-Usar la [matriz funcional de la copia instalada](MATRIZ_BETA_1_WINDOWS.md) y copiar su [plantilla de resultados](../validacion/PLANTILLA_MATRIZ_BETA_1_WINDOWS.md) a un registro nuevo por máquina/fecha. La guía identifica por SHA256 el candidato del 30/10, define precondiciones, fixtures independientes, casos nativos y criterios de cierre. Preparar esta documentación **no ejecuta ni aprueba la matriz**.
+Usar la [matriz funcional de la copia instalada](MATRIZ_BETA_1_WINDOWS.md) y copiar su `plantilla de resultados` (archivo no incluido en este repositorio: `PLANTILLA_MATRIZ_BETA_1_WINDOWS.md`) a un registro nuevo por máquina/fecha. La guía identifica por SHA256 el candidato del 30/10, define precondiciones, fixtures independientes, casos nativos y criterios de cierre. Preparar esta documentación **no ejecuta ni aprueba la matriz**.
 
-El [registro Windows del 30/10](../validacion/Beta_1_Windows_2026-10-30.md) confirma la regresión/build y la instalación con recorrido básico en la máquina de origen, con redirección de Windows bajo Codex. La instalación limpia sin redirección, funciones instaladas completas, ausencia de WebView2, actualización/desinstalación y demás puertas conservan su estado pendiente. La otra máquina debe recibir el instalador concreto; no necesita herramientas de desarrollo para probarlo.
+El `registro Windows del 30/10` (archivo no incluido en este repositorio: `Beta_1_Windows_2026-10-30.md`) confirma la regresión/build y la instalación con recorrido básico en la máquina de origen, con redirección de Windows bajo Codex. La instalación limpia sin redirección, funciones instaladas completas, ausencia de WebView2, actualización/desinstalación y demás puertas conservan su estado pendiente. La otra máquina debe recibir el instalador concreto; no necesita herramientas de desarrollo para probarlo.
 
 ## Pendientes que conserva la beta
 
@@ -55,6 +55,6 @@ cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D w
 npm run beta:build:windows
 ```
 
-Resultados de origen: [29/10](../validacion/Beta_1_Windows_2026-10-29.md) y [30/10](../validacion/Beta_1_Windows_2026-10-30.md), con artefactos/hashes distintos. Registrar cada ejecución nueva por separado. Las pruebas manuales de proveedores y auxiliares ignorados se identifican expresamente; no se ejecutan contra repositorios personales para completar un recuento.
+Resultados de origen: `29/10` (archivo no incluido en este repositorio: `Beta_1_Windows_2026-10-29.md`) y `30/10` (archivo no incluido en este repositorio: `Beta_1_Windows_2026-10-30.md`), con artefactos/hashes distintos. Registrar cada ejecución nueva por separado. Las pruebas manuales de proveedores y auxiliares ignorados se identifican expresamente; no se ejecutan contra repositorios personales para completar un recuento.
 
 Si hay varias instalaciones de Visual Studio, `node scripts/build-beta-windows.mjs --clippy` usa la misma selección comprobada de bibliotecas C++ que el empaquetado, exclusivamente en el proceso hijo. No modifica el entorno del sistema.

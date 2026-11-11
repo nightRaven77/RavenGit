@@ -3,7 +3,7 @@
 **Estado:** especificación objetivo con seguimiento de implementación · **Versión documental:** 0.3 · **Actualizado:** 21 de octubre de 2026
 **Producto:** RavenGit · **Identidad:** Obsidian / Azure / carmesí
 
-Esta documentación conserva el alcance objetivo y las decisiones de producto. El [estado y roadmap](../../ROADMAP.md), con corte sobre el código `20c1856`, separa lo implementado de la aceptación pendiente; el [índice de validaciones](../validacion/README.md) enlaza la evidencia. «Confirmado» significa solicitado por el usuario; «propuesto» conserva una propuesta; «pendiente» es una decisión o comprobación abierta. La especificación no acredita por sí sola implementación, rendimiento ni validación con usuarios.
+Esta documentación conserva el alcance objetivo y las decisiones de producto. El [estado y roadmap](../../ROADMAP.md), con corte sobre el código `20c1856`, separa lo implementado de la aceptación pendiente; el `índice de validaciones` (archivo no incluido en este repositorio: `README.md`) enlaza la evidencia. «Confirmado» significa solicitado por el usuario; «propuesto» conserva una propuesta; «pendiente» es una decisión o comprobación abierta. La especificación no acredita por sí sola implementación, rendimiento ni validación con usuarios.
 
 
 ## 1. Visión y contexto

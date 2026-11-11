@@ -3,7 +3,7 @@
 **Estado:** especificación objetivo con seguimiento de implementación · **Versión documental:** 0.3 · **Actualizado:** 21 de octubre de 2026
 **Producto:** RavenGit · **Identidad:** Obsidian / Azure / carmesí
 
-Esta documentación conserva el alcance objetivo y las decisiones de producto. El [estado y roadmap](../../ROADMAP.md), con corte sobre el código `20c1856`, separa lo implementado de la aceptación pendiente; el [índice de validaciones](../validacion/README.md) enlaza la evidencia. «Confirmado» significa solicitado por el usuario; «propuesto» conserva una propuesta; «pendiente» es una decisión o comprobación abierta. La especificación no acredita por sí sola implementación, rendimiento ni validación con usuarios.
+Esta documentación conserva el alcance objetivo y las decisiones de producto. El [estado y roadmap](../../ROADMAP.md), con corte sobre el código `20c1856`, separa lo implementado de la aceptación pendiente; el `índice de validaciones` (archivo no incluido en este repositorio: `README.md`) enlaza la evidencia. «Confirmado» significa solicitado por el usuario; «propuesto» conserva una propuesta; «pendiente» es una decisión o comprobación abierta. La especificación no acredita por sí sola implementación, rendimiento ni validación con usuarios.
 
 
 ## 1. Conclusión y estado de la recomendación
@@ -62,7 +62,7 @@ Persistencia actual: biblioteca y preferencias del historial en JSON versionado 
 
 Persistencia futura propuesta: SQLite para varias colecciones, cuentas sin secretos y registro sanitizado; caché de historial descartable con claves de repo/generación. No almacenar contenido de archivos ni diffs de forma persistente por defecto. Migraciones versionadas, copia de metadatos antes de migrar y exportación manual de configuración sin credenciales. Borrar un workspace elimina su metadata, nunca el repositorio.
 
-Actualización del incremento de colecciones (22 de octubre): la implementación local usa JSON v2 y conserva v1 intacto al migrar. No requiere SQLite para esta escala acotada; SQLite sigue siendo una opción para necesidades posteriores. Quitar una colección desasigna sus repositorios sin borrar sus entradas ni preferencias. No se promete coordinación multiinstancia. Véase [colecciones locales](../validacion/Colecciones_locales.md).
+Actualización del incremento de colecciones (22 de octubre): la implementación local usa JSON v2 y conserva v1 intacto al migrar. No requiere SQLite para esta escala acotada; SQLite sigue siendo una opción para necesidades posteriores. Quitar una colección desasigna sus repositorios sin borrar sus entradas ni preferencias. No se promete coordinación multiinstancia. Véase `colecciones locales` (archivo no incluido en este repositorio: `Colecciones_locales.md`).
 ## 8. Cuentas, seguridad y red
 Guardar secretos mediante mecanismos del sistema, sujetos a prueba de disponibilidad; si el almacén falla, pedir reautenticación o uso temporal en memoria, sin fallback a texto plano. SSH se delega al agente/configuración de Git. Mantener separados acceso Git, token de API y nombre/email de autor.
 

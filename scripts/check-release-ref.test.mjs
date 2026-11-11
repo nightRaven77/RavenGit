@@ -4,20 +4,19 @@ import { checkReleaseRef } from "./check-release-ref.mjs";
 
 const input = {
   eventName: "push",
-  ref: "refs/tags/v1.0.0-beta.1",
+  ref: "refs/tags/v1.0.0",
   defaultBranch: "main",
-  version: "1.0.0-beta.1",
+  version: "1.0.0",
 };
-test("acepta el tag exacto de la versión beta", () =>
+test("acepta el tag exacto de la versión estable", () =>
   assert.equal(checkReleaseRef(input), "tag"));
 test("rechaza un tag de otra versión", () =>
   assert.throws(
-    () => checkReleaseRef({ ...input, ref: "refs/tags/v1.0.0-beta.2" }),
+    () => checkReleaseRef({ ...input, ref: "refs/tags/v1.0.1" }),
     /no coincide/,
   ));
-test("rechaza tags estables, alpha, mal formados y con sufijos", () => {
+test("rechaza tags de prerelease, mal formados y con sufijos", () => {
   for (const ref of [
-    "refs/tags/v1.0.0",
     "refs/tags/v1.0.0-alpha.1",
     "refs/tags/v1.0.0-beta.0",
     "refs/tags/v1.0.0-beta.01",

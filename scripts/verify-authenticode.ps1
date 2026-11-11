@@ -14,7 +14,7 @@ if ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Thum
 }
 if ($null -eq $signature.TimeStamperCertificate) { throw 'Falta el sello de tiempo de la firma.' }
 $version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../package.json') -Raw | ConvertFrom-Json).version
-if ($file.VersionInfo.ProductName -ne 'RavenGit Beta' -or $file.VersionInfo.ProductVersion -ne $version) {
+if ($file.VersionInfo.ProductName -ne 'RavenGit' -or $file.VersionInfo.ProductVersion -ne $version) {
     throw 'Producto o versión inesperados.'
 }
 Write-Output "Firma, certificado, sello de tiempo y versión verificados: $($file.Name)"

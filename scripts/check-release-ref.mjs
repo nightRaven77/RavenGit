@@ -17,8 +17,8 @@ export function checkReleaseRef({ eventName, ref, defaultBranch, version }) {
   assert.equal(eventName, "push", "Evento de entrega no permitido");
   assert.match(
     ref ?? "",
-    /^refs\/tags\/v\d+\.\d+\.\d+-beta\.[1-9]\d*$/,
-    "Se requiere un tag vX.Y.Z-beta.N",
+    /^refs\/tags\/v\d+\.\d+\.\d+$/,
+    "Se requiere un tag estable vX.Y.Z",
   );
   assert.equal(
     ref,

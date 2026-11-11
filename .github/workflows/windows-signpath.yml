@@ -1,9 +1,9 @@
-name: Windows beta · SignPath
+name: Windows · SignPath
 
 on:
   push:
     tags:
-      - "v*-beta.*"
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  sign-beta:
+  sign:
     # Opt-in only after OSS approval, public migration and portal setup.
     if: >-
       vars.SIGNPATH_ENABLED == 'true' &&
@@ -68,7 +68,7 @@ jobs:
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml -- --test-threads=4
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - run: node scripts/build-beta-windows.mjs --clippy
-      - run: npm run beta:build:windows -- --no-bundle
+      - run: npm run release:build:windows -- --no-bundle
       - run: node scripts/verify-windows-icon.mjs src-tauri/target/release/ravengit.exe
       - name: Upload app before signing
         id: unsigned-app
@@ -85,7 +85,7 @@ jobs:
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: windows-beta-app
+          artifact-configuration-slug: windows-app
           github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
           parameters: |
             version: ${{ toJSON(steps.version.outputs.value) }}
@@ -99,7 +99,7 @@ jobs:
           ./scripts/verify-authenticode.ps1 -Path signed-app/ravengit.exe -ExpectedThumbprint $env:THUMBPRINT
           Copy-Item -LiteralPath signed-app/ravengit.exe -Destination src-tauri/target/release/ravengit.exe
           $before = (Get-FileHash src-tauri/target/release/ravengit.exe).Hash
-          node node_modules/@tauri-apps/cli/tauri.js bundle --config src-tauri/tauri.beta.conf.json --bundles nsis --ci --no-sign --no-binary-patching
+          node node_modules/@tauri-apps/cli/tauri.js bundle --bundles nsis --ci --no-sign --no-binary-patching
           if ($LASTEXITCODE) { throw 'Falló el empaquetado' }
           if ((Get-FileHash src-tauri/target/release/ravengit.exe).Hash -ne $before) { throw 'El empaquetado alteró el ejecutable firmado' }
       - name: Upload installer before signing
@@ -117,7 +117,7 @@ jobs:
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: windows-beta-installer
+          artifact-configuration-slug: windows-installer
           github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
           parameters: |
             version: ${{ toJSON(steps.version.outputs.value) }}
@@ -148,7 +148,7 @@ jobs:
           @{ version = (Get-Content package.json -Raw | ConvertFrom-Json).version; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; signed = $true; certificate = $env:THUMBPRINT; published = $false } | ConvertTo-Json | Set-Content delivery/manifest.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: ravengit-windows-beta-signed
+          name: ravengit-windows-signed
           path: delivery/
           if-no-files-found: error
           retention-days: 30

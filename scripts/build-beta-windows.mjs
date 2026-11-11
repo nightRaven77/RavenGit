@@ -24,8 +24,6 @@ const result = spawnSync(
     : [
         resolve(root, "node_modules/@tauri-apps/cli/tauri.js"),
         "build",
-        "--config",
-        resolve(root, "src-tauri/tauri.beta.conf.json"),
         ...(process.argv.includes("--no-bundle")
           ? ["--no-bundle", "--no-sign"]
           : ["--bundles", "nsis"]),

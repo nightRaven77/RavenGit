@@ -17,7 +17,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const readJson = (path) =>
   JSON.parse(readFileSync(resolve(root, path), "utf8"));
 const base = readJson("src-tauri/tauri.conf.json");
-const beta = readJson("src-tauri/tauri.beta.conf.json");
+const release = readJson("src-tauri/tauri.conf.json");
 const mac = readJson("src-tauri/tauri.beta.macos.conf.json");
 const version = readJson("package.json").version;
 assert.equal(mac.bundle.macOS.signingIdentity, "-", "Se requiere firma ad hoc");
@@ -76,13 +76,11 @@ assert.ok(
   `Instala el destino con: rustup target add ${target}`,
 );
 console.log(
-  "Compilando RavenGit Beta para Apple Silicon con firma ad hoc, sin notarización.",
+  "Compilando RavenGit para Apple Silicon con firma ad hoc, sin notarización.",
 );
 run(process.execPath, [
   resolve(root, "node_modules/@tauri-apps/cli/tauri.js"),
   "build",
-  "--config",
-  resolve(root, "src-tauri/tauri.beta.conf.json"),
   "--config",
   resolve(root, "src-tauri/tauri.beta.macos.conf.json"),
   "--target",
@@ -94,11 +92,11 @@ run(process.execPath, [
   "--locked",
 ]);
 const bundle = resolve(env.CARGO_TARGET_DIR, target, "release/bundle");
-const app = resolve(bundle, "macos", `${beta.productName}.app`);
+const app = resolve(bundle, "macos", `${release.productName}.app`);
 const plist = resolve(app, "Contents/Info.plist");
 const field = (key) =>
   run("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", plist], true);
-assert.equal(field("CFBundleIdentifier"), beta.identifier);
+assert.equal(field("CFBundleIdentifier"), release.identifier);
 assert.equal(field("CFBundleShortVersionString"), version);
 const executableName = field("CFBundleExecutable");
 assert.ok(!/[\\/]/.test(executableName), "Nombre de ejecutable inesperado");
@@ -119,17 +117,13 @@ const dmg = resolve(bundle, "dmg", dmgs[0]);
 run("/usr/bin/hdiutil", ["verify", dmg]);
 const delivery = resolve(
   root,
-  "state/beta-macos.local",
+  "state/macos.local",
   version,
   new Date().toISOString().replace(/[:.]/g, "-"),
 );
 mkdirSync(delivery, { recursive: true });
 copyFileSync(dmg, resolve(delivery, dmgs[0]));
 copyFileSync(resolve(root, "LICENSE"), resolve(delivery, "LICENSE"));
-copyFileSync(
-  resolve(root, "docs/releases/MACOS_BETA.md"),
-  resolve(delivery, "LEEME.md"),
-);
 const sha256 = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 const hash = sha256(dmg);

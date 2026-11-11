@@ -1,0 +1,19 @@
+.fixture-history-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 0;
+  border-bottom: 1px solid #293240;
+  font-size: 12px;
+}
+.fixture-history-row code {
+  color: #8eabc9;
+  font-size: 11px;
+}
+.fixture-graph-node {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border: 2px solid #52b7ff;
+  border-radius: 50%;
+}

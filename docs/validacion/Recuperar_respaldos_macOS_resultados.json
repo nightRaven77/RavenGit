@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-23",
+  "base": "4305dd1cc950895e190f161be7c92efa98ba7ac3",
+  "scope": "working tree D.2d",
+  "platform": "macOS ARM64",
+  "automated": {
+    "ui": 234,
+    "uiFiles": 25,
+    "rust": 178,
+    "restoreRustFocused": 7,
+    "clippy": true,
+    "format": true,
+    "builds": true
+  },
+  "wideFirst": {
+    "checks": {
+      "restoredOriginalBytes": true,
+      "fullIndexUnchanged": true,
+      "headUnchanged": true,
+      "mergePending": true,
+      "laterWorkPreserved": true,
+      "otherFileUnchanged": true,
+      "chosenBackupRetained": true,
+      "safetyMetadataValid": true
+    },
+    "safetyId": "ravengit-conflict-55689-1792801392070820000-2"
+  },
+  "wideRedo": {
+    "checks": {
+      "laterWorkRecovered": true,
+      "fullIndexUnchanged": true,
+      "headUnchanged": true,
+      "mergePending": true,
+      "firstSafetyRetained": true,
+      "secondSafetyPreservesOriginal": true,
+      "originalBackupRetained": true
+    },
+    "secondSafetyId": "ravengit-conflict-55689-1792801472856188000-6"
+  },
+  "narrow": {
+    "checks": {
+      "restoredOriginalBytes": true,
+      "fullIndexUnchanged": true,
+      "headUnchanged": true,
+      "mergePending": true,
+      "previousWorkPreserved": true,
+      "otherFileUnchanged": true,
+      "chosenBackupRetained": true,
+      "safetyMetadataValid": true
+    },
+    "safetyId": "ravengit-conflict-79054-1792801701620385000-2"
+  },
+  "fixtureRoot": "/var/folders/gk/f06xsdzx3n185tddhgzdsd0w0000gn/T/ravengit-restore-mac-ypa68d3u",
+  "bundles": {
+    "RavenGit Restore Validation": {
+      "identifier": "dev.ravengit.restore.validation",
+      "sha256": "5f872ab1c3af6ca481a9bfe51d71b4ed55aac0451e6a4da4bc33c5ebd5e4e70b"
+    },
+    "RavenGit Restore Narrow": {
+      "identifier": "dev.ravengit.restore.narrow",
+      "sha256": "7c921bd8ae67be37a807a81b158b6acb3faec042adf545f5eed8ca96fe139ea4"
+    }
+  },
+  "native": {
+    "wide": [
+      1440,
+      920
+    ],
+    "narrow": [
+      900,
+      640
+    ],
+    "stickyCloseVerified": true,
+    "independentReviewer": "ux_review"
+  },
+  "limits": [
+    "Merge pending only",
+    "No native forced termination",
+    "No Windows acceptance",
+    "No full accessibility certification"
+  ]
+}

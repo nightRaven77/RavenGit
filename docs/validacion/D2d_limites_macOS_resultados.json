@@ -1,0 +1,291 @@
+{
+  "date": "2026-10-23",
+  "base": "4305dd1 + D.2d local + ajuste CSS comparación envuelta",
+  "platform": "macOS ARM64",
+  "identifier": "dev.ravengit.d2d.acceptance",
+  "fixtureRoot": "/var/folders/gk/f06xsdzx3n185tddhgzdsd0w0000gn/T/ravengit-d2d-limits-_vghaabw",
+  "fixture": "Copia desechable; respaldo de 512 KiB y hashes de metadatos preparados sintéticamente, no guardados por editor nativo en esta sesión",
+  "bytesAccepted": 524288,
+  "bytesRejected": 524289,
+  "checks": {
+    "index": {
+      "file": true,
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "backups": true
+    },
+    "operation": {
+      "file": true,
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "backups": true,
+      "merge_message_preserved": true
+    },
+    "oversize-current": {
+      "file": true,
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "backups": true
+    },
+    "oversize-backup": {
+      "file": true,
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "backups": true
+    },
+    "large-restore": {
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "original_exact": true,
+      "later_work_backed_up": true,
+      "previous_backups_retained": true
+    },
+    "wrapped-restore": {
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "original_exact": true,
+      "later_work_backed_up": true,
+      "previous_backups_retained": true
+    },
+    "cleanup": {
+      "file": true,
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "backups": true
+    }
+  },
+  "passed": 45,
+  "snapshots": {
+    "limits-baseline": {
+      "file": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "23e4ecbd24909e40947d1124c814bd561d9dcaca4fef3ff1a3bf697ff57b0526",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4"
+      }
+    },
+    "index-before": {
+      "file": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+      "index": "56981839737bccfca116a0de1ec08c479d13b27866dbb6ce35e88db1ffd7f436",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "9c8a0c9266af462983b44ad4fe2d51a0d749738454160bad9cfe6e3981086e52",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "23e4ecbd24909e40947d1124c814bd561d9dcaca4fef3ff1a3bf697ff57b0526",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4"
+      }
+    },
+    "index-after": {
+      "file": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+      "index": "56981839737bccfca116a0de1ec08c479d13b27866dbb6ce35e88db1ffd7f436",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "9c8a0c9266af462983b44ad4fe2d51a0d749738454160bad9cfe6e3981086e52",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "23e4ecbd24909e40947d1124c814bd561d9dcaca4fef3ff1a3bf697ff57b0526",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4"
+      }
+    },
+    "operation-before": {
+      "file": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "23e4ecbd24909e40947d1124c814bd561d9dcaca4fef3ff1a3bf697ff57b0526",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4"
+      }
+    },
+    "operation-after": {
+      "file": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "23e4ecbd24909e40947d1124c814bd561d9dcaca4fef3ff1a3bf697ff57b0526",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4"
+      }
+    },
+    "large-restored": {
+      "file": "23e4ecbd24909e40947d1124c814bd561d9dcaca4fef3ff1a3bf697ff57b0526",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "23e4ecbd24909e40947d1124c814bd561d9dcaca4fef3ff1a3bf697ff57b0526",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+        "ravengit-conflict-4244-1792805112025927000-5": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52"
+      }
+    },
+    "oversize-current-before": {
+      "file": "ac13ca9cd5174be6a612d5d8d412dd26ceca5aed77d18a1547c2589a8b2bb3f0",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "23e4ecbd24909e40947d1124c814bd561d9dcaca4fef3ff1a3bf697ff57b0526",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+        "ravengit-conflict-4244-1792805112025927000-5": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52"
+      }
+    },
+    "oversize-current-after": {
+      "file": "ac13ca9cd5174be6a612d5d8d412dd26ceca5aed77d18a1547c2589a8b2bb3f0",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "23e4ecbd24909e40947d1124c814bd561d9dcaca4fef3ff1a3bf697ff57b0526",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+        "ravengit-conflict-4244-1792805112025927000-5": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52"
+      }
+    },
+    "oversize-backup-before": {
+      "file": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "d0c28a973cf90e42f2378d476106a4bac2ebfee6335c22f07bbf0ce3540e6169",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+        "ravengit-conflict-4244-1792805112025927000-5": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52"
+      }
+    },
+    "oversize-backup-after": {
+      "file": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "d0c28a973cf90e42f2378d476106a4bac2ebfee6335c22f07bbf0ce3540e6169",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+        "ravengit-conflict-4244-1792805112025927000-5": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52"
+      }
+    },
+    "wrapped-before": {
+      "file": "8563184d1d3159f6a87b05550aaa148287f2b75a4c96ba60c290f0eb11eb6339",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "8149f2ec8c2fc7c9720fc208c86e3e2232f49fec2b1891a27e0e2b0f6c165930",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+        "ravengit-conflict-4244-1792805112025927000-5": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52"
+      }
+    },
+    "wrapped-after": {
+      "file": "8149f2ec8c2fc7c9720fc208c86e3e2232f49fec2b1891a27e0e2b0f6c165930",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "8149f2ec8c2fc7c9720fc208c86e3e2232f49fec2b1891a27e0e2b0f6c165930",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+        "ravengit-conflict-4244-1792805112025927000-5": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+        "ravengit-conflict-6657-1792805244244508000-2": "8563184d1d3159f6a87b05550aaa148287f2b75a4c96ba60c290f0eb11eb6339"
+      }
+    },
+    "limits-cleanup": {
+      "file": "8149f2ec8c2fc7c9720fc208c86e3e2232f49fec2b1891a27e0e2b0f6c165930",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-1-1792804986471328000-0": "8149f2ec8c2fc7c9720fc208c86e3e2232f49fec2b1891a27e0e2b0f6c165930",
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+        "ravengit-conflict-4244-1792805112025927000-5": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+        "ravengit-conflict-6657-1792805244244508000-2": "8563184d1d3159f6a87b05550aaa148287f2b75a4c96ba60c290f0eb11eb6339"
+      }
+    }
+  },
+  "bundleExecutableSha256": "b8abb33d043236b04765194433f003f57021c00d6d0a1cd79656e06b1a2b4e78",
+  "visual": "900x640 y 1920x1049; marcadores finales de ambos paneles visibles juntos en estrecha; revisión independiente aprobada con teclado parcial",
+  "cleanup": "Entrada retirada con Papelera desmarcada; fixture/respaldos conservados; instancia propia cerrada",
+  "limits": [
+    "Windows",
+    "lector de pantalla",
+    "navegación hasta fin exclusivamente con teclado",
+    "rendimiento medido",
+    "lectura integral de 512 KiB",
+    "permisos/antivirus",
+    "interrupción real durante escritura"
+  ]
+}

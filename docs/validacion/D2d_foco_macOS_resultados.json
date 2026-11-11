@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-23",
+  "base": "808c6ca + retorno de foco en App.tsx",
+  "platform": "macOS ARM64",
+  "identifier": "dev.ravengit.d2d.acceptance",
+  "fixtureRoot": "/var/folders/gk/f06xsdzx3n185tddhgzdsd0w0000gn/T/ravengit-d2d-keyboard-nej3qds2",
+  "nativeCases": [
+    "estrecha clic acceso -> Escape -> foco acceso",
+    "estrecha Return abre -> Return activa Cerrar -> foco acceso",
+    "amplia clic acceso -> Escape -> foco acceso",
+    "amplia clic acceso -> clic Cerrar -> foco acceso"
+  ],
+  "before": {
+    "file": "8563184d1d3159f6a87b05550aaa148287f2b75a4c96ba60c290f0eb11eb6339",
+    "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+    "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+    "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+    "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+    "backups": {
+      "ravengit-conflict-1-1792804986471328000-0": "8149f2ec8c2fc7c9720fc208c86e3e2232f49fec2b1891a27e0e2b0f6c165930",
+      "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+      "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+      "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+      "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+      "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+      "ravengit-conflict-4244-1792805112025927000-5": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+      "ravengit-conflict-6657-1792805244244508000-2": "8563184d1d3159f6a87b05550aaa148287f2b75a4c96ba60c290f0eb11eb6339"
+    }
+  },
+  "after": {
+    "file": "8563184d1d3159f6a87b05550aaa148287f2b75a4c96ba60c290f0eb11eb6339",
+    "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+    "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+    "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+    "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+    "backups": {
+      "ravengit-conflict-1-1792804986471328000-0": "8149f2ec8c2fc7c9720fc208c86e3e2232f49fec2b1891a27e0e2b0f6c165930",
+      "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+      "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+      "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+      "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+      "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+      "ravengit-conflict-4244-1792805112025927000-5": "29a31cd318e8baf23a87a6c31e4414228fb4bbdeb2866528db1f07a89b3f1f52",
+      "ravengit-conflict-6657-1792805244244508000-2": "8563184d1d3159f6a87b05550aaa148287f2b75a4c96ba60c290f0eb11eb6339"
+    }
+  },
+  "checks": {
+    "file": true,
+    "index": true,
+    "head": true,
+    "merge": true,
+    "other": true,
+    "backups": true
+  },
+  "passed": 6,
+  "bundleExecutableSha256": "6eb1771d640b07002ca2ebecaae490616f5399a3303790840309581160cd9d36",
+  "cleanup": "Entrada retirada con Papelera desmarcada; biblioteca vacía; archivos/respaldos conservados; instancia propia cerrada",
+  "limits": [
+    "Windows",
+    "lector de pantalla",
+    "cambio de repositorio mientras diálogo está abierto",
+    "otras variantes de cierre"
+  ],
+  "initialConfiguredWindow": [
+    900,
+    640
+  ],
+  "screenshotPixels": {
+    "narrow": [
+      1800,
+      1280
+    ],
+    "wide": [
+      3360,
+      2038
+    ]
+  }
+}

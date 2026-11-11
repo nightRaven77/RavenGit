@@ -1,0 +1,121 @@
+{
+  "date": "2026-10-23",
+  "commit": "4305dd1cc950895e190f161be7c92efa98ba7ac3",
+  "platform": "macOS ARM64",
+  "automated": {
+    "uiPassed": 225,
+    "uiFiles": 24,
+    "rustPassed": 171,
+    "rustConflictFilterPassed": 25,
+    "uiConflictDialogPassed": 12,
+    "clippy": true,
+    "rustfmt": true,
+    "prettier": true,
+    "typescriptVite": true
+  },
+  "fixture": {
+    "repo": "/var/folders/gk/f06xsdzx3n185tddhgzdsd0w0000gn/T/ravengit-conflicts-mac-jcnr8gq2/conflict-client",
+    "root": "/var/folders/gk/f06xsdzx3n185tddhgzdsd0w0000gn/T/ravengit-conflicts-mac-jcnr8gq2",
+    "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+    "mergeHead": "647f440032f6d743dab44386db76d0491d1a9ffb",
+    "otherIndex": "100644 56ec8e7a9d20905d94d1b5681e393c412bbb5ea4 0\tother.txt",
+    "original": "<<<<<<< HEAD\nLocal\n=======\nEntrante\n>>>>>>> incoming\n",
+    "unmergedBefore": "100644 04331bba51ec9ff0bf64be86b4031d45d4a7869f 1\tfile.txt\n100644 7bb37ba9f300b60699cfe151b64ced107f0d9062 2\tfile.txt\n100644 b50bb4798487f58820d07d5b1d1d77ba9dc6a9f5 3\tfile.txt"
+  },
+  "wideSaved": {
+    "phase": "saved",
+    "checks": {
+      "resultMatches": true,
+      "backupMatchesOriginal": true,
+      "originalHash": true,
+      "resultHash": true,
+      "headUnchanged": true,
+      "mergePending": true,
+      "unmergedStagesUnchanged": true,
+      "otherIndexUnchanged": true
+    },
+    "backup": "/var/folders/gk/f06xsdzx3n185tddhgzdsd0w0000gn/T/ravengit-conflicts-mac-jcnr8gq2/conflict-client/.git/ravengit-conflict-33344-1792799920564442000-0"
+  },
+  "widePrepared": {
+    "phase": "prepared",
+    "checks": {
+      "reviewedBlobInstalled": true,
+      "stagedResultMatches": true,
+      "worktreeMatches": true,
+      "noUnmergedEntryForFile": true,
+      "otherIndexUnchanged": true,
+      "otherWorktreeUnchanged": true,
+      "headUnchanged": true,
+      "mergeStillPending": true,
+      "backupPreserved": true,
+      "recoveredToNewFile": true
+    },
+    "recoveredCopy": "/var/folders/gk/f06xsdzx3n185tddhgzdsd0w0000gn/T/ravengit-conflicts-mac-jcnr8gq2/wide-recovered-original.txt"
+  },
+  "narrowPrepared": {
+    "phase": "prepared",
+    "checks": {
+      "reviewedBlobInstalled": true,
+      "stagedResultMatches": true,
+      "worktreeMatches": true,
+      "noUnmergedEntryForFile": true,
+      "otherIndexUnchanged": true,
+      "otherWorktreeUnchanged": true,
+      "headUnchanged": true,
+      "mergeStillPending": true,
+      "backupPreserved": true,
+      "backupHash": true,
+      "resultHash": true,
+      "recoveredToNewFile": true
+    },
+    "backup": "/var/folders/gk/f06xsdzx3n185tddhgzdsd0w0000gn/T/ravengit-conflicts-mac-jcnr8gq2/narrow-client/.git/ravengit-conflict-35864-1792800166222676000-0",
+    "recoveredCopy": "/var/folders/gk/f06xsdzx3n185tddhgzdsd0w0000gn/T/ravengit-conflicts-mac-jcnr8gq2/narrow-recovered-original.txt"
+  },
+  "bundles": {
+    "RavenGit Validation": {
+      "path": "/Users/erick/Documents/Codex/RavenGit/src-tauri/target/debug/bundle/macos/RavenGit Validation.app",
+      "identifier": "dev.ravengit.validation",
+      "sha256": "2d4012a9fcb73d671fce7188ec9ba7f9118e21abaf21b53d84fc97054265b4f8"
+    },
+    "RavenGit Validation Narrow": {
+      "path": "/Users/erick/Documents/Codex/RavenGit/src-tauri/target/debug/bundle/macos/RavenGit Validation Narrow.app",
+      "identifier": "dev.ravengit.validation.narrow",
+      "sha256": "9cc92cd2f252e8cf478adbbc91d8c76d4904bf884ea776d6b76da2033f73d936"
+    }
+  },
+  "limits": [
+    "Text merge only",
+    "No forced shutdown during write",
+    "No automatic backup restoration",
+    "Other operations and full accessibility pending"
+  ],
+  "nativeObservation": {
+    "independentReviewer": "ux_review",
+    "wide": {
+      "width": 1440,
+      "height": 920,
+      "querySaveReviewPrepare": true,
+      "reopened": true
+    },
+    "narrow": {
+      "width": 900,
+      "height": 640,
+      "querySaveReviewPrepare": true,
+      "reopened": false,
+      "horizontalClipping": false,
+      "normalVerticalScroll": true
+    },
+    "blockers": 0,
+    "majors": 0,
+    "minors": [
+      "Close button is not sticky while scrolling"
+    ]
+  },
+  "cleanup": {
+    "wideLibraryEntries": 0,
+    "narrowLibraryEntries": 0,
+    "systemTrashUsed": false,
+    "fixturesAndBackupsRetained": true,
+    "normalRavenGitUntouched": true
+  }
+}

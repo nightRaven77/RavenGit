@@ -1,0 +1,196 @@
+{
+  "date": "2026-10-23",
+  "base": "4305dd1 + cambios locales D.2d y fechas",
+  "platform": "macOS ARM64",
+  "identifier": "dev.ravengit.d2d.acceptance",
+  "fixtureRoot": "/var/folders/gk/f06xsdzx3n185tddhgzdsd0w0000gn/T/ravengit-d2d-acceptance-zzmc6bvs",
+  "windows": [
+    [
+      900,
+      640
+    ],
+    [
+      1920,
+      1049
+    ]
+  ],
+  "checks": {
+    "stale": {
+      "file": true,
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "backups": true
+    },
+    "lock": {
+      "file": true,
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "backups": true
+    },
+    "corrupt": {
+      "file": true,
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "backups": true
+    },
+    "restore": {
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "original_exact": true,
+      "later_work_preserved": true,
+      "previous_backups_retained": true
+    },
+    "redo_after_reopen": {
+      "file": true,
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "previous_backups_retained": true
+    },
+    "cleanup": {
+      "file": true,
+      "index": true,
+      "head": true,
+      "merge": true,
+      "other": true,
+      "backups": true
+    }
+  },
+  "passed": 37,
+  "snapshots": {
+    "baseline": {
+      "file": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f"
+      }
+    },
+    "stale-before": {
+      "file": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f"
+      }
+    },
+    "stale-after": {
+      "file": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f"
+      }
+    },
+    "lock-after": {
+      "file": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f"
+      }
+    },
+    "corrupt-after": {
+      "file": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f"
+      }
+    },
+    "restored": {
+      "file": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4"
+      }
+    },
+    "redo-after": {
+      "file": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4"
+      }
+    },
+    "final": {
+      "file": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4"
+      }
+    },
+    "cleanup-after": {
+      "file": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4",
+      "index": "ac319aaf642cc0efc2919d8d5d9b4cf2b763112f19ea2d9c752b583d0a8ed11f",
+      "head": "a475c99da6bf6801ac4ea1ded72d9a7304dcb1a0",
+      "merge": "deffc67ca4baf71d5170dea526dc77f198f405743f234866681d3ada269b5d4a",
+      "other": "612e2dc0aae39a456c8f0b3ab91c5a73d7b2dd55cb697e609061f664a361a719",
+      "backups": {
+        "ravengit-conflict-55689-1792801472856188000-6": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-2131-1792804502567177000-2": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-55689-1792801392070820000-2": "1f705514afed6e62c5188eb7a4d77846e38c4d45f69f8fd8607e526cc40ab782",
+        "ravengit-conflict-33344-1792799920564442000-0": "c732c204f21dd51ee7341c0e66f68d66e8a1c9ccdb828ca294219cea70d82c0f",
+        "ravengit-conflict-262-1792804457465820000-4": "9ef00280eaa1d2e085cab9ca2be8fdf0e6fea834dff330d7c91416e978422fd4"
+      }
+    }
+  },
+  "bundleExecutableSha256": "1a2d5216a0ffac967424b84ca81eea2671919a1bb5d7a8ceeb0794ec4bfee3fd",
+  "cleanup": "Entrada nueva retirada mediante UI con Papelera desmarcada; archivos/respaldos conservados. Perfiles anteriores no revisados.",
+  "limits": [
+    "Windows",
+    "lector de pantalla",
+    "contraste medido",
+    "archivos extensos",
+    "interrupción real durante escritura",
+    "otras operaciones distintas de merge"
+  ]
+}

@@ -1,0 +1,140 @@
+{
+  "date": "2026-10-25",
+  "base": "c8101a7",
+  "bundle": {
+    "productName": "RavenGit Interactive Focus",
+    "identifier": "dev.ravengit.interactive.focus",
+    "sha256": "bc79658a0e8c4de9d4e672132d21938c52eacb90401521dfa270dc9586904cf4",
+    "window": "900x640"
+  },
+  "fixtureRoot": "/tmp/ravengit-ir-finish.wgoG1j",
+  "fixup": {
+    "original": "22d9632aee008aa4721ae3d2d147fb9951732d35",
+    "base": "2baa3dc4bbc6dd783fdd11214ad285c543858d6c",
+    "firstPause": {
+      "head": "505c0ac78a93a71cdf9b7cfa199e527ab23e9a85",
+      "mainUnchanged": true,
+      "conflict": "archivo ü.txt",
+      "resolution": "resuelto uno\n",
+      "backup": "refs/ravengit/rebase/22d9632aee008aa4721ae3d2d147fb9951732d35-1792972816319096000"
+    },
+    "secondPause": {
+      "head": "be02f3c5b6bb78695d89469c3229fcfce1cac4b3",
+      "mainUnchanged": true,
+      "conflict": "segundo.txt",
+      "resolution": "resuelto dos\n",
+      "sameBackup": true
+    },
+    "continued": {
+      "head": "30bc332f58704a6336a8f62107072f6366ccaec6",
+      "group": "be02f3c5b6bb78695d89469c3229fcfce1cac4b3",
+      "second": "94cfe76597949eea37607e7a057175bb40789cde",
+      "groupMessage": "Ancla\n\n# cuerpo ancla\n",
+      "secondMessage": "Segundo\n\n# cuerpo segundo\n",
+      "posteriorMessage": "Posterior\n\n# cuerpo posterior\n",
+      "commitCount": 3,
+      "symbolicMain": true,
+      "clean": true,
+      "rebaseAbsent": true,
+      "recordAbsent": true
+    },
+    "checks": 22
+  },
+  "drop": {
+    "original": "181b47029494534a89e446bf0a6d6f0b56f4d7c8",
+    "base": "ca53a7bffddfde00ce18caef203b27077861e6bc",
+    "paused": {
+      "head": "ed5a581303f2944d4f9408aa38f54b0262ccd877",
+      "mainUnchanged": true,
+      "conflict": "archivo ü.txt",
+      "droppedFileAbsent": true,
+      "backup": "refs/ravengit/rebase/181b47029494534a89e446bf0a6d6f0b56f4d7c8-1792972933962223000"
+    },
+    "continued": {
+      "head": "d5d2805ae67f4fdd3ff031e7b1607657f01f6027",
+      "first": "ed5a581303f2944d4f9408aa38f54b0262ccd877",
+      "second": "010f7f46a9c1bf59e32614c899e5966dfa14d296",
+      "messages": ["conservar\n", "conflicto posterior\n", "posterior\n"],
+      "resolution": "resuelto\n",
+      "droppedFileAbsent": true,
+      "commitCount": 3,
+      "symbolicMain": true,
+      "clean": true,
+      "rebaseAbsent": true,
+      "recordAbsent": true
+    },
+    "checks": 17
+  },
+  "newlyEmpty": {
+    "original": "5aee097e1c24782e22c5bd1546e153e2e5ac559a",
+    "originalTree": "e309deeeca3b6d3c83cc29552526649b1c39a0c4",
+    "base": "6ee1a2d5af636269cb2c7bb46d6ee6da3c8ab37b",
+    "paused": {
+      "head": "6ee1a2d5af636269cb2c7bb46d6ee6da3c8ab37b",
+      "mainUnchanged": true,
+      "conflicts": [],
+      "continueEnabled": true,
+      "abortRequiresConsent": true,
+      "backup": "refs/ravengit/rebase/5aee097e1c24782e22c5bd1546e153e2e5ac559a-1792972998849903000"
+    },
+    "aborted": {
+      "head": "5aee097e1c24782e22c5bd1546e153e2e5ac559a",
+      "tree": "e309deeeca3b6d3c83cc29552526649b1c39a0c4",
+      "feature": "6ee1a2d5af636269cb2c7bb46d6ee6da3c8ab37b",
+      "symbolicMain": true,
+      "clean": true,
+      "rebaseAbsent": true,
+      "recordAbsent": true,
+      "backupRetained": true
+    },
+    "checks": 14
+  },
+  "totals": {
+    "nativeChecks": 53,
+    "rustCore": 188,
+    "editorProtocol": 2,
+    "uiSuiteRerun": false
+  },
+  "screenshots": {
+    "fixupFirstPause": {
+      "path": "capturas/rebase-interactivo-conflictos-restantes/fixup-primera-pausa.jpg",
+      "sha256": "1579e66066c04294382bd89b4633188c28c8ad89ac8d3584b573a1ff45286f9c",
+      "pixels": "900x640"
+    },
+    "fixupSecondPause": {
+      "path": "capturas/rebase-interactivo-conflictos-restantes/fixup-segunda-pausa.jpg",
+      "sha256": "5b950d3ce582349c67ce00e374355f20c8a48eb705730af23970e3c327a67591",
+      "pixels": "900x640"
+    },
+    "fixupCompleted": {
+      "path": "capturas/rebase-interactivo-conflictos-restantes/fixup-completado.jpg",
+      "sha256": "1c554d8e36c7a049d6c07a67738d6c71804d08990c1c5d7db66ec9a527e3da08",
+      "pixels": "900x640"
+    },
+    "dropPaused": {
+      "path": "capturas/rebase-interactivo-conflictos-restantes/drop-conflicto-posterior.jpg",
+      "sha256": "5be666d6605fbb146eb7b9af22d22a6b110f69d9438ad675303d86843528d7a0",
+      "pixels": "900x640"
+    },
+    "dropCompleted": {
+      "path": "capturas/rebase-interactivo-conflictos-restantes/drop-completado.jpg",
+      "sha256": "53915a83fffa365d9108967544152c6a2eb09781a282b25cc7f2ae6e114066d0",
+      "pixels": "900x640"
+    },
+    "emptyPaused": {
+      "path": "capturas/rebase-interactivo-conflictos-restantes/commit-vacio-detenido.jpg",
+      "sha256": "9f66261d793f131e00b6d67833f04ec8ae642d635bffbf99f7e27a6a17232553",
+      "pixels": "479x341"
+    },
+    "emptyAborted": {
+      "path": "capturas/rebase-interactivo-conflictos-restantes/commit-vacio-abortado.jpg",
+      "sha256": "c3cc77cdb2a704b32f65a16721fb0f9fae50e73d007a57d9b26a0482b6f962f5",
+      "pixels": "479x341"
+    }
+  },
+  "cleanup": {
+    "fixturesPreserved": true,
+    "libraryEntriesRemoved": false,
+    "trashUsed": false
+  }
+}

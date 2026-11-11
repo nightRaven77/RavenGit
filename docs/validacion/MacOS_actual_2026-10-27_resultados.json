@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-27",
+  "base": "eb6621d",
+  "version": "0.4.2-development",
+  "platform": {
+    "os": "macOS 27.2 (26B123)",
+    "architecture": "arm64",
+    "git": "2.56.0",
+    "node": "26.12.1",
+    "npm": "12.2.1",
+    "rust": "1.99.1"
+  },
+  "isolated_app": {
+    "name": "RavenGit Mac Acceptance",
+    "identifier": "dev.ravengit.macaccept.20261027",
+    "window": "900x640",
+    "binary_sha256": "dd4238db05dfc9f952e7126354ae7a87a926fcb8ea487260eac378d93010314f"
+  },
+  "automated": {
+    "ui": { "passed": 259, "total": 259, "files": 28 },
+    "rust": { "passed": 193, "ignored_manual": 1 },
+    "editor_protocol": { "passed": 2, "total": 2 },
+    "clippy_strict": "passed",
+    "rustfmt": "passed",
+    "typescript_vite": "passed",
+    "debug_bundle": "passed"
+  },
+  "native": {
+    "c2_keyboard_and_focus": "passed",
+    "c2_stale_review": "passed_index_unchanged_selection_preserved",
+    "c2_existing_index_lock": "passed_lock_preserved_index_unchanged",
+    "c2_load_300": "passed_300_staged_0_unstaged_head_unchanged",
+    "ux_sticky_conflict_header": "passed_with_minor_visual_observation",
+    "ux_restore_home_end_help": "passed_no_restore_executed",
+    "ux_go_to_branches": "passed_merge_recovery_opened",
+    "ux_previous_notice_cleared": "passed_rebase_not_executed"
+  },
+  "screenshots": [
+    "capturas/mac-actual-2026-10-27/c2-carga-300-inicial.png",
+    "capturas/mac-actual-2026-10-27/c2-carga-300-preparados.png",
+    "capturas/mac-actual-2026-10-27/ux-cabecera-conflicto-fija.png",
+    "capturas/mac-actual-2026-10-27/ux-recuperacion-inicio-fin.png",
+    "capturas/mac-actual-2026-10-27/ux-ir-a-ramas.png",
+    "capturas/mac-actual-2026-10-27/ux-rebase-aviso-limpiado.png"
+  ],
+  "fixtures": {
+    "root": "/tmp/ravengit-mac-accept.HtC2jT",
+    "repositories_are_disposable": true,
+    "remotes": 0,
+    "preserved": true
+  },
+  "not_validated": [
+    "VoiceOver real announcement",
+    "system scaling",
+    "1440x920 repeat",
+    "failing filters or hooks",
+    "thousands of changed files or performance benchmark",
+    "real SSH providers on macOS",
+    "forced interruption",
+    "signed installer and notarization",
+    "publication"
+  ]
+}

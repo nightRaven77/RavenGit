@@ -1,0 +1,154 @@
+name: Windows beta · SignPath
+
+on:
+  push:
+    tags:
+      - "v*-beta.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: windows-signpath-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sign-beta:
+    # Opt-in only after OSS approval, public migration and portal setup.
+    if: >-
+      vars.SIGNPATH_ENABLED == 'true' &&
+      github.event.repository.private == false &&
+      ((github.event_name == 'push' && github.ref_type == 'tag' && github.event.deleted != true) ||
+       (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
+    runs-on: windows-2025
+    environment: windows-signing
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Validate release tag and source commit
+        env:
+          RELEASE_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node scripts/check-release-ref.mjs
+      - name: Check prerequisites
+        env:
+          ORGANIZATION: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}
+        run: |
+          foreach ($name in @('ORGANIZATION', 'PROJECT', 'POLICY', 'THUMBPRINT')) {
+            if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Falta $name" }
+          }
+          if (-not (Test-Path LICENSE)) { throw 'Falta LICENSE' }
+          rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
+          if ($LASTEXITCODE) { throw 'No se pudo preparar Rust' }
+          rustup override set 1.99.1
+          if ($LASTEXITCODE) { throw 'No se pudo seleccionar Rust' }
+      - run: npm ci
+      - name: Check release version
+        id: version
+        run: |
+          npm run release:check
+          if ($LASTEXITCODE) { throw 'Versiones incoherentes' }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "value=$version" >> $env:GITHUB_OUTPUT
+      - run: npm test -- --maxWorkers=2
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml -- --test-threads=4
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: node scripts/build-beta-windows.mjs --clippy
+      - run: npm run beta:build:windows -- --no-bundle
+      - run: node scripts/verify-windows-icon.mjs src-tauri/target/release/ravengit.exe
+      - name: Upload app before signing
+        id: unsigned-app
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: unsigned-app
+          path: src-tauri/target/release/ravengit.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Request app signature (human approval in SignPath)
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: windows-beta-app
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.version.outputs.value) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed-app
+      - name: Verify app and package without modifying its signature
+        env:
+          THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}
+        run: |
+          ./scripts/verify-authenticode.ps1 -Path signed-app/ravengit.exe -ExpectedThumbprint $env:THUMBPRINT
+          Copy-Item -LiteralPath signed-app/ravengit.exe -Destination src-tauri/target/release/ravengit.exe
+          $before = (Get-FileHash src-tauri/target/release/ravengit.exe).Hash
+          node node_modules/@tauri-apps/cli/tauri.js bundle --config src-tauri/tauri.beta.conf.json --bundles nsis --ci --no-sign --no-binary-patching
+          if ($LASTEXITCODE) { throw 'Falló el empaquetado' }
+          if ((Get-FileHash src-tauri/target/release/ravengit.exe).Hash -ne $before) { throw 'El empaquetado alteró el ejecutable firmado' }
+      - name: Upload installer before signing
+        id: unsigned-installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: unsigned-installer
+          path: src-tauri/target/release/bundle/nsis/*_x64-setup.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Request installer signature (human approval in SignPath)
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: windows-beta-installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.version.outputs.value) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed-installer
+      - name: Verify final delivery and installed executable
+        env:
+          THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}
+        run: |
+          $files = @(Get-ChildItem signed-installer -File -Filter '*_x64-setup.exe')
+          if ($files.Count -ne 1) { throw 'Se requiere exactamente un instalador firmado' }
+          ./scripts/verify-authenticode.ps1 -Path $files[0].FullName -ExpectedThumbprint $env:THUMBPRINT
+          $destination = Join-Path $env:RUNNER_TEMP 'ravengit-signpath-acceptance'
+          if (Test-Path -LiteralPath $destination) { throw 'El destino de aceptación ya existe' }
+          $installation = Start-Process -FilePath $files[0].FullName -ArgumentList @('/S', "/D=$destination") -Wait -PassThru -WindowStyle Hidden
+          if ($installation.ExitCode -ne 0) { throw 'Falló la instalación de aceptación' }
+          $installed = Join-Path $destination 'ravengit.exe'
+          ./scripts/verify-authenticode.ps1 -Path $installed -ExpectedThumbprint $env:THUMBPRINT
+          if ((Get-FileHash -LiteralPath $installed).Hash -ne (Get-FileHash signed-app/ravengit.exe).Hash) { throw 'El ejecutable instalado difiere del firmado' }
+          New-Item -ItemType Directory delivery | Out-Null
+          Copy-Item -LiteralPath $files[0].FullName -Destination delivery
+          Copy-Item -LiteralPath signed-app/ravengit.exe -Destination delivery
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $notes = Join-Path docs/releases "$version.md"
+          Copy-Item LICENSE,$notes -Destination delivery
+          Get-ChildItem delivery -Filter '*.exe' | ForEach-Object { "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } | Set-Content delivery/SHA256SUMS.txt
+          @{ version = (Get-Content package.json -Raw | ConvertFrom-Json).version; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; signed = $true; certificate = $env:THUMBPRINT; published = $false } | ConvertTo-Json | Set-Content delivery/manifest.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ravengit-windows-beta-signed
+          path: delivery/
+          if-no-files-found: error
+          retention-days: 30

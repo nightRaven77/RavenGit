@@ -1,0 +1,628 @@
+/* RavenGit workspace: quiet surfaces, explicit navigation, readable working area. */
+.workspace-shell {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0b0f17;
+  grid-template-columns: 204px minmax(340px, 1fr) minmax(350px, 43%);
+}
+.workspace-shell .command-bar {
+  height: 68px;
+  padding: 0 20px;
+  gap: 20px;
+  background: #111925;
+}
+.workspace-shell .command-brand strong {
+  font-size: 15px;
+}
+.workspace-shell .command-context {
+  flex: 1;
+  min-width: 130px;
+}
+.workspace-shell .command-action {
+  min-width: 54px;
+}
+.workspace-shell .command-group-start {
+  border-left: 0;
+  margin-left: 0;
+}
+.workspace-shell .sidebar {
+  padding-top: 20px;
+  background: #101620;
+}
+.workspace-shell .section-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #91a2b9;
+}
+.workspace-shell .workspace-name {
+  font-size: 14px;
+}
+.workspace-shell .repo-path {
+  font-size: 11px;
+}
+.workspace-shell .repo-navigation {
+  margin: 16px 10px;
+  gap: 5px;
+}
+.workspace-shell .repo-navigation button {
+  min-height: 38px;
+  border-radius: 7px;
+  font-size: 13px;
+}
+.workspace-shell .nav-active {
+  background: #193148;
+  color: #85ccff;
+}
+.workspace-tools {
+  margin: 0 14px 20px;
+  color: #aab9cc;
+  font-size: 12px;
+}
+.workspace-tools summary,
+.sidebar-sections summary {
+  cursor: pointer;
+  padding: 10px 4px;
+}
+.workspace-shell .workspace-tools .repo-navigation {
+  margin: 4px 0;
+}
+.workspace-shell .sidebar-sections {
+  border-top: 1px solid #263141;
+  padding-top: 10px;
+}
+.workspace-shell .sidebar-sections details {
+  margin: 0 12px 8px;
+}
+.workspace-shell .sidebar-sections summary {
+  font-size: 10px;
+  color: #aab9cc;
+  letter-spacing: 0.035em;
+}
+.workspace-shell .sidebar-sections summary span {
+  float: right;
+  color: #91a2b9;
+}
+.workspace-shell .branch-button {
+  padding: 9px 5px;
+}
+.workspace-shell .sidebar-foot {
+  font-size: 11px;
+}
+.workspace-shell .panel-heading {
+  padding: 20px 22px 16px;
+  gap: 12px;
+}
+.workspace-shell .panel-heading h1 {
+  font-size: 21px;
+  line-height: 1.3;
+  letter-spacing: -0.025em;
+}
+.workspace-shell .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.045em;
+  color: #91a2b9;
+}
+.workspace-shell .inspector-heading {
+  padding: 16px 20px;
+}
+.workspace-shell .commit-meta {
+  padding: 16px 20px;
+}
+.workspace-shell .commit-meta h2 {
+  font-size: 17px;
+  line-height: 1.45;
+}
+.workspace-shell .commit-meta dl {
+  font-size: 11px;
+  gap: 6px;
+}
+.workspace-shell .change-group {
+  border-radius: 5px;
+  border-color: #263141;
+  box-shadow: none;
+}
+.workspace-shell .change-group h2 {
+  background: #111925;
+}
+.workspace-shell .banner {
+  border-radius: 5px;
+}
+.workspace-shell .authorization-details {
+  margin: 0 20px 14px;
+  padding: 8px 0;
+  font-size: 11px;
+  color: #aab9cc;
+}
+.workspace-shell .authorization-details summary {
+  cursor: pointer;
+}
+.workspace-shell .authorization-details p {
+  margin: 12px 0;
+}
+.workspace-shell .button {
+  border-radius: 6px;
+}
+.workspace-shell .remote-body > .empty-state {
+  min-height: 0;
+  padding: 12px 0 20px;
+  margin: 0;
+  gap: 8px;
+}
+.workspace-shell .remote-body > .empty-state h2 {
+  font-size: 18px;
+  margin: 0;
+}
+.workspace-shell .remote-panel .remote-body {
+  overflow: visible;
+  padding: 20px;
+}
+.sync-navigation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 22px;
+  border-top: 1px solid #263141;
+  background: #101620;
+}
+.sync-navigation span {
+  color: #aab9cc;
+  font-size: 12px;
+  margin-right: 12px;
+}
+.sync-navigation button {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 7px 14px;
+  background: transparent;
+  color: #aab9cc;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sync-navigation button[aria-current] {
+  background: #193148;
+  color: #85ccff;
+  border-color: #315575;
+}
+.workspace-shell button:focus-visible,
+.workspace-shell summary:focus-visible {
+  outline: 2px solid #52b7ff;
+  outline-offset: 2px;
+}
+@media (max-width: 1150px) {
+  .workspace-shell {
+    grid-template-columns: 184px minmax(300px, 1fr) minmax(310px, 40%);
+  }
+  .workspace-shell .command-bar {
+    gap: 12px;
+    padding: 0 12px;
+  }
+  .workspace-shell .command-brand strong {
+    display: none;
+  }
+  .workspace-shell .command-context {
+    min-width: 100px;
+  }
+  .workspace-shell .command-action {
+    min-width: 48px;
+  }
+}
+@media (max-width: 900px) {
+  .workspace-shell {
+    grid-template-columns: 172px minmax(0, 1fr);
+  }
+  .workspace-shell .command-context {
+    min-width: 0;
+  }
+  .workspace-shell .command-context > div {
+    min-width: 0;
+  }
+  .workspace-shell .command-action {
+    min-width: 42px;
+  }
+  .workspace-shell .panel-heading {
+    padding: 16px;
+  }
+}
+
+/* History: graph and subject remain the main reading surface. */
+@media (min-width: 901px) {
+  .workspace-shell[data-history="true"] {
+    grid-template-columns: 204px minmax(300px, 1fr) minmax(
+        310px,
+        min(var(--inspector-size, 38%), calc(100% - 504px))
+      );
+  }
+  .workspace-shell[data-history="true"][data-inspector="false"] {
+    grid-template-columns: 204px minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .workspace-shell[data-history="true"][data-inspector="false"] {
+    grid-template-rows: auto minmax(280px, 1fr) 28px;
+  }
+  .workspace-shell[data-history="true"][data-inspector="false"] .statusbar {
+    grid-row: 3;
+  }
+  .workspace-shell[data-history="true"][data-inspector="false"] .sidebar {
+    grid-row: 2;
+  }
+}
+.workspace-shell .history-panel .panel-heading {
+  padding-bottom: 12px;
+}
+.history-table-header {
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.history-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.history-options {
+  position: relative;
+  font-size: 12px;
+}
+.history-options > summary {
+  cursor: pointer;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 9px 12px;
+  color: #c1cddd;
+}
+.history-options-body {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 240px;
+  background: #111925;
+  border: 1px solid #334155;
+  padding: 16px;
+  border-radius: 8px;
+  z-index: 10;
+  box-shadow: 0 12px 30px #0006;
+  display: grid;
+  gap: 16px;
+}
+.history-options-body label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #c1cddd;
+}
+.history-options-body label:has(input[type="range"]) {
+  align-items: stretch;
+  flex-direction: column;
+}
+.history-options-body input {
+  accent-color: #52b7ff;
+}
+.workspace-shell .table-heading {
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+  background: #101620;
+}
+.workspace-shell .commit-row {
+  font-size: 12px;
+  border-bottom-color: #1b253280;
+}
+.workspace-shell .commit-row.selected {
+  background: #193148;
+}
+.history-author,
+.selected-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #b3c0d2;
+}
+.history-author {
+  padding-right: 12px;
+  font-size: 11px;
+}
+.author-avatar {
+  display: inline-flex;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #f0f5fc;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.history-date {
+  color: #91a2b9;
+  font-size: 10px;
+  padding-right: 8px;
+}
+.workspace-shell .commit-subject .ref {
+  border-radius: 4px;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.workspace-shell .commit-subject .ref.head {
+  background: #193b52;
+  border-color: #39769d;
+  color: #bce2ff;
+}
+.selected-author {
+  margin: 12px 0;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.selected-author time {
+  color: #91a2b9;
+  font-size: 11px;
+}
+.commit-details {
+  font-size: 12px;
+  color: #aab9cc;
+}
+.commit-details summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+.workspace-shell .history-inspector .commit-meta {
+  overflow: auto;
+  max-height: 36vh;
+  flex-shrink: 0;
+}
+.workspace-shell .history-inspector .commit-meta h2 {
+  margin: 0 0 12px;
+}
+
+.history-navigation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 22px 14px;
+  font-size: 12px;
+  color: #aab9cc;
+}
+.history-navigation select {
+  flex: 1;
+  min-width: 130px;
+  max-width: 340px;
+  background: #111925;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 8px;
+  color: #e6edf5;
+  font: inherit;
+}
+.history-navigation .button {
+  white-space: nowrap;
+}
+.commit-step-navigation {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.commit-step-navigation .button {
+  padding: 4px 9px;
+}
+.commit-parent-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 20px;
+  border-top: 1px solid #263141;
+}
+.commit-parent-navigation .button {
+  font-size: 11px;
+  padding: 5px 8px;
+}
+
+.library-launcher {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 12px 18px;
+  padding: 10px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #111925;
+  color: #e6edf5;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.library-dialog {
+  margin: auto;
+  width: min(760px, calc(100vw - 48px));
+  max-height: calc(100dvh - 64px);
+  padding: 0;
+  color: #e6edf5;
+  background: #111925;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  box-shadow: 0 24px 80px #0008;
+}
+.sidebar-create {
+  width: 100%;
+  margin-bottom: 18px;
+}
+.library-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.library-dialog::backdrop {
+  background: #050912b3;
+}
+.library-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #263141;
+}
+.library-heading h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.library-heading p {
+  margin: 5px 0 0;
+  font-size: 12px;
+  color: #91a2b9;
+}
+.library-dialog > .banner {
+  margin: 16px 24px 0;
+}
+.library-search {
+  display: grid;
+  gap: 8px;
+  margin: 20px 24px 12px;
+  font-size: 12px;
+  color: #b3c0d2;
+}
+.library-search input {
+  padding: 10px 12px;
+  background: #0b0f17;
+  color: #e6edf5;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  font: inherit;
+}
+.library-list {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 0 24px 20px;
+}
+.library-collection-tools {
+  margin: 0 24px 12px;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.library-collection-tools select,
+.library-collections input,
+.library-membership select {
+  background: #0b0f17;
+  color: #e6edf5;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  max-width: 100%;
+}
+.library-collection-tools > label,
+.library-membership {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.library-membership {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #b3c0d2;
+}
+.library-collections {
+  margin-top: 10px;
+  max-height: min(220px, 28dvh);
+  overflow: auto;
+}
+.library-collections summary {
+  cursor: pointer;
+  color: #85ccff;
+}
+.library-collections form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  margin: 10px 0;
+}
+.library-collections form label {
+  display: grid;
+  gap: 6px;
+}
+.library-collections li {
+  padding: 8px 0;
+  overflow-wrap: anywhere;
+}
+.library-collections li > strong {
+  display: block;
+  margin-bottom: 8px;
+}
+.library-list h3 {
+  color: #aab9cc;
+  font-size: 12px;
+  font-weight: 500;
+  margin: 20px 0 8px;
+}
+.library-entry {
+  padding: 12px 0;
+  border-bottom: 1px solid #263141;
+}
+.library-entry-missing {
+  border-left: 2px solid #ff667d;
+  padding-left: 12px;
+}
+.library-open {
+  display: grid;
+  width: 100%;
+  gap: 6px;
+  padding: 4px 0 12px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  color: #e6edf5;
+  cursor: pointer;
+}
+.library-open:hover strong {
+  color: #85ccff;
+}
+.library-open strong {
+  font-size: 14px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.library-open small {
+  color: #91a2b9;
+  font-weight: 400;
+  font-size: 10px;
+}
+.library-open > span {
+  color: #91a2b9;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.library-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.library-entry-actions .button {
+  font-size: 11px;
+  padding: 5px 9px;
+}
+.library-forget {
+  padding: 12px 0 0;
+  font-size: 12px;
+  color: #b3c0d2;
+}
+.library-forget .button {
+  margin-right: 8px;
+}
+.library-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid #263141;
+}
+.library-footer > span {
+  font-size: 11px;
+  color: #91a2b9;
+}

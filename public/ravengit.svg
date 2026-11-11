@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512" fill="none">
+  <title>RavenGit</title>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="#101722"/>
+  <rect x="25" y="25" width="462" height="462" rx="111" stroke="#29384D" stroke-width="2"/>
+  <path d="M108 370L177 247L208 175C220 147 243 130 273 130C301 130 322 144 337 169L409 205L338 222C332 260 314 288 282 318L249 351L178 389L203 329L150 371L161 337L108 370Z" fill="#52B7FF"/>
+  <path d="M178 389L203 329L247 248L306 226L282 276L249 318L221 353L178 389Z" fill="#2788CB"/>
+  <path d="M214 309L239 266L239 227M239 266L279 244" stroke="#101722" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="214" cy="309" r="12" fill="#101722"/>
+  <circle cx="239" cy="227" r="12" fill="#101722"/>
+  <circle cx="279" cy="244" r="12" fill="#101722"/>
+  <circle cx="302" cy="180" r="10" fill="#FF667D"/>
+</svg>

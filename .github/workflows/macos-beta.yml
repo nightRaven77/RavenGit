@@ -1,0 +1,71 @@
+name: macOS beta · Apple Silicon
+
+on:
+  push:
+    tags:
+      - "v*-beta.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-beta-arm64-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    if: >-
+      (github.event_name == 'push' && github.ref_type == 'tag' && github.event.deleted != true) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: "2"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          architecture: arm64
+          cache: npm
+      - name: Validate release tag and source commit
+        env:
+          RELEASE_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node scripts/check-release-ref.mjs
+      - name: Prepare native Apple Silicon toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          xcode-select -p
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup override set 1.99.1
+          rustup target add aarch64-apple-darwin
+      - run: npm ci
+      - run: npm run beta:check:macos
+      - run: npm test -- --maxWorkers=2
+      - name: Build app and DMG with ad hoc signature
+        run: npm run beta:build:macos
+      - name: Upload verified package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ravengit-beta-macos-arm64-${{ github.run_number }}
+          path: state/beta-macos.local/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Explain acceptance limits
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## RavenGit Beta · Apple Silicon
+          Descarga el artefacto `ravengit-beta-macos-arm64-<número>` al pie de esta ejecución.
+          Incluye el DMG (con RavenGit Beta.app), SHA256, licencia y manifiesto.
+          La aplicación usa firma ad hoc, sin notarización de Apple.
+          El script comprobó arquitectura, metadatos, firma e integridad del DMG.
+          Instalación, arranque, regresión Rust completa y aceptación funcional nativa siguen siendo comprobaciones independientes.
+          Este flujo no publicó releases ni tags.
+          EOF

@@ -975,9 +975,13 @@ async fn with_stash<T: Send + 'static>(
 async fn with_worktree_restore<T: Send + 'static>(
     state: &AppState,
     id: String,
-    work: impl FnOnce(&Repository, bool, &mut Option<(String, worktree_restore::Plan)>) -> git::Result<T>
-        + Send
-        + 'static,
+    work: impl FnOnce(
+        &Repository,
+        bool,
+        &mut Option<(String, worktree_restore::Plan)>,
+    ) -> git::Result<T>
+    + Send
+    + 'static,
 ) -> git::Result<T> {
     let repository = state.repository.clone();
     let authorization = state.trusted.clone();
@@ -988,17 +992,48 @@ async fn with_worktree_restore<T: Send + 'static>(
     let rebases = state.rebase_plan.clone();
     let replays = state.replay_plan.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let _write = writes.try_lock().map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository.lock().map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?.as_ref().filter(|repo| repo.id == id).cloned().ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = authorization.lock().map_err(|_| GitError::new("STATE", "No se pudo leer la autorización."))?.as_deref() == Some(&id);
-        let mut plans = plans.lock().map_err(|_| GitError::new("STATE", "No se pudo leer la revisión de restauración."))?;
-        if plans.as_ref().is_some_and(|(owner, _)| owner != &id) { *plans = None; }
-        *pushes.lock().map_err(|_| GitError::new("STATE", "No se pudo descartar Push."))? = None;
-        *pulls.lock().map_err(|_| GitError::new("STATE", "No se pudo descartar Pull."))? = None;
-        *rebases.lock().map_err(|_| GitError::new("STATE", "No se pudo descartar Rebase."))? = None;
-        *replays.lock().map_err(|_| GitError::new("STATE", "No se pudo descartar Replay."))? = None;
+        let _write = writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
+        let repo = repository
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?
+            .as_ref()
+            .filter(|repo| repo.id == id)
+            .cloned()
+            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
+        let allowed = authorization
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo leer la autorización."))?
+            .as_deref()
+            == Some(&id);
+        let mut plans = plans
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión de restauración."))?;
+        if plans.as_ref().is_some_and(|(owner, _)| owner != &id) {
+            *plans = None;
+        }
+        *pushes
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo descartar Push."))? = None;
+        *pulls
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo descartar Pull."))? = None;
+        *rebases
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo descartar Rebase."))? = None;
+        *replays
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo descartar Replay."))? = None;
         work(&repo, allowed, &mut plans)
-    }).await.map_err(|_| GitError::new("RESTORE_UNCERTAIN", "La operación se interrumpió. Comprueba el árbol de trabajo antes de repetir."))?
+    })
+    .await
+    .map_err(|_| {
+        GitError::new(
+            "RESTORE_UNCERTAIN",
+            "La operación se interrumpió. Comprueba el árbol de trabajo antes de repetir.",
+        )
+    })?
 }
 
 #[tauri::command]
@@ -1257,10 +1292,22 @@ async fn check_worktree_restore(
     let repository = state.repository.clone();
     let authorization = state.trusted.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let repo = repository.lock().map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?.as_ref().filter(|repo| repo.id == id).cloned().ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = authorization.lock().map_err(|_| GitError::new("STATE", "No se pudo leer la autorización."))?.as_deref() == Some(&id);
+        let repo = repository
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?
+            .as_ref()
+            .filter(|repo| repo.id == id)
+            .cloned()
+            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
+        let allowed = authorization
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo leer la autorización."))?
+            .as_deref()
+            == Some(&id);
         worktree_restore::check_status(&repo, &path, allowed)
-    }).await.map_err(|_| GitError::new("STATE", "No se pudo consultar el estado de restauración."))?
+    })
+    .await
+    .map_err(|_| GitError::new("STATE", "No se pudo consultar el estado de restauración."))?
 }
 
 #[tauri::command]
@@ -1291,7 +1338,10 @@ async fn confirm_worktree_restore(
             .take()
             .filter(|(_, plan)| plan.token == token)
             .ok_or_else(|| {
-                GitError::new("RESTORE_REVIEW", "Vuelve a revisar la restauración antes de confirmar.")
+                GitError::new(
+                    "RESTORE_REVIEW",
+                    "Vuelve a revisar la restauración antes de confirmar.",
+                )
             })?;
         worktree_restore::execute(repo, plan, allowed)
     })

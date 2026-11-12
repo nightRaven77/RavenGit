@@ -74,8 +74,12 @@ fn git_dir(repo: &Repository) -> Result<PathBuf> {
 fn restore_root(repo: &Repository) -> Result<PathBuf> {
     let dir = git_dir(repo)?.join(RESTORE_DIR_NAME);
     if !dir.exists() {
-        fs::create_dir_all(&dir)
-            .map_err(|_| error("RESTORE_IO", "No se pudo crear la carpeta de respaldos de restauración."))?;
+        fs::create_dir_all(&dir).map_err(|_| {
+            error(
+                "RESTORE_IO",
+                "No se pudo crear la carpeta de respaldos de restauración.",
+            )
+        })?;
     }
     Ok(dir)
 }
@@ -100,15 +104,14 @@ fn latest_backup(repo: &Repository, path: &str) -> Option<(PathBuf, BackupMetada
         if !meta_path.is_file() || !content_path.is_file() {
             continue;
         }
-        if let Ok(raw) = fs::read_to_string(&meta_path) {
-            if let Ok(meta) = serde_json::from_str::<BackupMetadata>(&raw) {
-                if meta.path == path {
-                    matching.push((sub, meta));
-                }
-            }
+        let parsed: Option<BackupMetadata> = fs::read_to_string(&meta_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok());
+        if let Some(meta) = parsed.filter(|m| m.path == path) {
+            matching.push((sub, meta));
         }
     }
-    matching.sort_by(|a, b| b.1.timestamp.cmp(&a.1.timestamp));
+    matching.sort_by_key(|a| std::cmp::Reverse(a.1.timestamp));
     matching.into_iter().next()
 }
 
@@ -122,7 +125,7 @@ pub fn check_status(repo: &Repository, path: &str, trusted: bool) -> Result<Rest
     }
     let state = changes::read(repo, true)?;
     let entry = state.entries.iter().find(|e| e.path == path);
-    let can_restore = entry.map_or(false, |e| !e.untracked && e.worktree_status != ' ');
+    let can_restore = entry.is_some_and(|e| !e.untracked && e.worktree_status != ' ');
     let latest = latest_backup(repo, path);
     let can_redo = latest.is_some();
     let last_backup = latest.map(|(_, m)| m.id);
@@ -143,7 +146,10 @@ pub fn preview(repo: &Repository, path: &str, is_redo: bool, trusted: bool) -> R
     let full = changes::validated_path(repo, path)?;
     let git_dir_path = git_dir(repo)?;
     if git_dir_path.join("index.lock").exists() {
-        return Err(error("INDEX_LOCKED", "El índice Git está bloqueado por otro proceso."));
+        return Err(error(
+            "INDEX_LOCKED",
+            "El índice Git está bloqueado por otro proceso.",
+        ));
     }
     let state = changes::read(repo, true)?;
 
@@ -157,7 +163,10 @@ pub fn preview(repo: &Repository, path: &str, is_redo: bool, trusted: bool) -> R
             ));
         }
         if meta.len() > MAX_FILE_SIZE as u64 {
-            return Err(error("FILE_LIMIT", "El archivo supera el límite de 64 MiB."));
+            return Err(error(
+                "FILE_LIMIT",
+                "El archivo supera el límite de 64 MiB.",
+            ));
         }
         fs::read(&full).map_err(|_| error("FILE_READ", "No se pudo leer el archivo actual."))?
     } else {
@@ -169,7 +178,12 @@ pub fn preview(repo: &Repository, path: &str, is_redo: bool, trusted: bool) -> R
             .entries
             .iter()
             .find(|e| e.path == path)
-            .ok_or_else(|| error("NOT_FOUND", "El archivo no figura en los cambios de trabajo."))?;
+            .ok_or_else(|| {
+                error(
+                    "NOT_FOUND",
+                    "El archivo no figura en los cambios de trabajo.",
+                )
+            })?;
         if entry.untracked {
             return Err(error(
                 "UNTRACKED_FILE",
@@ -186,7 +200,12 @@ pub fn preview(repo: &Repository, path: &str, is_redo: bool, trusted: bool) -> R
         // Obtener contenido del índice
         let index_content = git::run(&repo.path, &["show", &format!(":{path}")])
             .or_else(|_| git::run(&repo.path, &["show", &format!("HEAD:{path}")]))
-            .map_err(|_| error("INDEX_READ", "No se pudo leer la versión registrada del archivo."))?;
+            .map_err(|_| {
+                error(
+                    "INDEX_READ",
+                    "No se pudo leer la versión registrada del archivo.",
+                )
+            })?;
 
         if current_bytes == index_content {
             return Err(error(
@@ -249,8 +268,10 @@ pub fn preview(repo: &Repository, path: &str, is_redo: bool, trusted: bool) -> R
     token_hasher.update([if is_redo { 1u8 } else { 0u8 }]);
     let token = format!("{:x}", token_hasher.finalize());
 
-    let current_content_str = String::from_utf8(current_bytes).unwrap_or_else(|_| "(Contenido binario)".into());
-    let target_content_str = String::from_utf8(target_bytes).unwrap_or_else(|_| "(Contenido binario)".into());
+    let current_content_str =
+        String::from_utf8(current_bytes).unwrap_or_else(|_| "(Contenido binario)".into());
+    let target_content_str =
+        String::from_utf8(target_bytes).unwrap_or_else(|_| "(Contenido binario)".into());
 
     Ok(Plan {
         token,
@@ -283,8 +304,12 @@ pub fn execute(repo: &Repository, plan: Plan, trusted: bool) -> Result<Outcome> 
     let full = changes::validated_path(repo, &plan.path)?;
     let root = restore_root(repo)?;
     let backup_dir = root.join(&plan.backup_id);
-    fs::create_dir_all(&backup_dir)
-        .map_err(|_| error("RESTORE_IO", "No se pudo crear la carpeta de copia de seguridad."))?;
+    fs::create_dir_all(&backup_dir).map_err(|_| {
+        error(
+            "RESTORE_IO",
+            "No se pudo crear la carpeta de copia de seguridad.",
+        )
+    })?;
 
     let current_bytes = if full.exists() {
         fs::read(&full).map_err(|_| error("FILE_READ", "No se pudo leer el archivo original."))?
@@ -299,7 +324,12 @@ pub fn execute(repo: &Repository, plan: Plan, trusted: bool) -> Result<Outcome> 
         .map_err(|_| error("BACKUP_WRITE", "No se pudo guardar el archivo de respaldo."))?;
     bf.write_all(&current_bytes)
         .and_then(|_| bf.sync_all())
-        .map_err(|_| error("BACKUP_WRITE", "No se pudo escribir el archivo de respaldo."))?;
+        .map_err(|_| {
+            error(
+                "BACKUP_WRITE",
+                "No se pudo escribir el archivo de respaldo.",
+            )
+        })?;
 
     let meta = BackupMetadata {
         id: plan.backup_id.clone(),
@@ -312,10 +342,18 @@ pub fn execute(repo: &Repository, plan: Plan, trusted: bool) -> Result<Outcome> 
             .map_err(|_| error("TIME", "Error de reloj de sistema."))?
             .as_secs(),
     };
-    let meta_json = serde_json::to_string_pretty(&meta)
-        .map_err(|_| error("BACKUP_WRITE", "No se pudieron serializar los metadatos de respaldo."))?;
-    fs::write(backup_dir.join("metadata.json"), meta_json)
-        .map_err(|_| error("BACKUP_WRITE", "No se pudieron escribir los metadatos de respaldo."))?;
+    let meta_json = serde_json::to_string_pretty(&meta).map_err(|_| {
+        error(
+            "BACKUP_WRITE",
+            "No se pudieron serializar los metadatos de respaldo.",
+        )
+    })?;
+    fs::write(backup_dir.join("metadata.json"), meta_json).map_err(|_| {
+        error(
+            "BACKUP_WRITE",
+            "No se pudieron escribir los metadatos de respaldo.",
+        )
+    })?;
 
     // Escribir archivo de destino en el árbol de trabajo
     if target_bytes.is_empty() && !plan.is_redo {
@@ -326,17 +364,29 @@ pub fn execute(repo: &Repository, plan: Plan, trusted: bool) -> Result<Outcome> 
             .and_then(|_| tf.sync_all())
             .map_err(|_| error("RESTORE_WRITE", "No se pudo sincronizar el archivo."))?;
     } else {
-        let parent = full.parent().ok_or_else(|| error("PATH", "Ruta sin directorio padre."))?;
+        let parent = full
+            .parent()
+            .ok_or_else(|| error("PATH", "Ruta sin directorio padre."))?;
         let temp_path = parent.join(format!(".ravengit-tmp-{}", plan.backup_id));
         let mut tf = OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(&temp_path)
-            .map_err(|_| error("RESTORE_WRITE", "No se pudo crear archivo temporal de restauración."))?;
+            .map_err(|_| {
+                error(
+                    "RESTORE_WRITE",
+                    "No se pudo crear archivo temporal de restauración.",
+                )
+            })?;
         tf.write_all(target_bytes)
             .and_then(|_| tf.sync_all())
-            .map_err(|_| error("RESTORE_WRITE", "No se pudo escribir archivo temporal de restauración."))?;
+            .map_err(|_| {
+                error(
+                    "RESTORE_WRITE",
+                    "No se pudo escribir archivo temporal de restauración.",
+                )
+            })?;
         drop(tf);
 
         fs::rename(&temp_path, &full)
@@ -345,7 +395,12 @@ pub fn execute(repo: &Repository, plan: Plan, trusted: bool) -> Result<Outcome> 
                 let _ = fs::remove_file(&full);
                 fs::rename(&temp_path, &full)
             })
-            .map_err(|_| error("RESTORE_WRITE", "No se pudo reemplazar el archivo con la versión restaurada."))?;
+            .map_err(|_| {
+                error(
+                    "RESTORE_WRITE",
+                    "No se pudo reemplazar el archivo con la versión restaurada.",
+                )
+            })?;
     }
 
     let updated_changes = changes::read(repo, true).ok();
@@ -433,7 +488,10 @@ mod tests {
         // Comprobar que en disco existe el respaldo
         let root = restore_root(&f.0).unwrap();
         let backup_file = root.join(&outcome.backup).join("backup_content");
-        assert_eq!(fs::read_to_string(backup_file).unwrap(), "linea 1\nlinea 2 modificada\n");
+        assert_eq!(
+            fs::read_to_string(backup_file).unwrap(),
+            "linea 1\nlinea 2 modificada\n"
+        );
 
         // 3. Status ahora permite rehacer
         let st = check_status(&f.0, "tracked.txt", true).unwrap();

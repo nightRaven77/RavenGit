@@ -19,8 +19,7 @@ Revisión: 29/10/2026. El usuario indicó modalidad **Open Source** y pidió pre
 | Slug | ravengit |
 | Description | Cliente Git de escritorio para Windows y macOS; firma Authenticode de los artefactos de Windows |
 | Repository URL | URL pública definitiva de GitHub; pendiente, no usar una URL inventada |
-| Artifact Configuration de la beta | windows-beta-installer |
-| Artifact Configuration del ejecutable | windows-beta-app |
+| Artifact Configuration | `windows-app` (válida para cualquier archivo ejecutable PE, usada tanto para la app como para el instalador) |
 | Signing Policy de release | release-signing, con aprobación humana y verificación de origen |
 | Certificado | Seleccionar sólo el certificado autorizado para este proyecto por SignPath; pendiente |
 | Roles | Definir responsables de desarrollo/revisión/aprobación con el usuario; no otorgados automáticamente |
@@ -31,7 +30,7 @@ Las configuraciones XML adyacentes limitan nombre, producto y versión requerida
 
 1. Entrar en [SignPath](https://app.signpath.io), seleccionar la organización OSS y comprobar el estado de la solicitud del proyecto. Si no aparece opción para añadir proyectos/certificados, seguir el proceso de aprobación OSS; no crear un certificado autofirmado y tratarlo como firma pública.
 2. Crear el proyecto con Name **RavenGit**, Slug **ravengit** y, cuando exista, la URL definitiva del repositorio público GitHub. Si la edición exige hacerlo mediante soporte/aprobación, solicitarlo por ese canal.
-3. Añadir/importar dos Artifact Configurations con slugs **windows-beta-app** y **windows-beta-installer**, usando los XML de `docs/releases/signpath/`. Revisar su aceptación en el portal. Ambos exigen el parámetro `version`.
+3. Añadir/configurar el Artifact Configuration con slug **windows-app** (con regla `<pe-file><authenticode-sign /></pe-file>`), que permite firmar tanto el ejecutable como el instalador NSIS.
 4. **Modalidad de envío directo (sin Trusted Build System)**: Dado que el plan/tier actual no incluye verificación de origen por Trusted Build System, no se requiere vincular GitHub.com como conector en SignPath. En su lugar, el workflow utiliza el módulo oficial de PowerShell `SignPath` (`Submit-SigningRequest`) subiendo directamente los artefactos mediante el token de API (`SIGNPATH_API_TOKEN`).
 5. Crear o revisar la Signing Policy **release-signing**, seleccionando el certificado autorizado para RavenGit y configurando la política para permitir solicitudes directas desde el token de CI (conservando la aprobación humana si se desea).
 6. Copiar Organization ID y la huella del certificado público (no la clave privada). Generar un API Token con permisos de envío para el proyecto/política y guardarlo en GitHub como secreto `SIGNPATH_API_TOKEN`.

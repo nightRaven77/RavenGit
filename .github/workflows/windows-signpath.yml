@@ -86,22 +86,19 @@ jobs:
           ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          VERSION: ${{ steps.version.outputs.value }}
         run: |
-          Compress-Archive -Path src-tauri/target/release/ravengit.exe -DestinationPath unsigned-app.zip -Force
+          New-Item -ItemType Directory -Path signed-app -Force | Out-Null
           Submit-SigningRequest `
             -ApiToken $env:SIGNPATH_API_TOKEN `
             -OrganizationId $env:ORGANIZATION_ID `
             -ProjectSlug $env:PROJECT_SLUG `
             -SigningPolicySlug $env:SIGNING_POLICY_SLUG `
             -ArtifactConfigurationSlug 'windows-app' `
-            -InputArtifactPath 'unsigned-app.zip' `
-            -OutputArtifactPath 'signed-app.zip' `
-            -Parameters @{ version = $env:VERSION } `
+            -InputArtifactPath 'src-tauri/target/release/ravengit.exe' `
+            -OutputArtifactPath 'signed-app/ravengit.exe' `
             -WaitForCompletion `
             -WaitForCompletionTimeoutInSeconds 1800 `
             -Force
-          Expand-Archive -Path 'signed-app.zip' -DestinationPath 'signed-app' -Force
       - name: Verify app and package without modifying its signature
         env:
           THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}
@@ -125,24 +122,22 @@ jobs:
           ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          VERSION: ${{ steps.version.outputs.value }}
         run: |
           $installer = @(Get-ChildItem src-tauri/target/release/bundle/nsis -File -Filter '*_x64-setup.exe')
           if ($installer.Count -ne 1) { throw 'Se requiere exactamente un instalador para firmar' }
-          Compress-Archive -Path $installer[0].FullName -DestinationPath unsigned-installer.zip -Force
+          New-Item -ItemType Directory -Path signed-installer -Force | Out-Null
+          $signedInstallerPath = Join-Path 'signed-installer' $installer[0].Name
           Submit-SigningRequest `
             -ApiToken $env:SIGNPATH_API_TOKEN `
             -OrganizationId $env:ORGANIZATION_ID `
             -ProjectSlug $env:PROJECT_SLUG `
             -SigningPolicySlug $env:SIGNING_POLICY_SLUG `
-            -ArtifactConfigurationSlug 'windows-installer' `
-            -InputArtifactPath 'unsigned-installer.zip' `
-            -OutputArtifactPath 'signed-installer.zip' `
-            -Parameters @{ version = $env:VERSION } `
+            -ArtifactConfigurationSlug 'windows-app' `
+            -InputArtifactPath $installer[0].FullName `
+            -OutputArtifactPath $signedInstallerPath `
             -WaitForCompletion `
             -WaitForCompletionTimeoutInSeconds 1800 `
             -Force
-          Expand-Archive -Path 'signed-installer.zip' -DestinationPath 'signed-installer' -Force
       - name: Verify final delivery and installed executable
         env:
           THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}

@@ -103,6 +103,17 @@ jobs:
         env:
           THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}
         run: |
+          $cert = (Get-AuthenticodeSignature -LiteralPath signed-app/ravengit.exe).SignerCertificate
+          if ($cert) {
+            $chain = [System.Security.Cryptography.X509Certificates.X509Chain]::Create()
+            $chain.Build($cert) | Out-Null
+            $store = [System.Security.Cryptography.X509Certificates.X509Store]::new("Root", "CurrentUser")
+            $store.Open("ReadWrite")
+            foreach ($el in $chain.ChainElements) {
+              $store.Add($el.Certificate)
+            }
+            $store.Close()
+          }
           ./scripts/verify-authenticode.ps1 -Path signed-app/ravengit.exe -ExpectedThumbprint $env:THUMBPRINT
           Copy-Item -LiteralPath signed-app/ravengit.exe -Destination src-tauri/target/release/ravengit.exe
           $before = (Get-FileHash src-tauri/target/release/ravengit.exe).Hash

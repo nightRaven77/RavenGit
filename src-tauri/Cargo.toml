@@ -1,7 +1,7 @@
 [package]
 name = "ravengit"
 license = "MIT"
-version = "1.0.0"
+version = "1.0.1"
 description = "Cliente Git visual local-first"
 authors = ["RavenGit"]
 edition = "2024"

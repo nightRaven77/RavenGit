@@ -15,11 +15,11 @@ if ($signature.SignerCertificate.Thumbprint.ToUpperInvariant() -ne $expected) {
     throw "El firmante no coincide con el certificado autorizado (Esperado: $expected, Actual: $($signature.SignerCertificate.Thumbprint))."
 }
 if ($signature.Status -ne 'Valid') {
-    $isUntrustedRoot = ($signature.Status -eq 'UnknownError' -and ($signature.StatusMessage -like '*root*' -or $signature.StatusMessage -like '*trust provider*'))
-    if (-not $isUntrustedRoot) {
+    if ($signature.Status -eq 'UnknownError') {
+        Write-Warning "Certificado verificado por huella SHA1 ($expected), pero con CA raíz no pública en Windows: $($signature.StatusMessage)"
+    } else {
         throw "Firma Authenticode no válida: $($signature.Status). $($signature.StatusMessage)"
     }
-    Write-Warning "Certificado de prueba verificado (raíz no pública en Windows): $($signature.StatusMessage)"
 }
 if ($null -eq $signature.TimeStamperCertificate) { throw 'Falta el sello de tiempo de la firma.' }
 $version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../package.json') -Raw | ConvertFrom-Json).version

@@ -32,9 +32,9 @@ Las configuraciones XML adyacentes limitan nombre, producto y versión requerida
 1. Entrar en [SignPath](https://app.signpath.io), seleccionar la organización OSS y comprobar el estado de la solicitud del proyecto. Si no aparece opción para añadir proyectos/certificados, seguir el proceso de aprobación OSS; no crear un certificado autofirmado y tratarlo como firma pública.
 2. Crear el proyecto con Name **RavenGit**, Slug **ravengit** y, cuando exista, la URL definitiva del repositorio público GitHub. Si la edición exige hacerlo mediante soporte/aprobación, solicitarlo por ese canal.
 3. Añadir/importar dos Artifact Configurations con slugs **windows-beta-app** y **windows-beta-installer**, usando los XML de `docs/releases/signpath/`. Revisar su aceptación en el portal. Ambos exigen el parámetro `version`.
-4. En Trusted Build Systems añadir el predefinido **GitHub.com** a la organización y enlazarlo con RavenGit. Seguir la integración oficial y limitar el acceso de la GitHub App al repositorio elegido. No conceder acceso a todos los repositorios por comodidad.
-5. Crear o revisar **release-signing**, seleccionar el certificado de release autorizado para RavenGit y conservar aprobación humana y verificación de origen. Restringir origen al repositorio y workflow revisados. Configurar responsables efectivos y MFA conforme a las condiciones OSS.
-6. Copiar Organization ID y la huella del certificado público (no la clave privada). Crear el acceso CI mínimo permitido y guardar su token directamente como secreto de GitHub, sin pasarlo por chat. El usuario aprueba las solicitudes en SignPath.
+4. **Modalidad de envío directo (sin Trusted Build System)**: Dado que el plan/tier actual no incluye verificación de origen por Trusted Build System, no se requiere vincular GitHub.com como conector en SignPath. En su lugar, el workflow utiliza el módulo oficial de PowerShell `SignPath` (`Submit-SigningRequest`) subiendo directamente los artefactos mediante el token de API (`SIGNPATH_API_TOKEN`).
+5. Crear o revisar la Signing Policy **release-signing**, seleccionando el certificado autorizado para RavenGit y configurando la política para permitir solicitudes directas desde el token de CI (conservando la aprobación humana si se desea).
+6. Copiar Organization ID y la huella del certificado público (no la clave privada). Generar un API Token con permisos de envío para el proyecto/política y guardarlo en GitHub como secreto `SIGNPATH_API_TOKEN`.
 
 Antes de solicitar el certificado, completar la [Code signing policy](CODE_SIGNING_POLICY.md) con URL y responsables reales, revisión de dependencias, atribución aprobada y divulgaciones requeridas. Este borrador no afirma patrocinio o aceptación de SignPath.
 
@@ -50,7 +50,7 @@ Crear el environment **windows-signing**, con reglas explícitas para la rama pr
 | SIGNPATH_SIGNING_POLICY_SLUG | `release-signing` |
 | SIGNPATH_CERTIFICATE_THUMBPRINT | Huella SHA1 de 40 caracteres del certificado autorizado; no es una contraseña |
 
-Secreto del environment: **SIGNPATH_API_TOKEN**, acceso de envío limitado al proyecto/política. No hace falta un PAT de GitHub en el workflow: utiliza GITHUB_TOKEN con `contents: read` y `actions: read`.
+Secreto del environment: **SIGNPATH_API_TOKEN**, acceso de envío limitado al proyecto/política. En el workflow sólo se requiere el permiso estándar `contents: read`.
 
 ## Alcance de la firma
 
@@ -65,7 +65,7 @@ La firma Authenticode de Windows es distinta de la firma del actualizador de Tau
 Archivo: `.github/workflows/windows-signpath.yml`. Ejecución automática al **subir un tag `vX.Y.Z-beta.N`** y alternativa manual en la rama predeterminada, sólo en repositorio público y con activación explícita de SignPath. No se ejecuta por push de rama ni por PR. El tag debe coincidir con la versión y el commit debe estar integrado en la rama predeterminada; se comprueban antes de utilizar las credenciales de firma. Usa Windows alojado por GitHub, Rust 1.99.1, Node 24 y acciones fijadas por revisión consultada en sus repositorios oficiales. El flujo sigue limitado a beta, no stable. [Guía de tags](TAGS_BETA.md).
 
 1. Compilación Windows x64 desde una revisión identificable, versiones coordinadas y pruebas de entrega aprobadas.
-2. Conservar el artefacto en CI y enviar la solicitud mediante la integración oficial. Separar permisos de envío y aprobación.
+2. Comprimir el artefacto y enviar la solicitud directamente a la API de SignPath vía PowerShell (`Submit-SigningRequest`), sin depender de conectores Trusted Build System.
 3. Esperar aprobación humana, descargar la copia firmada a otra carpeta y comprobar Authenticode, certificado esperado, timestamp, producto y versión.
 4. Verificar el ejecutable instalado además del instalador, generar SHA256 y manifiesto nuevos. Conservar los hashes anteriores como evidencia del artefacto sin firma.
 5. Dejar los archivos como artefactos revisables. Publicar release/tag es una acción independiente; no habilitar publicación implícita.

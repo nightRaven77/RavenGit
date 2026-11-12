@@ -1,7 +1,7 @@
 {
   "name": "ravengit",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,7 @@
     "icons": "node scripts/generate-icons.mjs",
     "icons:verify": "node scripts/verify-windows-icon.mjs",
     "test": "vitest run --exclude scripts/check-release-ref.test.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
     "release:check": "node scripts/check-release.mjs",
     "release:build:windows": "node scripts/build-beta-windows.mjs",
     "release:build:macos": "node scripts/build-beta-macos.mjs",

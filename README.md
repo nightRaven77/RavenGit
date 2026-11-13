@@ -1,121 +1,130 @@
 ﻿# RavenGit
 
-[![Licencia](https://img.shields.io/badge/Licencia-MIT-blue.svg)](LICENSE)
+[![Versión](https://img.shields.io/badge/Versión-1.0.5-blue.svg)](CHANGELOG.md)
+[![Licencia](https://img.shields.io/badge/Licencia-MIT-green.svg)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-orange.svg)](https://v2.tauri.app)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-dea584.svg)](https://www.rust-lang.org)
-[![Plataforma en validación](https://img.shields.io/badge/Plataforma-Windows%20x64%20beta-lightgrey.svg)](docs/releases/1.0.0-beta.1.md)
+[![Plataformas](https://img.shields.io/badge/Plataformas-Windows%20x64%20%7C%20macOS-blueviolet.svg)](#requisitos-del-sistema)
 
-**RavenGit** es un cliente Git de escritorio de arquitectura **local-first**, construido para explorar el historial y trabajar con repositorios desde una interfaz gráfica.
+**RavenGit** es un cliente Git de escritorio moderno, visual y de arquitectura **local-first**, diseñado para inspeccionar el historial, resolver conflictos y gestionar repositorios con total seguridad, rapidez y privacidad.
 
-Está construido con **Tauri 2**, **React 19** y **Rust**, y utiliza Git instalado en el sistema para operar sobre los repositorios.
-
-> **Estado:** `1.0.0-beta.1` es un candidato de Windows x64 para validación privada. La aceptación en una máquina limpia y la matriz funcional instalada siguen pendientes. La preparación para macOS no equivale a una versión validada o distribuida. Consulta las [notas de la beta](docs/releases/1.0.0-beta.1.md).
+Construido sobre **Tauri 2**, **React 19** y un núcleo seguro en **Rust**, RavenGit opera directamente sobre el Git nativo del sistema sin intermediarios ni telemetría.
 
 ---
 
 ## Características Principales
 
 ### 🌳 Historial Visual y Grafo DAG
-- Grafo interactivo paginado para explorar el historial de commits, bifurcaciones y uniones de ramas.
-- Filtros por rama local, remota o referencia HEAD.
-- Navegación ágil por teclado entre commits padres e hijos.
-- Búsqueda local instantánea por mensaje, autor o hash.
+- **Grafo interactivo paginado:** renderizado eficiente para explorar bifurcaciones, fusiones y commits sin degradar el rendimiento.
+- **Filtros dinámicos:** visualización por rama local, remota o referencia `HEAD`.
+- **Navegación ágil por teclado:** desplazamiento fluido entre commits padres e hijos con indicadores de foco continuo.
+- **Búsqueda instantánea:** filtrado en memoria por mensaje, autor o hash.
 
 ### 📝 Panel de Cambios y Preparación Granular
-- Visualización de diferencias en modo **Unificado** o **Dividido (Side-by-side)**.
-- Preparación selectiva (*staging*): prepara archivos completos, bloques específicos (*hunks*) o utiliza la **preparación múltiple** con casillas de selección para transacciones atómicas de índice.
-- Detección de bloqueos de Git (index.lock) con mensajes claros y seguros.
+- **Comparador visual de diferencias:** visualización en modo **Unificado** o **Dividido (Side-by-side)**.
+- **Staging selectivo y múltiple:** prepara archivos enteros, bloques de código específicos (*hunk staging*) o selecciona múltiples archivos para transacciones atómicas de índice.
+- **Protección contra bloqueos:** detección y gestión segura de archivos `index.lock` con explicaciones claras.
+- **Commits y Modificaciones:** creación de commits con detección de autor y soporte para `amend` con respaldo automático.
 
-### 🛡️ Restauración Atómica y Deshacer con Respaldo
-- **Restaurar archivo:** revierte modificaciones del árbol de trabajo al estado del índice con previsualización de diferencias.
-- **Respaldo automático:** cada restauración guarda una copia segura en .git/ravengit-restore/.
-- **Rehacer cambios:** recupera en cualquier momento el estado previo desde el respaldo.
-- **Protección anti-obsolescencia:** detección estricta de modificaciones externas concurrentes (STALE_RESTORE) para impedir sobreescrituras accidentales.
+### 🛡️ Restauración Atómica y Respaldo Automático
+- **Restauración con vista previa:** revierte modificaciones del árbol de trabajo al estado del índice con previsualización de diferencias.
+- **Respaldo automático (.git/ravengit-restore/):** cada archivo restaurado genera una copia de seguridad inmediata.
+- **Acción "Rehacer cambios":** recupera en cualquier momento el estado modificado previo desde el respaldo.
+- **Protección anti-obsolescencia (STALE_RESTORE):** bloqueo estricto si el archivo en disco sufrió cambios externos desde la última inspección.
 
 ### 🔀 Rebase Interactivo Visual
-- Editor visual para secuencias de 1 a 50 commits lineales.
-- Acciones intuitivas: pick, reword, squash, fixup y drop.
-- Reordenamiento de commits con arrastre o botones de subida/bajada.
-- Copias de seguridad automáticas antes de iniciar reescrituras de historia.
+- Editor visual para secuencias lineales de 1 a 50 commits.
+- Acciones estándar: `pick`, `reword`, `squash`, `fixup` y `drop`.
+- Reordenamiento visual mediante arrastre o botones de subida/bajada.
+- Respaldos automáticos de la rama antes de iniciar reescrituras de historia.
 
 ### ⚡ Resolución Visual de Conflictos
-- Editor textual integrado con acceso a las versiones **Base**, **Local** y **Entrante**.
-- Respaldo automático antes de guardar resoluciones.
-- Flujos guiados de recuperación y aborto para merge, rebase, cherry-pick y revert.
+- Editor textual integrado con acceso simultáneo a versiones **Base**, **Local** y **Entrante**.
+- Respaldo de seguridad antes de escribir las resoluciones en disco.
+- Panel guiado para operaciones interrumpidas: `merge`, `rebase`, `cherry-pick` y `revert`, con controles seguros de **Continuar** y **Abortar**.
 
 ### 📦 Stash, Ramas y Etiquetas
-- **Stash avanzado:** almacena y recupera cambios preservando capas de preparación y archivos sin seguimiento.
-- **Gestión de ramas:** creación, cambio de contexto y renombrado con comprobación de colisiones.
-- **Etiquetas (Tags):** creación de tags ligeros locales y publicación selectiva hacia remotos autorizados.
+- **Stash completo:** almacenamiento de cambios preservando capas de preparación y archivos sin seguimiento (*untracked*).
+- **Gestión de ramas:** creación, cambio de contexto (*checkout*) y renombrado con comprobación previa de colisiones.
+- **Etiquetas (Tags):** creación de etiquetas locales y publicación selectiva individual hacia remotos autorizados.
 
-### 🔒 Seguridad, Privacidad y Confianza
-- **100% Offline-first:** ninguna operación local requiere conexión a internet ni envía telemetría.
-- **Confianza por ruta:** autorización explícita requerida antes de realizar operaciones de lectura o escritura en un nuevo directorio.
-- **Serialización de escrituras:** operaciones de modificación protegidas por cerrojos internos y planes de un solo uso.
-- **Autenticación delegada:** soporte para remotos HTTPS y SSH integrándose con el agente OpenSSH y los asistentes de credenciales del sistema.
-
-### ♿ Accesibilidad y Rendimiento
-- Navegación por teclado con foco visible y controles habituales; la aceptación completa de accesibilidad sigue pendiente.
-- Interfaz con tamaño mínimo de ventana de **900 × 640 píxeles**; la validación integral de escalado sigue pendiente.
-- Escala optimizada para gestionar cientos de archivos preparados sin congelar la interfaz.
+### 🔒 Seguridad, Privacidad y Confianza Local-First
+- **100% Offline-first:** ninguna operación local requiere conexión a internet; cero recolección de datos o telemetría.
+- **Puerta de confianza por ruta:** confirmación explícita del usuario requerida antes de abrir o manipular rutas no autorizadas.
+- **Serialización de escrituras:** exclusión mutua en Rust para impedir ejecuciones destructivas concurrentes sobre el repositorio.
+- **Autenticación delegada:** soporte para remotos HTTPS y SSH integrándose con el agente OpenSSH y los administradores de credenciales del sistema operativo.
 
 ---
 
 ## Requisitos del Sistema
 
-- **Git:** Git 2.38 o superior instalado y accesible en la variable de entorno PATH.
-- **Windows:** Windows 10 u 11 (x64) con el runtime de [Microsoft Edge WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (generalmente preinstalado en el sistema).
-- **macOS:** la compilación está preparada para Apple Silicon; instalación, compatibilidad y distribución aún requieren validación. Consulta [Preparación de macOS](docs/releases/MACOS_BETA.md).
+- **Git:** Git 2.38 o superior instalado y accesible en la variable de entorno `PATH`.
+- **Windows:** Windows 10 u 11 (x64) con el runtime de [Microsoft Edge WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (incluido por defecto en Windows 10/11).
+- **macOS:** macOS 12 (Monterey) o superior; compatible con Apple Silicon (arm64) e Intel (x86_64).
 
 ---
 
 ## Instalación y Desarrollo
 
 ### Prerrequisitos de compilación
-- [Node.js](https://nodejs.org/) v20 o superior.
-- [Rust](https://rustup.rs/) (herramienta cargo y cadena MSVC en Windows o Apple Clang en macOS).
+- [Node.js](https://nodejs.org/) v20 o v24.
+- [Rust](https://rustup.rs/) (versión 1.80+ con cadena MSVC en Windows o Apple Clang en macOS).
 
 ### Clonar y ejecutar en desarrollo
 
 ```bash
 # Clonar el repositorio
-git clone URL_DEL_REPOSITORIO RavenGit
+git clone https://github.com/nightRaven77/RavenGit.git
 cd RavenGit
 
 # Instalar dependencias de frontend
 npm install
 
-# Iniciar la aplicación en modo desarrollo
+# Iniciar la aplicación en modo desarrollo (Hot Reload)
 npm run tauri dev
 ```
 
-### Ejecutar pruebas automatizadas
+### Pruebas automatizadas
 
 ```bash
-# Pruebas unitarias y de componentes (React/Vitest)
+# Pruebas unitarias de frontend (React/Vitest)
 npm test
 
 # Pruebas unitarias de Rust
 cargo test --manifest-path src-tauri/Cargo.toml
+
+# Verificación de consistencia de versión y entregas
+npm run release:check
 ```
 
 ### Compilación para producción
 
 ```bash
-# Compilar frontend y binario nativo
+# Compilación completa del instalador y binarios
 npm run build
 npm run tauri build
 ```
 
+### Gestión de versiones
+
+El repositorio incluye un script automatizado para sincronizar versiones en todos los manifiestos (`package.json`, `Cargo.toml`, `Cargo.lock`, `tauri.conf.json` y notas de entrega):
+
+```bash
+npm run version:bump patch   # Incrementa parche (ej. 1.0.3 -> 1.0.4)
+npm run version:bump minor   # Incrementa menor (ej. 1.0.3 -> 1.1.0)
+npm run version:bump major   # Incrementa mayor (ej. 1.0.3 -> 2.0.0)
+npm run version:bump 1.0.4   # Versión específica
+```
+
 ---
 
-## Firma de Código y Entregas
+## Integración Continua y Firma de Código
 
-RavenGit implementa políticas estrictas de verificación e integridad de binarios:
-- En **Windows**, la firma Authenticode está preparada para solicitarse mediante [SignPath Foundation](docs/releases/SIGNPATH.md); el proyecto remoto y la firma siguen pendientes.
-- En **macOS**, hay una guía de compilación para Apple Silicon; la firma de distribución y la verificación de Gatekeeper siguen pendientes.
-- Consulta las notas de versión y candidatas en [docs/releases/](docs/releases/1.0.0-beta.1.md).
+RavenGit cuenta con flujos automatizados de CI/CD mediante **GitHub Actions**:
+- **Windows (x64):** compilación, validación de iconos, empaquetado NSIS y firma Authenticode automatizada vía la API de [SignPath](docs/releases/SIGNPATH.md).
+- **macOS:** compilación y empaquetado en imagen DMG.
+- Cada entrega genera manifiestos de integridad y sumas de verificación SHA-256 publicados en los artefactos de la release.
 
 ---
 

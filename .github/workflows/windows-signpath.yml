@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: windows-signpath-${{ github.ref }}
@@ -159,6 +159,7 @@ jobs:
           $notes = Join-Path docs/releases "$version.md"
           Copy-Item LICENSE,$notes -Destination delivery
           Get-ChildItem delivery -Filter '*.exe' | ForEach-Object { "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } | Set-Content delivery/SHA256SUMS.txt
+          Copy-Item delivery/SHA256SUMS.txt delivery/SHA256SUMS-windows.txt
           @{ version = (Get-Content package.json -Raw | ConvertFrom-Json).version; commit = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; signed = $true; certificate = $env:THUMBPRINT; published = $false } | ConvertTo-Json | Set-Content delivery/manifest.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -166,3 +167,13 @@ jobs:
           path: delivery/
           if-no-files-found: error
           retention-days: 30
+      - name: Publish or update GitHub Release (Windows)
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            delivery/*.exe
+            delivery/SHA256SUMS-windows.txt
+          generate_release_notes: true

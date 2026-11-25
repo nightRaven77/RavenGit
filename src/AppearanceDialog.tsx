@@ -3,9 +3,11 @@ import GraphCell from "./GraphCell";
 import { layoutGraph, graphPixelWidth } from "./graph";
 import {
   GRAPH_PALETTES,
+  GRAPH_STYLES,
   THEMES,
   resolveGraphColors,
   type GraphPaletteId,
+  type GraphStyleId,
   type ThemeId,
 } from "./themes";
 import type { Commit } from "./types";
@@ -13,7 +15,9 @@ import type { Commit } from "./types";
 interface Props {
   theme: ThemeId;
   graphPalette: GraphPaletteId;
+  graphStyle?: GraphStyleId;
   onChange: (theme: ThemeId, graphPalette: GraphPaletteId) => void;
+  onChangeGraphStyle?: (style: GraphStyleId) => void;
   onClose: () => void;
 }
 
@@ -21,28 +25,28 @@ const PREVIEW_COMMITS: Commit[] = [
   {
     hash: "merge1",
     parents: ["main2", "feat1"],
-    author: "RavenGit",
+    author: "Rosa Bell",
     date: "2026-11-22",
     subject: "Merge rama feat/temas en main",
   },
   {
     hash: "feat1",
     parents: ["base1"],
-    author: "RavenGit",
+    author: "Tomas Park",
     date: "2026-11-22",
     subject: "Explorar paletas de color y grafo",
   },
   {
     hash: "main2",
     parents: ["base1"],
-    author: "RavenGit",
+    author: "Erick M",
     date: "2026-11-21",
     subject: "Integrar lanzador externo",
   },
   {
     hash: "base1",
     parents: [],
-    author: "RavenGit",
+    author: "Rosa Bell",
     date: "2026-11-20",
     subject: "Commit inicial",
   },
@@ -51,7 +55,9 @@ const PREVIEW_COMMITS: Commit[] = [
 export default function AppearanceDialog({
   theme,
   graphPalette,
+  graphStyle = "tributary",
   onChange,
+  onChangeGraphStyle,
   onClose,
 }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -70,8 +76,11 @@ export default function AppearanceDialog({
 
   const previewRows = useMemo(() => layoutGraph(PREVIEW_COMMITS), []);
   const previewWidth = useMemo(
-    () => Math.min(88, graphPixelWidth(previewRows)),
-    [previewRows],
+    () =>
+      graphStyle === "tributary"
+        ? Math.min(110, graphPixelWidth(previewRows, "tributary"))
+        : Math.min(88, graphPixelWidth(previewRows, "compact")),
+    [previewRows, graphStyle],
   );
   const colors = useMemo(
     () => resolveGraphColors(graphPalette, theme),
@@ -115,15 +124,8 @@ export default function AppearanceDialog({
           {PREVIEW_COMMITS.map((commit, index) => {
             const row = previewRows[index];
             const rowColor = colors[row.color % colors.length] ?? "#52b7ff";
-            return (
-              <div key={commit.hash} className="appearance-preview-row">
-                <GraphCell
-                  row={row}
-                  width={previewWidth}
-                  colors={colors}
-                  isHead={index === 0}
-                  hasRefs={index <= 1}
-                />
+            const previewPills = (
+              <>
                 {index === 0 && (
                   <>
                     <span className="ref head">HEAD</span>
@@ -151,6 +153,28 @@ export default function AppearanceDialog({
                     <span className="ref tag">v1.0.6</span>
                   </>
                 )}
+              </>
+            );
+            return (
+              <div
+                key={commit.hash}
+                className={`appearance-preview-row${graphStyle === "tributary" ? " tributary" : ""}`}
+              >
+                {graphStyle === "tributary" && (
+                  <div className="appearance-preview-refs">{previewPills}</div>
+                )}
+                <GraphCell
+                  row={row}
+                  width={previewWidth}
+                  rowHeight={graphStyle === "tributary" ? 50 : 42}
+                  colors={colors}
+                  isHead={index === 0}
+                  hasRefs={index <= 1}
+                  style={graphStyle}
+                  authorName={commit.author}
+                  refSide={graphStyle === "tributary" ? "left" : "right"}
+                />
+                {graphStyle !== "tributary" && previewPills}
                 <span className="truncate">{commit.subject}</span>
               </div>
             );
@@ -228,6 +252,27 @@ export default function AppearanceDialog({
               </button>
             );
           })}
+        </div>
+      </section>
+
+      <section
+        className="appearance-section"
+        aria-label="Estilos del grafo de commits"
+      >
+        <h3>Estilo del grafo</h3>
+        <div className="graph-style-grid">
+          {GRAPH_STYLES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="palette-card"
+              aria-pressed={graphStyle === item.id}
+              onClick={() => onChangeGraphStyle?.(item.id)}
+            >
+              <strong>{item.name}</strong>
+              <small>{item.description}</small>
+            </button>
+          ))}
         </div>
       </section>
 

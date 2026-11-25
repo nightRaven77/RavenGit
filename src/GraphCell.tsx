@@ -1,3 +1,4 @@
+import { authorIdentity } from "./AuthorAvatar";
 import type { GraphRow, Segment } from "./graph";
 
 export interface GraphCellProps {
@@ -7,6 +8,9 @@ export interface GraphCellProps {
   rowHeight?: number;
   isHead?: boolean;
   hasRefs?: boolean;
+  style?: "compact" | "tributary";
+  authorName?: string;
+  refSide?: "left" | "right";
 }
 
 export default function GraphCell({
@@ -16,8 +20,14 @@ export default function GraphCell({
   rowHeight = 42,
   isHead = false,
   hasRefs = false,
+  style = "compact",
+  authorName = "",
+  refSide = "right",
 }: GraphCellProps) {
-  const x = (lane: number) => 18 + lane * 20;
+  const isTributary = style === "tributary";
+  const laneStep = isTributary ? 34 : 20;
+  const baseOffset = isTributary ? 26 : 18;
+  const x = (lane: number) => baseOffset + lane * laneStep;
   const midY = rowHeight / 2;
   const colorFor = (index: number) =>
     colors.length ? colors[index % colors.length] : "#52b7ff";
@@ -27,15 +37,58 @@ export default function GraphCell({
   const pathFor = (segment: Segment) => {
     const start = segment.kind === "parent" ? midY : 0;
     const end = segment.kind === "incoming" ? midY : rowHeight;
+    const x1 = x(segment.from);
+    const x2 = x(segment.to);
     if (segment.from === segment.to) {
-      return `M ${x(segment.from)} ${start} V ${end}`;
+      return `M ${x1} ${start} V ${end}`;
+    }
+    if (isTributary) {
+      // Suave trazo estilo mapa de metro con codo redondeado amplio
+      const mid = (start + end) / 2;
+      const ctrl1 = start + (mid - start) * 0.85;
+      const ctrl2 = end - (end - mid) * 0.85;
+      return `M ${x1} ${start} C ${x1} ${ctrl1}, ${x2} ${ctrl2}, ${x2} ${end}`;
     }
     const mid = (start + end) / 2;
-    return `M ${x(segment.from)} ${start} C ${x(segment.from)} ${mid}, ${x(segment.to)} ${mid}, ${x(segment.to)} ${end}`;
+    return `M ${x1} ${start} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${end}`;
   };
 
   const straightSegments = row.segments.filter((s) => s.from === s.to);
   const curvedSegments = row.segments.filter((s) => s.from !== s.to);
+  const strokeWidth = isTributary ? 2.8 : 2.5;
+  const haloWidth = isTributary ? 5.6 : 4.6;
+  const identity = isTributary ? authorIdentity(authorName || "?") : null;
+
+  const connectorLine = (() => {
+    if (!hasRefs && !isHead) return null;
+    const gap = isTributary ? 15.5 : 6;
+    if (refSide === "left") {
+      const endX = Math.max(0, cx - gap);
+      if (endX <= 1) return null;
+      return (
+        <line
+          x1={0}
+          y1={midY}
+          x2={endX}
+          y2={midY}
+          stroke={nodeColor}
+          strokeWidth={1.8}
+          strokeOpacity={0.62}
+        />
+      );
+    }
+    return (
+      <line
+        x1={cx + gap}
+        y1={midY}
+        x2={width}
+        y2={midY}
+        stroke={nodeColor}
+        strokeWidth={1.6}
+        strokeOpacity={0.55}
+      />
+    );
+  })();
 
   return (
     <svg
@@ -50,7 +103,7 @@ export default function GraphCell({
           d={pathFor(segment)}
           fill="none"
           stroke={colorFor(segment.color)}
-          strokeWidth={2.5}
+          strokeWidth={strokeWidth}
           strokeLinecap="round"
           opacity={segment.kind === "through" ? 0.82 : 1}
         />
@@ -64,33 +117,81 @@ export default function GraphCell({
               d={d}
               fill="none"
               stroke="var(--bg-canvas)"
-              strokeWidth={4.6}
+              strokeWidth={haloWidth}
               strokeLinecap="round"
-              opacity={0.88}
+              opacity={0.9}
             />
             <path
               d={d}
               fill="none"
               stroke={stroke}
-              strokeWidth={2.5}
+              strokeWidth={strokeWidth}
               strokeLinecap="round"
               opacity={segment.kind === "through" ? 0.82 : 1}
             />
           </g>
         );
       })}
-      {(hasRefs || isHead) && (
-        <line
-          x1={cx + 6}
-          y1={midY}
-          x2={width}
-          y2={midY}
-          stroke={nodeColor}
-          strokeWidth={1.6}
-          strokeOpacity={0.55}
-        />
-      )}
-      {isHead ? (
+      {connectorLine}
+      {isTributary && identity ? (
+        <g className="graph-avatar-node">
+          {(isHead || hasRefs) && (
+            <circle
+              cx={cx}
+              cy={midY}
+              r={isHead ? 18.5 : 16.8}
+              fill={nodeColor}
+              opacity={isHead ? 0.24 : 0.16}
+            />
+          )}
+          <circle cx={cx} cy={midY} r={15.4} fill="var(--bg-canvas)" />
+          {row.isMerge && (
+            <circle
+              cx={cx}
+              cy={midY}
+              r={15.8}
+              fill="none"
+              stroke={nodeColor}
+              strokeWidth={1.35}
+              strokeDasharray="2.8 2"
+              opacity={0.85}
+            />
+          )}
+          {row.isRoot ? (
+            <rect
+              x={cx - 13}
+              y={midY - 13}
+              width={26}
+              height={26}
+              rx={7}
+              fill={identity.background}
+              stroke={nodeColor}
+              strokeWidth={2.4}
+            />
+          ) : (
+            <circle
+              cx={cx}
+              cy={midY}
+              r={13.5}
+              fill={identity.background}
+              stroke={nodeColor}
+              strokeWidth={isHead ? 2.8 : 2.2}
+            />
+          )}
+          <text
+            x={cx}
+            y={midY}
+            fill="#f8fafc"
+            fontSize="11"
+            fontWeight="700"
+            textAnchor="middle"
+            dominantBaseline="central"
+            style={{ letterSpacing: "0.02em" }}
+          >
+            {identity.initials}
+          </text>
+        </g>
+      ) : isHead ? (
         <g>
           <circle cx={cx} cy={midY} r={9} fill={nodeColor} opacity={0.24} />
           <circle cx={cx} cy={midY} r={6.4} fill="var(--bg-canvas)" />

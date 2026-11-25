@@ -26,6 +26,11 @@ pub const THEMES: [&str; 7] = [
 ];
 
 pub const GRAPH_PALETTES: [&str; 5] = ["kraken", "identity", "neon", "pastel", "accessible"];
+pub const GRAPH_STYLES: [&str; 2] = ["tributary", "compact"];
+
+fn default_graph_style() -> String {
+    "tributary".into()
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
@@ -62,6 +67,8 @@ pub struct AppSettings {
     pub version: u8,
     pub theme: String,
     pub graph_palette: String,
+    #[serde(default = "default_graph_style")]
+    pub graph_style: String,
     pub external: ExternalPreferences,
     pub open_tabs: Vec<String>,
     pub active_tab: Option<String>,
@@ -74,6 +81,7 @@ impl Default for AppSettings {
             version: VERSION,
             theme: "obsidian".into(),
             graph_palette: "kraken".into(),
+            graph_style: default_graph_style(),
             external: ExternalPreferences::default(),
             open_tabs: Vec::new(),
             active_tab: None,
@@ -117,6 +125,7 @@ pub fn validate(settings: &AppSettings) -> Result<()> {
     if settings.version != VERSION
         || !THEMES.contains(&settings.theme.as_str())
         || !GRAPH_PALETTES.contains(&settings.graph_palette.as_str())
+        || !GRAPH_STYLES.contains(&settings.graph_style.as_str())
         || settings.open_tabs.len() > MAX_OPEN_TABS
         || settings.open_tabs.iter().any(|path| !valid_path(path))
         || settings
@@ -268,6 +277,7 @@ mod tests {
             version: 1,
             theme: "raven-violet".into(),
             graph_palette: "neon".into(),
+            graph_style: "compact".into(),
             external: ExternalPreferences {
                 preferred_editor_id: Some("antigravity".into()),
                 preferred_terminal_id: Some("iterm2".into()),
@@ -301,6 +311,7 @@ mod tests {
         assert!(legacy.open_tabs.is_empty());
         assert_eq!(legacy.active_tab, None);
         assert_eq!(legacy.snapshots, SnapshotPreferences::default());
+        assert_eq!(legacy.graph_style, "tributary");
     }
 
     #[test]
@@ -317,6 +328,10 @@ mod tests {
             },
             AppSettings {
                 graph_palette: "unknown-palette".into(),
+                ..AppSettings::default()
+            },
+            AppSettings {
+                graph_style: "unknown-style".into(),
                 ..AppSettings::default()
             },
             AppSettings {

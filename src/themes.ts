@@ -10,6 +10,29 @@ export type ThemeId =
 export type GraphPaletteId =
   "kraken" | "identity" | "neon" | "pastel" | "accessible";
 
+export type GraphStyleId = "tributary" | "compact";
+
+export interface GraphStyleDefinition {
+  id: GraphStyleId;
+  name: string;
+  description: string;
+}
+
+export const GRAPH_STYLES: readonly GraphStyleDefinition[] = [
+  {
+    id: "tributary",
+    name: "Tributary (Avatares)",
+    description:
+      "Columna de ramas a la izquierda, avatares en los nodos y curvas amplias estilo metro.",
+  },
+  {
+    id: "compact",
+    name: "Compacto (Puntos)",
+    description:
+      "Grafo denso clásico con puntos de rama y referencias en línea con el mensaje.",
+  },
+];
+
 export type ExternalKind = "editor" | "terminal" | "explorer";
 
 export interface ExternalApp {
@@ -59,6 +82,7 @@ export interface AppSettings {
   version: number;
   theme: ThemeId;
   graphPalette: GraphPaletteId;
+  graphStyle?: GraphStyleId;
   external: ExternalPreferences;
   openTabs?: string[];
   activeTab?: string | null;
@@ -86,6 +110,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   version: 1,
   theme: "obsidian",
   graphPalette: "kraken",
+  graphStyle: "tributary",
   external: {
     preferredEditorId: null,
     preferredTerminalId: null,
@@ -302,6 +327,7 @@ export const GRAPH_PALETTES: readonly GraphPaletteDefinition[] = [
 
 const THEME_STORAGE_KEY = "ravengit.appearance.theme";
 const PALETTE_STORAGE_KEY = "ravengit.appearance.graphPalette";
+const GRAPH_STYLE_STORAGE_KEY = "ravengit.appearance.graphStyle";
 
 export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === "string" && THEMES.some((item) => item.id === value);
@@ -311,6 +337,12 @@ export function isGraphPaletteId(value: unknown): value is GraphPaletteId {
   return (
     typeof value === "string" &&
     GRAPH_PALETTES.some((item) => item.id === value)
+  );
+}
+
+export function isGraphStyleId(value: unknown): value is GraphStyleId {
+  return (
+    typeof value === "string" && GRAPH_STYLES.some((item) => item.id === value)
   );
 }
 
@@ -327,20 +359,24 @@ export function resolveGraphColors(
 export function loadCachedAppearance(): {
   theme: ThemeId;
   graphPalette: GraphPaletteId;
+  graphStyle: GraphStyleId;
 } {
   try {
     const rawTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
     const rawPalette = window.localStorage.getItem(PALETTE_STORAGE_KEY);
+    const rawStyle = window.localStorage.getItem(GRAPH_STYLE_STORAGE_KEY);
     return {
       theme: isThemeId(rawTheme) ? rawTheme : DEFAULT_APP_SETTINGS.theme,
       graphPalette: isGraphPaletteId(rawPalette)
         ? rawPalette
         : DEFAULT_APP_SETTINGS.graphPalette,
+      graphStyle: isGraphStyleId(rawStyle) ? rawStyle : "tributary",
     };
   } catch {
     return {
       theme: DEFAULT_APP_SETTINGS.theme,
       graphPalette: DEFAULT_APP_SETTINGS.graphPalette,
+      graphStyle: "tributary",
     };
   }
 }
@@ -348,14 +384,17 @@ export function loadCachedAppearance(): {
 export function applyAppearance(
   themeId: ThemeId,
   graphPaletteId: GraphPaletteId,
+  graphStyleId: GraphStyleId = "tributary",
 ): void {
   if (typeof document !== "undefined") {
     document.documentElement.dataset.theme = themeId;
     document.documentElement.dataset.graphPalette = graphPaletteId;
+    document.documentElement.dataset.graphStyle = graphStyleId;
   }
   try {
     window.localStorage.setItem(THEME_STORAGE_KEY, themeId);
     window.localStorage.setItem(PALETTE_STORAGE_KEY, graphPaletteId);
+    window.localStorage.setItem(GRAPH_STYLE_STORAGE_KEY, graphStyleId);
   } catch {
     // Ignore storage unavailability in restricted contexts.
   }

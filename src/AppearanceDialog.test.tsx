@@ -82,3 +82,28 @@ it("permite seleccionar temas, paletas del grafo y restaurar la identidad oficia
   await userEvent.click(screen.getByRole("button", { name: "Cerrar" }));
   expect(onClose).toHaveBeenCalledOnce();
 });
+
+it("muestra y permite cambiar el estilo del grafo entre Tributary y Compacto", async () => {
+  const onChangeGraphStyle = vi.fn();
+
+  render(
+    <AppearanceDialog
+      theme="obsidian"
+      graphPalette="kraken"
+      graphStyle="tributary"
+      onChange={vi.fn()}
+      onChangeGraphStyle={onChangeGraphStyle}
+      onClose={vi.fn()}
+    />,
+  );
+
+  await userEvent.click(
+    screen.getByRole("button", { name: /Compacto \(Puntos\)/ }),
+  );
+  expect(onChangeGraphStyle).toHaveBeenLastCalledWith("compact");
+
+  await userEvent.click(
+    screen.getByRole("button", { name: /Tributary \(Avatares\)/ }),
+  );
+  expect(onChangeGraphStyle).toHaveBeenLastCalledWith("tributary");
+});

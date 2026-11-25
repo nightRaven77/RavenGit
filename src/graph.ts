@@ -108,8 +108,11 @@ export function layoutGraph(commits: Commit[]): GraphRow[] {
 
 export function graphPixelWidth(
   rows: readonly Pick<GraphRow, "width">[],
+  style: "compact" | "tributary" = "compact",
 ): number {
-  let width = 92;
-  for (const row of rows) width = Math.max(width, row.width * 20 + 28);
+  const step = style === "tributary" ? 34 : 20;
+  const pad = style === "tributary" ? 36 : 28;
+  let width = style === "tributary" ? 104 : 92;
+  for (const row of rows) width = Math.max(width, row.width * step + pad);
   return width;
 }

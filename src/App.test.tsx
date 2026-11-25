@@ -2563,3 +2563,43 @@ it("abre Git LFS y Submódulos desde el sidebar y navega entre ambas pestañas",
     await within(dialog).findByText(/no tiene submódulos Git configurados/i),
   ).toBeTruthy();
 });
+
+it("renderiza el grafo estilo Tributary por defecto y permite cambiar a Compacto desde Apariencia", async () => {
+  const branchedRepo = {
+    ...structuredClone(repo),
+    refs: [
+      { name: "refs/heads/main", hash, kind: "branch" },
+      { name: "refs/remotes/origin/main", hash, kind: "remote" },
+    ],
+  };
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") return branchedRepo;
+    return fallback(command, args);
+  });
+
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  expect(
+    screen.getByText("Rama / Tag", { selector: ".table-heading span" }),
+  ).toBeTruthy();
+  expect(document.documentElement.dataset.graphStyle).toBe("tributary");
+  expect(document.querySelector(".commit-row.tributary")).toBeTruthy();
+  expect(document.querySelector("svg.graph-cell text")?.textContent).toBe("FI");
+
+  const header = document.querySelector("header.command-bar")!;
+  await userEvent.click(
+    within(header as HTMLElement).getByRole("button", { name: "Apariencia" }),
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: /Compacto \(Puntos\)/ }),
+  );
+
+  expect(document.documentElement.dataset.graphStyle).toBe("compact");
+  expect(document.querySelector(".commit-row.tributary")).toBeNull();
+  expect(api).toHaveBeenCalledWith("save_app_settings", {
+    settings: expect.objectContaining({ graphStyle: "compact" }),
+  });
+});

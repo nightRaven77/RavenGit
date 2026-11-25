@@ -3780,3 +3780,88 @@ p {
   overflow-y: auto;
   margin-bottom: 10px;
 }
+.heading-refs-col {
+  text-align: right;
+  padding-right: 10px;
+}
+.commit-row.tributary {
+  height: 52px;
+}
+.commit-row.tributary .commit-subject {
+  padding-left: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.commit-refs-col {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 4px 0 10px;
+  overflow: hidden;
+}
+.commit-refs-col .ref {
+  max-width: 104px;
+  flex-shrink: 1;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.commit-refs-col .ref-more {
+  flex-shrink: 0;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+.wip-row.tributary {
+  display: grid;
+  height: 52px;
+  padding-left: 0;
+  gap: 0;
+}
+.wip-refs-col {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 10px;
+}
+.wip-left-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px dashed var(--accent-text);
+  color: var(--accent-text);
+}
+.wip-row.tributary .wip-main {
+  padding-left: 6px;
+}
+.wip-row.tributary .wip-cta {
+  padding-right: 12px;
+  justify-self: end;
+}
+.graph-style-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.appearance-preview-row.tributary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.appearance-preview-refs {
+  width: 124px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  overflow: hidden;
+}
+.appearance-preview-refs .ref {
+  max-width: 68px;
+  font-size: 9px;
+  border-radius: 999px;
+}

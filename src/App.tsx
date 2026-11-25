@@ -41,6 +41,7 @@ import {
   THEMES,
   applyAppearance,
   isGraphPaletteId,
+  isGraphStyleId,
   isThemeId,
   loadCachedAppearance,
   resolveGraphColors,
@@ -48,6 +49,7 @@ import {
   type ExternalAppsState,
   type ExternalPreferences,
   type GraphPaletteId,
+  type GraphStyleId,
   type SnapshotPreferences,
   type ThemeId,
 } from "./themes";
@@ -100,7 +102,22 @@ function formatCommitDate(value: string) {
         year: "numeric",
       });
 }
-const rowHeight = 42;
+function formatRelativeCommitDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Sin fecha";
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 0) return formatCommitDate(value);
+  const diffHours = Math.floor(diffMs / 3_600_000);
+  const diffDays = Math.floor(diffMs / 86_400_000);
+  if (diffHours < 1) return "hace un momento";
+  if (diffDays === 0) return `hace ${diffHours} h`;
+  if (diffDays === 1) return "ayer";
+  if (diffDays < 7) return `hace ${diffDays} días`;
+  return formatCommitDate(value);
+}
+const COMPACT_ROW_HEIGHT = 42;
+const TRIBUTARY_ROW_HEIGHT = 52;
+const TRIBUTARY_REFS_COL_WIDTH = 176;
 const short = (s: string) => s.slice(0, 8);
 const refName = (s: string) => s.replace(/^refs\/(heads|remotes|tags)\//, "");
 function errorText(error: unknown): string {
@@ -198,6 +215,9 @@ function App() {
   const [graphPalette, setGraphPalette] = useState<GraphPaletteId>(
     () => loadCachedAppearance().graphPalette,
   );
+  const [graphStyle, setGraphStyle] = useState<GraphStyleId>(
+    () => loadCachedAppearance().graphStyle,
+  );
   const [externalPreferences, setExternalPreferences] =
     useState<ExternalPreferences>(DEFAULT_APP_SETTINGS.external);
   const [externalApps, setExternalApps] = useState<ExternalAppsState | null>(
@@ -210,6 +230,7 @@ function App() {
   const activeTabIdRef = useRef<string | null>(null);
   const tabsTouchedRef = useRef(false);
   const snapshotsTouchedRef = useRef(false);
+  const graphStyleTouchedRef = useRef(false);
   const startupRestoredRef = useRef(false);
   const lastFocusRefreshRef = useRef(0);
   tabsRef.current = tabs;
@@ -337,15 +358,22 @@ function App() {
   writingRef.current = writing;
   historyScopeRef.current = historyScope;
   const commits = repo?.page.commits ?? [];
+  const isTributary = graphStyle === "tributary";
+  const activeRowHeight = isTributary
+    ? TRIBUTARY_ROW_HEIGHT
+    : COMPACT_ROW_HEIGHT;
   const rows = useMemo(() => layoutGraph(commits), [commits]);
-  const graphWidth = useMemo(() => graphPixelWidth(rows), [rows]);
+  const graphWidth = useMemo(
+    () => graphPixelWidth(rows, graphStyle),
+    [rows, graphStyle],
+  );
   const graphColors = useMemo(
     () => resolveGraphColors(graphPalette, theme),
     [graphPalette, theme],
   );
   useEffect(() => {
-    applyAppearance(theme, graphPalette);
-  }, [theme, graphPalette]);
+    applyAppearance(theme, graphPalette, graphStyle);
+  }, [theme, graphPalette, graphStyle]);
   useEffect(() => () => splitResizeCleanup.current?.(), []);
   function startInspectorResize(event: React.PointerEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -381,9 +409,16 @@ function App() {
           : graphPalette;
         const resolvedExternal = loaded.external ?? externalPreferences;
         const resolvedSnapshots = loaded.snapshots ?? snapshotPrefs;
+        const resolvedStyle = isGraphStyleId(loaded.graphStyle)
+          ? loaded.graphStyle
+          : graphStyle;
         if (isThemeId(loaded.theme)) setTheme(loaded.theme);
         if (isGraphPaletteId(loaded.graphPalette))
           setGraphPalette(loaded.graphPalette);
+        if (isGraphStyleId(loaded.graphStyle)) {
+          graphStyleTouchedRef.current = true;
+          setGraphStyle(loaded.graphStyle);
+        }
         if (loaded.external) setExternalPreferences(loaded.external);
         if (loaded.snapshots) {
           snapshotsTouchedRef.current = true;
@@ -402,6 +437,7 @@ function App() {
             resolvedPalette,
             resolvedExternal,
             resolvedSnapshots,
+            resolvedStyle,
           );
         }
       })
@@ -431,6 +467,7 @@ function App() {
     tabList: TabEntry[],
     currentId: string | null,
     nextSnapshots = snapshotPrefs,
+    nextStyle = graphStyle,
   ): AppSettings {
     const payload: AppSettings = {
       version: 1,
@@ -438,6 +475,9 @@ function App() {
       graphPalette: nextPalette,
       external: nextExternal,
     };
+    if (graphStyleTouchedRef.current) {
+      payload.graphStyle = nextStyle;
+    }
     if (snapshotsTouchedRef.current) {
       payload.snapshots = nextSnapshots;
     }
@@ -456,6 +496,7 @@ function App() {
     overridePalette = graphPalette,
     overrideExternal = externalPreferences,
     overrideSnapshots = snapshotPrefs,
+    overrideStyle = graphStyle,
   ) {
     if (!isTauri()) return;
     void persistSettings(
@@ -466,6 +507,7 @@ function App() {
         nextTabs,
         nextActiveId,
         overrideSnapshots,
+        overrideStyle,
       ),
     ).catch(() => {});
   }
@@ -857,6 +899,7 @@ function App() {
     resolvedPalette: GraphPaletteId,
     resolvedExternal: ExternalPreferences,
     resolvedSnapshots: SnapshotPreferences,
+    resolvedStyle: GraphStyleId,
   ) {
     const openedList: TabEntry[] = [];
     const failedPaths: string[] = [];
@@ -954,6 +997,7 @@ function App() {
       resolvedPalette,
       resolvedExternal,
       resolvedSnapshots,
+      resolvedStyle,
     );
     void refreshWip(target.snapshot.id);
     void refreshWorktrees(target.snapshot.id);
@@ -966,7 +1010,7 @@ function App() {
   function changeAppearance(nextTheme: ThemeId, nextPalette: GraphPaletteId) {
     setTheme(nextTheme);
     setGraphPalette(nextPalette);
-    applyAppearance(nextTheme, nextPalette);
+    applyAppearance(nextTheme, nextPalette, graphStyle);
     void persistSettings(
       buildSettingsPayload(
         nextTheme,
@@ -978,6 +1022,26 @@ function App() {
     ).catch((reason) =>
       setNotice(
         `No se pudo guardar la apariencia en disco: ${errorText(reason)}`,
+      ),
+    );
+  }
+  function changeGraphStyle(nextStyle: GraphStyleId) {
+    graphStyleTouchedRef.current = true;
+    setGraphStyle(nextStyle);
+    applyAppearance(theme, graphPalette, nextStyle);
+    void persistSettings(
+      buildSettingsPayload(
+        theme,
+        graphPalette,
+        externalPreferences,
+        tabsRef.current,
+        activeTabIdRef.current,
+        snapshotPrefs,
+        nextStyle,
+      ),
+    ).catch((reason) =>
+      setNotice(
+        `No se pudo guardar el estilo del grafo en disco: ${errorText(reason)}`,
       ),
     );
   }
@@ -997,9 +1061,21 @@ function App() {
     );
     await reloadExternalApps();
   }
-  const historyColumns = `${graphWidth}px minmax(240px,1fr) ${authorWidth}px${showDate ? " 90px" : ""}${showHash ? " 80px" : ""}`;
-  const historyMinWidth =
-    graphWidth + 240 + authorWidth + (showDate ? 90 : 0) + (showHash ? 80 : 0);
+  const historyColumns = isTributary
+    ? `${TRIBUTARY_REFS_COL_WIDTH}px ${graphWidth}px minmax(260px,1fr) ${authorWidth}px${showDate ? " 108px" : ""}${showHash ? " 80px" : ""}`
+    : `${graphWidth}px minmax(240px,1fr) ${authorWidth}px${showDate ? " 90px" : ""}${showHash ? " 80px" : ""}`;
+  const historyMinWidth = isTributary
+    ? TRIBUTARY_REFS_COL_WIDTH +
+      graphWidth +
+      260 +
+      authorWidth +
+      (showDate ? 108 : 0) +
+      (showHash ? 80 : 0)
+    : graphWidth +
+      240 +
+      authorWidth +
+      (showDate ? 90 : 0) +
+      (showHash ? 80 : 0);
   const searchIndex = useMemo(
     () =>
       commits.map((commit) =>
@@ -1073,9 +1149,12 @@ function App() {
     getItemKey: (index) =>
       query ? `search-${commits[visible[index]].hash}` : commits[index].hash,
     getScrollElement: () => scroll.current,
-    estimateSize: () => (query ? 64 : rowHeight),
+    estimateSize: () => (query ? 64 : activeRowHeight),
     overscan: 12,
   });
+  useEffect(() => {
+    virtual.measure?.();
+  }, [activeRowHeight, virtual]);
   const active =
     commits.find((c) => c.hash === selected) ??
     (externalCommit?.hash === selected ? externalCommit : null);
@@ -2255,11 +2334,65 @@ function App() {
     const isHead = c.hash === repo?.head;
     const refs = repo?.refs.filter((r) => r.hash === c.hash) ?? [];
     const hasRefs = refs.length > 0;
+    const renderRefBadge = (r: GitRef) => {
+      const shortRef = refName(r.name);
+      const isCurrentBranch = r.kind === "branch" && shortRef === repo?.branch;
+      const syncedRemote =
+        r.kind === "branch" &&
+        refs.some(
+          (other) =>
+            other.kind === "remote" &&
+            refName(other.name).endsWith(`/${shortRef}`),
+        );
+      return (
+        <span
+          className={`ref ${r.kind}${isCurrentBranch ? " ref-current" : ""}`}
+          style={
+            r.kind === "branch"
+              ? ({ "--pill-color": rowColor } as React.CSSProperties)
+              : undefined
+          }
+          key={r.name}
+          title={syncedRemote ? `${r.name} (sincronizada con remoto)` : r.name}
+        >
+          {isTributary && isCurrentBranch ? (
+            <svg viewBox="0 0 12 12" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M4.6 8.9 2.1 6.4l.9-.9 1.6 1.6L9 2.7l.9.9-5.3 5.3Z"
+              />
+            </svg>
+          ) : (
+            <RefBadgeIcon kind={r.kind} />
+          )}
+          <span>{shortRef}</span>
+          {syncedRemote && !isTributary && (
+            <span
+              className="ref-sync-badge"
+              aria-hidden="true"
+              title="Sincronizada con remoto"
+            >
+              <svg viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M4.6 8.9 2.1 6.4l.9-.9 1.6 1.6L9 2.7l.9.9-5.3 5.3Z"
+                />
+              </svg>
+            </span>
+          )}
+        </span>
+      );
+    };
+    const visibleTributaryRefs = isTributary ? refs.slice(0, 2) : refs;
+    const extraTributaryCount = isTributary
+      ? Math.max(0, refs.length - visibleTributaryRefs.length)
+      : 0;
+    const showDetachedHeadPill = isHead && (!isTributary || !repo?.branch);
     return (
       <button
         key={c.hash}
         type="button"
-        className={`commit-row ${selected === c.hash ? "selected" : ""}`}
+        className={`commit-row${isTributary ? " tributary" : ""}${selected === c.hash ? " selected" : ""}`}
         style={
           {
             ...style,
@@ -2302,16 +2435,12 @@ function App() {
         aria-pressed={selected === c.hash}
         aria-label={`${c.subject}. ${c.author}. Commit ${short(c.hash)}. ${c.parents.length} padres.`}
       >
-        <GraphCell
-          row={row}
-          width={graphWidth}
-          colors={graphColors}
-          isHead={isHead}
-          hasRefs={hasRefs}
-        />
-        <span className="commit-subject">
-          <span className="inline-refs">
-            {isHead && (
+        {isTributary && (
+          <span
+            className="commit-refs-col"
+            title={refs.map((r) => refName(r.name)).join(", ") || undefined}
+          >
+            {showDetachedHeadPill && (
               <span className="ref head">
                 <svg viewBox="0 0 12 12" aria-hidden="true">
                   <circle cx="6" cy="6" r="3.2" fill="currentColor" />
@@ -2319,52 +2448,37 @@ function App() {
                 HEAD
               </span>
             )}
-            {refs.map((r) => {
-              const shortRef = refName(r.name);
-              const isCurrentBranch =
-                r.kind === "branch" && shortRef === repo?.branch;
-              const syncedRemote =
-                r.kind === "branch" &&
-                refs.some(
-                  (other) =>
-                    other.kind === "remote" &&
-                    refName(other.name).endsWith(`/${shortRef}`),
-                );
-              return (
-                <span
-                  className={`ref ${r.kind}${isCurrentBranch ? " ref-current" : ""}`}
-                  style={
-                    r.kind === "branch"
-                      ? ({ "--pill-color": rowColor } as React.CSSProperties)
-                      : undefined
-                  }
-                  key={r.name}
-                  title={
-                    syncedRemote
-                      ? `${r.name} (sincronizada con remoto)`
-                      : r.name
-                  }
-                >
-                  <RefBadgeIcon kind={r.kind} />
-                  <span>{shortRef}</span>
-                  {syncedRemote && (
-                    <span
-                      className="ref-sync-badge"
-                      aria-hidden="true"
-                      title="Sincronizada con remoto"
-                    >
-                      <svg viewBox="0 0 12 12" aria-hidden="true">
-                        <path
-                          fill="currentColor"
-                          d="M4.6 8.9 2.1 6.4l.9-.9 1.6 1.6L9 2.7l.9.9-5.3 5.3Z"
-                        />
-                      </svg>
-                    </span>
-                  )}
-                </span>
-              );
-            })}
+            {visibleTributaryRefs.map(renderRefBadge)}
+            {extraTributaryCount > 0 && (
+              <span className="ref ref-more">+{extraTributaryCount}</span>
+            )}
           </span>
+        )}
+        <GraphCell
+          row={row}
+          width={graphWidth}
+          rowHeight={activeRowHeight}
+          colors={graphColors}
+          isHead={isHead}
+          hasRefs={hasRefs}
+          style={graphStyle}
+          authorName={c.author}
+          refSide={isTributary ? "left" : "right"}
+        />
+        <span className="commit-subject">
+          {!isTributary && (
+            <span className="inline-refs">
+              {showDetachedHeadPill && (
+                <span className="ref head">
+                  <svg viewBox="0 0 12 12" aria-hidden="true">
+                    <circle cx="6" cy="6" r="3.2" fill="currentColor" />
+                  </svg>
+                  HEAD
+                </span>
+              )}
+              {refs.map(renderRefBadge)}
+            </span>
+          )}
           <span className="truncate">{c.subject || "(sin mensaje)"}</span>
         </span>
         <span className="history-author" title={c.author}>
@@ -2372,8 +2486,14 @@ function App() {
           <span className="truncate">{c.author || "Autor desconocido"}</span>
         </span>
         {showDate && (
-          <time className="history-date" dateTime={c.date} title={c.date}>
-            {formatCommitDate(c.date)}
+          <time
+            className="history-date"
+            dateTime={c.date}
+            title={`${formatCommitDate(c.date)} · ${c.date}`}
+          >
+            {isTributary
+              ? formatRelativeCommitDate(c.date)
+              : formatCommitDate(c.date)}
           </time>
         )}
         {showHash && <code className="hash">{short(c.hash)}</code>}
@@ -2431,7 +2551,9 @@ function App() {
         <AppearanceDialog
           theme={theme}
           graphPalette={graphPalette}
+          graphStyle={graphStyle}
           onChange={changeAppearance}
+          onChangeGraphStyle={changeGraphStyle}
           onClose={() => setAppearanceOpen(false)}
         />
       )}
@@ -3403,8 +3525,18 @@ function App() {
                 minWidth: historyMinWidth,
               }}
             >
-              <span>Grafo</span>
-              <span>Mensaje y referencias</span>
+              {isTributary ? (
+                <>
+                  <span className="heading-refs-col">Rama / Tag</span>
+                  <span>Grafo</span>
+                  <span>Mensaje</span>
+                </>
+              ) : (
+                <>
+                  <span>Grafo</span>
+                  <span>Mensaje y referencias</span>
+                </>
+              )}
               <span>Autor</span>
               {showDate && <span>Fecha</span>}
               {showHash && <span>Commit</span>}
@@ -3565,70 +3697,100 @@ function App() {
             </div>
           ) : (
             <>
-              {wip?.trusted && wip.total > 0 && (
-                <button
-                  type="button"
-                  className="wip-row"
-                  disabled={writing}
-                  onClick={() => setView("changes")}
-                  aria-label={`Cambios sin commitear (${wip.total}) — Ir a Cambios`}
-                  style={{ minWidth: historyMinWidth }}
-                >
-                  <span
-                    className="wip-graph-cell"
-                    style={{ width: graphWidth }}
-                    aria-hidden="true"
-                  >
-                    <svg width={graphWidth} height={44}>
-                      <line
-                        x1={graphWidth > 20 ? 16 : Math.floor(graphWidth / 2)}
-                        y1={24}
-                        x2={graphWidth > 20 ? 16 : Math.floor(graphWidth / 2)}
-                        y2={44}
-                        stroke="var(--accent-text)"
-                        strokeWidth={2}
-                        strokeDasharray="3 3"
-                      />
-                      <circle
-                        cx={graphWidth > 20 ? 16 : Math.floor(graphWidth / 2)}
-                        cy={18}
-                        r={5.5}
-                        fill="var(--bg-canvas)"
-                        stroke="var(--accent-text)"
-                        strokeWidth={2}
-                      />
-                    </svg>
-                  </span>
-                  <span className="wip-main">
-                    <span className="wip-title">
-                      Cambios sin commitear (WIP)
-                    </span>
-                    <span className="wip-badges">
-                      {wip.staged > 0 && (
-                        <span className="wip-badge staged">
-                          {wip.staged} preparados
+              {wip?.trusted &&
+                wip.total > 0 &&
+                (() => {
+                  const headIdx = Math.max(
+                    0,
+                    commits.findIndex((c) => c.hash === repo?.head),
+                  );
+                  const wipLane = rows[headIdx]?.lane ?? 0;
+                  const wipX = isTributary
+                    ? 26 + wipLane * 34
+                    : graphWidth > 20
+                      ? 16
+                      : Math.floor(graphWidth / 2);
+                  const wipColor = isTributary
+                    ? (graphColors[
+                        (rows[headIdx]?.color ?? 0) % graphColors.length
+                      ] ?? "var(--accent-text)")
+                    : "var(--accent-text)";
+                  return (
+                    <button
+                      type="button"
+                      className={`wip-row${isTributary ? " tributary" : ""}`}
+                      disabled={writing}
+                      onClick={() => setView("changes")}
+                      aria-label={`Cambios sin commitear (${wip.total}) — Ir a Cambios`}
+                      style={{
+                        minWidth: historyMinWidth,
+                        ...(isTributary
+                          ? { gridTemplateColumns: historyColumns }
+                          : {}),
+                      }}
+                    >
+                      {isTributary && (
+                        <span className="wip-refs-col">
+                          <span className="wip-left-pill">WIP</span>
                         </span>
                       )}
-                      {wip.unstaged > 0 && (
-                        <span className="wip-badge unstaged">
-                          {wip.unstaged} sin preparar
+                      <span
+                        className="wip-graph-cell"
+                        style={{ width: graphWidth }}
+                        aria-hidden="true"
+                      >
+                        <svg width={graphWidth} height={activeRowHeight}>
+                          <line
+                            x1={wipX}
+                            y1={isTributary ? 33 : 24}
+                            x2={wipX}
+                            y2={activeRowHeight}
+                            stroke={wipColor}
+                            strokeWidth={isTributary ? 2.6 : 2}
+                            strokeDasharray="3 3"
+                          />
+                          <circle
+                            cx={wipX}
+                            cy={isTributary ? 22 : 18}
+                            r={isTributary ? 10 : 5.5}
+                            fill="var(--bg-canvas)"
+                            stroke={wipColor}
+                            strokeWidth={isTributary ? 2.4 : 2}
+                            strokeDasharray={isTributary ? "3 2.5" : undefined}
+                          />
+                        </svg>
+                      </span>
+                      <span className="wip-main">
+                        <span className="wip-title">
+                          Cambios sin commitear (WIP)
                         </span>
-                      )}
-                      {wip.untracked > 0 && (
-                        <span className="wip-badge untracked">
-                          {wip.untracked} nuevos
+                        <span className="wip-badges">
+                          {wip.staged > 0 && (
+                            <span className="wip-badge staged">
+                              {wip.staged} preparados
+                            </span>
+                          )}
+                          {wip.unstaged > 0 && (
+                            <span className="wip-badge unstaged">
+                              {wip.unstaged} sin preparar
+                            </span>
+                          )}
+                          {wip.untracked > 0 && (
+                            <span className="wip-badge untracked">
+                              {wip.untracked} nuevos
+                            </span>
+                          )}
+                          {wip.conflicts > 0 && (
+                            <span className="wip-badge conflict">
+                              {wip.conflicts} conflictos
+                            </span>
+                          )}
                         </span>
-                      )}
-                      {wip.conflicts > 0 && (
-                        <span className="wip-badge conflict">
-                          {wip.conflicts} conflictos
-                        </span>
-                      )}
-                    </span>
-                  </span>
-                  <span className="wip-cta">Ir a Cambios →</span>
-                </button>
-              )}
+                      </span>
+                      <span className="wip-cta">Ir a Cambios →</span>
+                    </button>
+                  );
+                })()}
               <div
                 className="virtual-list"
                 style={{

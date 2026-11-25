@@ -9,6 +9,7 @@ mod conflict_restore;
 mod conflict_stage;
 mod conflicts;
 mod external;
+mod file_inspect;
 mod git;
 mod initialize;
 mod library;
@@ -22,6 +23,7 @@ mod remotes;
 mod replay;
 mod repository_delete;
 mod repository_paths;
+mod search;
 mod settings;
 mod ssh;
 mod stash;
@@ -845,6 +847,39 @@ async fn watch_repository(
     .map_err(|_| GitError::new("WORKER", "No se pudo iniciar el observador local."))?
 }
 #[tauri::command]
+async fn search_history(
+    id: String,
+    query: search::SearchQuery,
+    state: State<'_, AppState>,
+) -> git::Result<search::SearchResult> {
+    let repo = selected(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || search::history(&repo, query))
+        .await
+        .map_err(|_| GitError::new("WORKER", "No se pudo completar la búsqueda."))?
+}
+#[tauri::command]
+async fn read_search_match_diff(
+    id: String,
+    hash: String,
+    path: Option<String>,
+    code_query: Option<String>,
+    code_mode: Option<search::CodeSearchMode>,
+    state: State<'_, AppState>,
+) -> git::Result<search::SearchMatchDiff> {
+    let repo = selected(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        search::match_diff(
+            &repo,
+            &hash,
+            path.as_deref(),
+            code_query.as_deref(),
+            code_mode,
+        )
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo leer el fragmento coincidente."))?
+}
+#[tauri::command]
 async fn refresh_repository(
     id: String,
     scope: Option<String>,
@@ -919,6 +954,81 @@ async fn read_commit_diff(
     })
     .await
     .map_err(|_| GitError::new("WORKER", "No se pudo leer el diff."))?
+}
+#[tauri::command]
+async fn read_file_history(
+    id: String,
+    path: String,
+    revision: Option<String>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> git::Result<file_inspect::FileHistoryPage> {
+    let repo = selected(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        file_inspect::file_history(
+            &repo,
+            &path,
+            revision.as_deref(),
+            offset.unwrap_or(0),
+            limit.unwrap_or(50),
+        )
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo leer el historial del archivo."))?
+}
+#[tauri::command]
+async fn read_file_blame(
+    id: String,
+    path: String,
+    revision: Option<String>,
+    state: State<'_, AppState>,
+) -> git::Result<file_inspect::FileBlame> {
+    let repo = selected(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        file_inspect::file_blame(&repo, &path, revision.as_deref())
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo consultar Git Blame."))?
+}
+#[tauri::command]
+async fn read_range_files(
+    id: String,
+    base: String,
+    target: String,
+    state: State<'_, AppState>,
+) -> git::Result<git::RangeFiles> {
+    let repo = selected(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || git::range_files(&repo, &base, &target))
+        .await
+        .map_err(|_| GitError::new("WORKER", "No se pudieron listar los archivos del rango."))?
+}
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+async fn read_range_diff(
+    id: String,
+    base: String,
+    target: String,
+    path: Option<String>,
+    old_path: Option<String>,
+    ignore_whitespace: Option<bool>,
+    context_lines: Option<usize>,
+    state: State<'_, AppState>,
+) -> git::Result<git::RangeDiff> {
+    let repo = selected(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::range_diff(
+            &repo,
+            &base,
+            &target,
+            path.as_deref(),
+            old_path.as_deref(),
+            ignore_whitespace.unwrap_or(false),
+            context_lines.unwrap_or(3),
+        )
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo leer el diff del rango."))?
 }
 fn trusted(state: &AppState, id: &str) -> git::Result<bool> {
     session(state, id)?.is_trusted()
@@ -2387,8 +2497,14 @@ pub fn run() {
             relocate_repository,
             refresh_repository,
             read_history,
+            search_history,
+            read_search_match_diff,
             read_commit_files,
             read_commit_diff,
+            read_file_history,
+            read_file_blame,
+            read_range_files,
+            read_range_diff,
             read_changes,
             read_branches,
             edit_branch,

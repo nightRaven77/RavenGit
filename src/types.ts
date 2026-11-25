@@ -300,3 +300,61 @@ export type AddWorktreeRequest =
       path: string;
       startPoint: string | null;
     };
+export type CodeSearchMode = "literal" | "regex";
+export interface SearchQuery {
+  scope?: string | null;
+  message?: string | null;
+  author?: string | null;
+  hash?: string | null;
+  since?: string | null;
+  until?: string | null;
+  path?: string | null;
+  regex?: boolean;
+  codeQuery?: string | null;
+  codeMode?: CodeSearchMode | null;
+  offset?: number;
+  limit?: number;
+}
+export interface SearchResult {
+  commits: Commit[];
+  nextOffset: number | null;
+  truncated: boolean;
+}
+export interface SearchMatchDiff {
+  hash: string;
+  text: string;
+}
+export interface FileHistoryEntry {
+  commit: Commit;
+  path: string;
+  oldPath: string | null;
+  status: string;
+}
+export interface FileHistoryPage {
+  path: string;
+  entries: FileHistoryEntry[];
+  nextOffset: number | null;
+}
+export interface BlameLine {
+  lineNumber: number;
+  hash: string;
+  author: string;
+  date: string;
+  summary: string;
+  content: string;
+}
+export interface FileBlame {
+  path: string;
+  commit: string;
+  lines: BlameLine[];
+}
+export interface RangeFiles {
+  base: string;
+  target: string;
+  files: CommitFile[];
+}
+export interface RangeDiff {
+  base: string;
+  target: string;
+  text: string;
+}

@@ -59,7 +59,7 @@ pub(crate) fn text(path: &Path, args: &[&str]) -> Result<String> {
         )
     })
 }
-fn oid(value: &str) -> bool {
+pub(crate) fn oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|v| v.is_ascii_hexdigit())
 }
 #[derive(Clone, Debug)]
@@ -67,7 +67,7 @@ pub struct Repository {
     pub id: String,
     pub path: PathBuf,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Commit {
     pub hash: String,
@@ -220,7 +220,7 @@ pub fn snapshot_scoped(repo: &Repository, scope: Option<&str>) -> Result<Snapsho
         page,
     })
 }
-fn parse_log(raw: &[u8]) -> Result<Vec<Commit>> {
+pub(crate) fn parse_log(raw: &[u8]) -> Result<Vec<Commit>> {
     if raw.is_empty() {
         return Ok(vec![]);
     }
@@ -365,7 +365,7 @@ pub fn history_scoped(
         generation: scoped_generation,
     })
 }
-fn validate_rel_path(path: &str) -> Result<()> {
+pub(crate) fn validate_rel_path(path: &str) -> Result<()> {
     if path.is_empty()
         || path.len() > 4096
         || path.contains('\0')
@@ -684,6 +684,126 @@ pub fn diff_with_options(
         text: output,
         parent,
         parent_count,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RangeFiles {
+    pub base: String,
+    pub target: String,
+    pub files: Vec<CommitFile>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RangeDiff {
+    pub base: String,
+    pub target: String,
+    pub text: String,
+}
+
+pub fn range_files(repo: &Repository, base: &str, target: &str) -> Result<RangeFiles> {
+    if !oid(base) || !oid(target) {
+        return Err(GitError::new(
+            "INVALID_COMMIT",
+            "Selecciona dos hashes de commit completos para comparar.",
+        ));
+    }
+    let name_status = run(
+        &repo.path,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "-M",
+            "-z",
+            "--name-status",
+            base,
+            target,
+            "--",
+        ],
+    )?;
+    let numstat = run(
+        &repo.path,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "-M",
+            "-z",
+            "--numstat",
+            base,
+            target,
+            "--",
+        ],
+    )?;
+    let files = parse_commit_files(&name_status, &numstat)?;
+    Ok(RangeFiles {
+        base: base.to_string(),
+        target: target.to_string(),
+        files,
+    })
+}
+
+pub fn range_diff(
+    repo: &Repository,
+    base: &str,
+    target: &str,
+    path: Option<&str>,
+    old_path: Option<&str>,
+    ignore_whitespace: bool,
+    context_lines: usize,
+) -> Result<RangeDiff> {
+    if !oid(base) || !oid(target) {
+        return Err(GitError::new(
+            "INVALID_COMMIT",
+            "Selecciona dos hashes de commit completos para comparar.",
+        ));
+    }
+    if let Some(file_path) = path {
+        validate_rel_path(file_path)?;
+    }
+    if let Some(source) = old_path {
+        validate_rel_path(source)?;
+    }
+    if old_path.is_some() && path.is_none() {
+        return Err(GitError::new("INVALID_PATH", "Ruta de archivo inválida."));
+    }
+    let unified = format!("--unified={}", context_lines.min(50));
+    let mut args: Vec<&str> = Vec::new();
+    if path.is_some() {
+        args.push("--literal-pathspecs");
+    }
+    args.extend([
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        if old_path.is_some() {
+            "-M"
+        } else {
+            "--no-renames"
+        },
+        &unified,
+    ]);
+    if ignore_whitespace {
+        args.push("-w");
+    }
+    args.extend([base, target, "--"]);
+    if let Some(file_path) = path {
+        if let Some(source) = old_path {
+            args.push(source);
+        }
+        args.push(file_path);
+    }
+    let output = text(&repo.path, &args)?;
+    Ok(RangeDiff {
+        base: base.to_string(),
+        target: target.to_string(),
+        text: output,
     })
 }
 
@@ -1051,5 +1171,43 @@ mod tests {
                 "INVALID_PATH"
             );
         }
+    }
+
+    #[test]
+    fn reads_range_files_and_diff_across_multiple_commits() {
+        let f = Fixture::new();
+        f.commit("a.txt", "uno\ndos\n", "c1");
+        let h1 = f.git(&["rev-parse", "HEAD"]).trim().to_string();
+        f.commit("b.txt", "hola\n", "c2");
+        f.commit("a.txt", "uno\ndos modificado\n", "c3");
+        let h3 = f.git(&["rev-parse", "HEAD"]).trim().to_string();
+
+        assert_eq!(
+            range_files(&f.repo(), "abc", &h3).unwrap_err().code,
+            "INVALID_COMMIT"
+        );
+
+        let files = range_files(&f.repo(), &h1, &h3).unwrap();
+        assert_eq!(files.files.len(), 2);
+        assert!(
+            files
+                .files
+                .iter()
+                .any(|item| item.path == "a.txt" && item.status == "M")
+        );
+        assert!(
+            files
+                .files
+                .iter()
+                .any(|item| item.path == "b.txt" && item.status == "A")
+        );
+
+        let diff_all = range_diff(&f.repo(), &h1, &h3, None, None, false, 3).unwrap();
+        assert!(diff_all.text.contains("+dos modificado"));
+        assert!(diff_all.text.contains("+hola"));
+
+        let diff_only_a = range_diff(&f.repo(), &h1, &h3, Some("a.txt"), None, false, 3).unwrap();
+        assert!(diff_only_a.text.contains("+dos modificado"));
+        assert!(!diff_only_a.text.contains("+hola"));
     }
 }

@@ -15,6 +15,7 @@ import {
 import { layoutGraph, graphPixelWidth } from "./graph";
 import GraphCell from "./GraphCell";
 import type {
+  Commit,
   CommitDiff,
   CommitFile,
   CommitFiles,
@@ -46,6 +47,9 @@ import {
 import OpenExternalMenu from "./OpenExternalMenu";
 import AppearanceDialog from "./AppearanceDialog";
 import AuthorAvatar from "./AuthorAvatar";
+import BlameDialog from "./BlameDialog";
+import CompareDialog from "./CompareDialog";
+import FileHistoryDialog from "./FileHistoryDialog";
 import LibraryDialog from "./LibraryDialog";
 import InitializeDialog from "./InitializeDialog";
 import type { RepositoryLibrary, HistoryPreferences } from "./library";
@@ -62,6 +66,7 @@ import TrustDialog from "./TrustDialog";
 import WorktreeDialog from "./WorktreeDialog";
 import ConflictRestoreDialog from "./ConflictRestoreDialog";
 import ReplayDialog, { type ReplayTarget } from "./ReplayDialog";
+import SearchDialog from "./SearchDialog";
 import TagDialog from "./TagDialog";
 import TagPublishDialog from "./TagPublishDialog";
 import ActivityDialog from "./ActivityDialog";
@@ -235,6 +240,23 @@ function App() {
     null,
   );
   const dismissedTrustIdsRef = useRef<Set<string>>(new Set());
+  const [searchDialogMode, setSearchDialogMode] = useState<
+    "history" | "code" | null
+  >(null);
+  const [externalCommit, setExternalCommit] = useState<Commit | null>(null);
+  const [fileHistoryTarget, setFileHistoryTarget] = useState<{
+    path: string;
+    revision: string | null;
+  } | null>(null);
+  const [blameTarget, setBlameTarget] = useState<{
+    path: string;
+    revision: string | null;
+  } | null>(null);
+  const [comparePair, setComparePair] = useState<{
+    base: Commit;
+    target: Commit;
+  } | null>(null);
+  const [compareAnchor, setCompareAnchor] = useState<Commit | null>(null);
   const [changesRevision, setChangesRevision] = useState(0);
   const [replay, setReplay] = useState<ReplayTarget | null | undefined>(
     undefined,
@@ -440,6 +462,12 @@ function App() {
     setReplay(undefined);
     setTagTarget(null);
     setTagPublication(undefined);
+    setSearchDialogMode(null);
+    setExternalCommit(null);
+    setFileHistoryTarget(null);
+    setBlameTarget(null);
+    setComparePair(null);
+    setCompareAnchor(null);
   }
   function applyTabUi(tab: TabEntry | null) {
     resetTransientInspectorState();
@@ -875,7 +903,9 @@ function App() {
     estimateSize: () => (query ? 64 : rowHeight),
     overscan: 12,
   });
-  const active = commits.find((c) => c.hash === selected);
+  const active =
+    commits.find((c) => c.hash === selected) ??
+    (externalCommit?.hash === selected ? externalCommit : null);
   const branches = repo?.refs.filter((r) => r.kind === "branch") ?? [];
   const remotes = repo?.refs.filter((r) => r.kind === "remote") ?? [];
   const tags = repo?.refs.filter((r) => r.kind === "tag") ?? [];
@@ -1440,8 +1470,12 @@ function App() {
       } else if (lower === "f") {
         if (!repo) return;
         e.preventDefault();
-        setView("history");
-        requestAnimationFrame(() => searchInput.current?.focus());
+        if (e.shiftKey) {
+          setSearchDialogMode("history");
+        } else {
+          setView("history");
+          requestAnimationFrame(() => searchInput.current?.focus());
+        }
       } else if (
         !inEditable &&
         (e.key === "1" || e.key === "2" || e.key === "3")
@@ -1517,6 +1551,21 @@ function App() {
           onSelect: () => {
             if (commit.parents[0]) jump(commit.parents[0]);
           },
+        },
+        ...(active && active.hash !== commit.hash
+          ? [
+              {
+                id: "compare-with-active",
+                label: `Comparar con seleccionado (${short(active.hash)})…`,
+                separatorBefore: true,
+                onSelect: () => openOrderedComparison(active, commit),
+              },
+            ]
+          : []),
+        {
+          id: "compare-anchor",
+          label: "Marcar para comparar con otro commit…",
+          onSelect: () => setCompareAnchor(commit),
         },
         {
           id: "copy-hash",
@@ -1718,6 +1767,21 @@ function App() {
         },
       },
       {
+        id: "search-deep",
+        category: "Historial",
+        label: "Búsqueda profunda en todo el historial…",
+        shortcut: "⌘⇧F",
+        disabled: !repo || writing,
+        onSelect: () => setSearchDialogMode("history"),
+      },
+      {
+        id: "search-code",
+        category: "Historial",
+        label: "Buscar texto o símbolo en código (-S / -G)…",
+        disabled: !repo || writing,
+        onSelect: () => setSearchDialogMode("code"),
+      },
+      {
         id: "refresh-repo",
         category: "Git",
         label: "Actualizar historial y referencias",
@@ -1860,6 +1924,55 @@ function App() {
     select(hash);
     virtual.scrollToIndex(index, { align: "center" });
   }
+  function jumpToSearchedCommit(commit: Commit) {
+    setView("history");
+    setInspectorOpen(true);
+    setExternalCommit(commit);
+    const index = commits.findIndex((c) => c.hash === commit.hash);
+    if (index >= 0) {
+      setQuery("");
+      select(commit.hash);
+      virtual.scrollToIndex(index, { align: "center" });
+    } else {
+      select(commit.hash);
+      setNotice(
+        `Inspeccionando ${short(commit.hash)} desde búsqueda profunda (fuera de los primeros ${commits.length} commits cargados).`,
+      );
+    }
+  }
+  async function jumpToCommitHash(targetHash: string) {
+    const localMatch = commits.find((c) => c.hash === targetHash);
+    if (localMatch) {
+      jump(localMatch.hash);
+      return;
+    }
+    if (!repo) return;
+    try {
+      const res = await invoke<{ commits: Commit[] }>("search_history", {
+        id: repo.id,
+        query: { hash: targetHash, scope: "all", limit: 1 },
+      });
+      const found = res.commits[0];
+      if (found) {
+        jumpToSearchedCommit(found);
+      } else {
+        setNotice(
+          `No se encontró el commit ${short(targetHash)} en el historial local.`,
+        );
+      }
+    } catch (reason) {
+      setError(errorText(reason));
+    }
+  }
+  function openOrderedComparison(first: Commit, second: Commit) {
+    const firstIdx = commits.findIndex((c) => c.hash === first.hash);
+    const secondIdx = commits.findIndex((c) => c.hash === second.hash);
+    if (firstIdx >= 0 && secondIdx >= 0 && firstIdx < secondIdx) {
+      setComparePair({ base: second, target: first });
+    } else {
+      setComparePair({ base: first, target: second });
+    }
+  }
   const commitRow = (index: number, style?: React.CSSProperties) => {
     const c = commits[index];
     const row = rows[index];
@@ -1882,7 +1995,20 @@ function App() {
             "--row-lane-color": rowColor,
           } as React.CSSProperties
         }
-        onClick={() => select(c.hash)}
+        onClick={(event) => {
+          if (event.shiftKey && active && active.hash !== c.hash) {
+            setCompareAnchor(null);
+            openOrderedComparison(active, c);
+            return;
+          }
+          if (compareAnchor && compareAnchor.hash !== c.hash) {
+            const anchor = compareAnchor;
+            setCompareAnchor(null);
+            openOrderedComparison(anchor, c);
+            return;
+          }
+          select(c.hash);
+        }}
         onContextMenu={(event) => {
           event.preventDefault();
           openCommitContextMenu(c, event.clientX, event.clientY);
@@ -2139,6 +2265,59 @@ function App() {
             setTrustPromptRepoId(null);
           }}
           onLock={setWriting}
+        />
+      )}
+      {repo && searchDialogMode && (
+        <SearchDialog
+          key={`search:${repo.id}:${searchDialogMode}`}
+          repoId={repo.id}
+          repoName={repo.name}
+          currentScope={historyScope}
+          branches={branches.map((ref) => ref.name)}
+          initialMode={searchDialogMode}
+          initialQuery={query}
+          onClose={() => setSearchDialogMode(null)}
+          onJumpToCommit={jumpToSearchedCommit}
+        />
+      )}
+      {repo && fileHistoryTarget && (
+        <FileHistoryDialog
+          key={`fh:${repo.id}:${fileHistoryTarget.path}:${fileHistoryTarget.revision ?? "HEAD"}`}
+          repoId={repo.id}
+          path={fileHistoryTarget.path}
+          revision={fileHistoryTarget.revision}
+          onClose={() => setFileHistoryTarget(null)}
+          onJumpToCommit={jumpToSearchedCommit}
+          onOpenBlame={(targetPath, commitHash) =>
+            setBlameTarget({ path: targetPath, revision: commitHash })
+          }
+        />
+      )}
+      {repo && blameTarget && (
+        <BlameDialog
+          key={`blame:${repo.id}:${blameTarget.path}:${blameTarget.revision ?? "HEAD"}`}
+          repoId={repo.id}
+          path={blameTarget.path}
+          revision={blameTarget.revision}
+          onClose={() => setBlameTarget(null)}
+          onJumpToCommitHash={(targetHash) => void jumpToCommitHash(targetHash)}
+          onOpenHistory={(targetPath, rev) =>
+            setFileHistoryTarget({ path: targetPath, revision: rev ?? null })
+          }
+        />
+      )}
+      {repo && comparePair && (
+        <CompareDialog
+          key={`cmp:${repo.id}:${comparePair.base.hash}:${comparePair.target.hash}`}
+          repoId={repo.id}
+          base={comparePair.base}
+          target={comparePair.target}
+          onClose={() => setComparePair(null)}
+          onSwap={() =>
+            setComparePair((pair) =>
+              pair ? { base: pair.target, target: pair.base } : null,
+            )
+          }
         />
       )}
       {repo && replay !== undefined && (
@@ -2586,6 +2765,18 @@ function App() {
           onCommitted={refresh}
           onBranches={() => setView("branches")}
           onTrustChange={(allowed) => updateRepoTrust(repo.id, allowed)}
+          onFileHistory={(targetPath) =>
+            setFileHistoryTarget({
+              path: targetPath,
+              revision: repo.head ?? null,
+            })
+          }
+          onFileBlame={(targetPath) =>
+            setBlameTarget({
+              path: targetPath,
+              revision: repo.head ?? null,
+            })
+          }
         />
       )}
       {repo && (
@@ -2720,6 +2911,15 @@ function App() {
                   : `${commits.length} cargados`}
             </span>
           </div>
+          <button
+            type="button"
+            className="button history-deep-search-btn"
+            disabled={!repo || writing}
+            onClick={() => setSearchDialogMode("history")}
+            title="Buscar en todo el historial y en código fuente (⌘⇧F)"
+          >
+            Búsqueda avanzada…
+          </button>
           <div className="history-controls">
             <details className="history-options">
               <summary>Vista</summary>
@@ -2784,6 +2984,22 @@ function App() {
         {repo?.shallow && (
           <div className="banner warning">
             Repositorio shallow: Git sólo dispone de una parte del historial.
+          </div>
+        )}
+        {repo && compareAnchor && (
+          <div className="banner notice compare-anchor-banner" role="status">
+            <span>
+              Comparando desde <code>{short(compareAnchor.hash)}</code>: haz
+              clic en otro commit (o usa <code>Shift+Click</code>) para ver el
+              diff de rango.
+            </span>
+            <button
+              type="button"
+              className="button"
+              onClick={() => setCompareAnchor(null)}
+            >
+              Cancelar
+            </button>
           </div>
         )}
         {repo && !query && (
@@ -3256,7 +3472,10 @@ function App() {
                     {commitFiles.map((file) => {
                       const activeFile = selectedFile?.path === file.path;
                       return (
-                        <li key={`${file.status}:${file.path}`}>
+                        <li
+                          key={`${file.status}:${file.path}`}
+                          className="commit-file-item"
+                        >
                           <button
                             type="button"
                             className={`commit-file-row${activeFile ? " selected" : ""}`}
@@ -3297,6 +3516,40 @@ function App() {
                               )}
                             </span>
                           </button>
+                          <div className="commit-file-tools">
+                            <button
+                              type="button"
+                              className="button commit-file-tool"
+                              aria-label="Historial del archivo"
+                              title={`Ver historial de ${file.path}`}
+                              disabled={writing}
+                              onClick={() =>
+                                setFileHistoryTarget({
+                                  path: file.path,
+                                  revision: active.hash,
+                                })
+                              }
+                            >
+                              Historial
+                            </button>
+                            <button
+                              type="button"
+                              className="button commit-file-tool"
+                              aria-label="Blame del archivo"
+                              title={`Ver blame de ${file.path}`}
+                              disabled={
+                                writing || file.status === "D" || file.binary
+                              }
+                              onClick={() =>
+                                setBlameTarget({
+                                  path: file.path,
+                                  revision: active.hash,
+                                })
+                              }
+                            >
+                              Blame
+                            </button>
+                          </div>
                         </li>
                       );
                     })}

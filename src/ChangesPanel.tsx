@@ -34,6 +34,8 @@ interface Props {
   onCommitted: () => Promise<boolean>;
   onBranches?: () => void;
   onTrustChange?: (trusted: boolean) => void;
+  onFileHistory?: (path: string) => void;
+  onFileBlame?: (path: string) => void;
 }
 interface Selection {
   path: string;
@@ -59,6 +61,8 @@ export default function ChangesPanel({
   onCommitted,
   onBranches,
   onTrustChange,
+  onFileHistory,
+  onFileBlame,
 }: Props) {
   const [state, setState] = useState<ChangesState | null>(null);
   const [amendOpen, setAmendOpen] = useState(false);
@@ -1145,6 +1149,34 @@ export default function ChangesPanel({
                       </button>
                     </>
                   )}
+                {!selectedEntry?.untracked && !selectedEntry?.submodule && (
+                  <>
+                    {onFileHistory && (
+                      <button
+                        type="button"
+                        className="button"
+                        disabled={writing}
+                        aria-label="Historial del archivo"
+                        title={`Ver historial de ${selected.path}`}
+                        onClick={() => onFileHistory(selected.path)}
+                      >
+                        Historial
+                      </button>
+                    )}
+                    {onFileBlame && (
+                      <button
+                        type="button"
+                        className="button"
+                        disabled={writing}
+                        aria-label="Blame del archivo"
+                        title={`Ver blame de ${selected.path}`}
+                        onClick={() => onFileBlame(selected.path)}
+                      >
+                        Blame
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             </div>
             <div className="diff-body" aria-busy={diffLoading}>

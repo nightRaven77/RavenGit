@@ -1911,3 +1911,250 @@ it("solicita autorización al abrir un repositorio no autorizado, recuerda solo 
     }),
   ).toBeTruthy();
 });
+
+it("abre Búsqueda avanzada y salta al inspector para un commit fuera de los primeros cargados", async () => {
+  const fallback = api.getMockImplementation()!;
+  const remoteCommit = {
+    hash: "f".repeat(40),
+    parents: [],
+    author: "Historial Profundo",
+    date: "2024-05-01T09:00:00Z",
+    subject: "commit histórico lejano",
+  };
+  api.mockImplementation(async (command, args) => {
+    if (command === "search_history") {
+      return {
+        commits: [remoteCommit],
+        nextOffset: null,
+        truncated: false,
+      };
+    }
+    if (command === "read_search_match_diff") {
+      return {
+        hash: remoteCommit.hash,
+        text: "diff --git a/old.ts b/old.ts\n--- a/old.ts\n+++ b/old.ts\n@@ -1 +1 @@\n+export const legacy = true;",
+      };
+    }
+    if (command === "read_commit_files") {
+      const { hash: targetHash } = args as { hash: string };
+      return { hash: targetHash, parent: null, parentCount: 0, files: [] };
+    }
+    if (command === "read_commit_diff") {
+      const { hash: targetHash } = args as { hash: string };
+      return {
+        hash: targetHash,
+        text:
+          targetHash === remoteCommit.hash
+            ? "diff --git a/old.ts b/old.ts\n+export const legacy = true;"
+            : "diff fixture",
+        parent: null,
+        parentCount: 0,
+      };
+    }
+    return fallback(command, args);
+  });
+
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Búsqueda avanzada…" }),
+  );
+  const dialogEl = await screen.findByRole("dialog");
+  await userEvent.type(within(dialogEl).getByLabelText("Mensaje"), "histórico");
+  await userEvent.click(
+    within(dialogEl).getByRole("button", { name: "Buscar" }),
+  );
+
+  expect(
+    await within(dialogEl).findByRole("heading", {
+      name: "commit histórico lejano",
+    }),
+  ).toBeTruthy();
+  await userEvent.click(
+    within(dialogEl).getByRole("button", { name: "Ir al commit" }),
+  );
+
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("read_commit_diff", {
+      id: repo.id,
+      hash: remoteCommit.hash,
+      parentIndex: 0,
+    }),
+  );
+  const inspector = document.getElementById("commit-inspector") as HTMLElement;
+  expect(
+    await within(inspector).findByRole("heading", {
+      name: "commit histórico lejano",
+    }),
+  ).toBeTruthy();
+  expect(
+    within(inspector).getAllByText("Historial Profundo").length,
+  ).toBeGreaterThan(0);
+});
+
+it("permite comparar dos commits con Shift+Click y abrir Historial (--follow) y Blame desde archivos del inspector", async () => {
+  const fallback = api.getMockImplementation()!;
+  const commitOld = {
+    hash: "c".repeat(40),
+    parents: [],
+    author: "Alice",
+    date: "2026-01-05T10:00:00Z",
+    subject: "commit antiguo",
+  };
+  const commitNew = {
+    hash: "d".repeat(40),
+    parents: [commitOld.hash],
+    author: "Bob",
+    date: "2026-02-05T10:00:00Z",
+    subject: "commit reciente",
+  };
+  const rangeRepo = {
+    ...repo,
+    head: commitNew.hash,
+    page: {
+      commits: [commitNew, commitOld],
+      nextOffset: null,
+      generation: "range-gen",
+    },
+  };
+
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") return structuredClone(rangeRepo);
+    if (command === "read_commit_files") {
+      const { hash: targetHash } = args as { hash: string };
+      return {
+        hash: targetHash,
+        parent: commitOld.hash,
+        parentCount: 1,
+        files: [
+          {
+            path: "src/modulo.ts",
+            oldPath: null,
+            status: "M",
+            additions: 3,
+            deletions: 1,
+            binary: false,
+          },
+        ],
+      };
+    }
+    if (command === "read_range_files") {
+      return {
+        base: commitOld.hash,
+        target: commitNew.hash,
+        files: [
+          {
+            path: "src/modulo.ts",
+            oldPath: null,
+            status: "M",
+            additions: 3,
+            deletions: 1,
+            binary: false,
+          },
+        ],
+      };
+    }
+    if (command === "read_range_diff") {
+      return {
+        base: commitOld.hash,
+        target: commitNew.hash,
+        text: "diff --git a/src/modulo.ts b/src/modulo.ts\n+export const range = true;",
+      };
+    }
+    if (command === "read_file_history") {
+      return {
+        path: "src/modulo.ts",
+        entries: [
+          {
+            commit: commitNew,
+            path: "src/modulo.ts",
+            oldPath: null,
+            status: "M",
+          },
+        ],
+        nextOffset: null,
+      };
+    }
+    if (command === "read_file_blame") {
+      return {
+        path: "src/modulo.ts",
+        commit: commitNew.hash,
+        lines: [
+          {
+            lineNumber: 1,
+            hash: commitOld.hash,
+            author: "Alice",
+            date: "2026-01-05",
+            summary: "commit antiguo",
+            content: "export const base = 1;",
+          },
+        ],
+      };
+    }
+    return fallback(command, args);
+  });
+
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  // Shift+Click entre commit reciente (seleccionado) y commit antiguo abre CompareDialog
+  const oldRow = await screen.findByRole("button", { name: /commit antiguo/ });
+  fireEvent.click(oldRow, { shiftKey: true });
+
+  const compareModal = await screen.findByRole("dialog");
+  expect(
+    within(compareModal).getByRole("heading", {
+      name: new RegExp(
+        `Comparar ${commitOld.hash.slice(0, 8)} → ${commitNew.hash.slice(0, 8)}`,
+      ),
+    }),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("read_range_diff", {
+      id: rangeRepo.id,
+      base: commitOld.hash,
+      target: commitNew.hash,
+      path: null,
+      oldPath: null,
+      ignoreWhitespace: false,
+      contextLines: 3,
+    }),
+  );
+  await userEvent.click(
+    within(compareModal).getByRole("button", {
+      name: "Cerrar comparación de commits",
+    }),
+  );
+
+  // Botones Historial y Blame en el archivo del Inspector abren sus respectivos modales
+  const historyBtn = await screen.findByRole("button", {
+    name: "Historial del archivo",
+  });
+  await userEvent.click(historyBtn);
+  const fhModal = await screen.findByRole("dialog");
+  expect(
+    within(fhModal).getByRole("heading", {
+      name: "Historial de src/modulo.ts",
+    }),
+  ).toBeTruthy();
+  await userEvent.click(
+    within(fhModal).getByRole("button", {
+      name: "Cerrar historial de archivo",
+    }),
+  );
+
+  const blameBtn = await screen.findByRole("button", {
+    name: "Blame del archivo",
+  });
+  await userEvent.click(blameBtn);
+  const blameModal = await screen.findByRole("dialog");
+  expect(
+    within(blameModal).getByRole("heading", { name: "Blame de src/modulo.ts" }),
+  ).toBeTruthy();
+  expect(
+    await within(blameModal).findByText("export const base = 1;"),
+  ).toBeTruthy();
+});

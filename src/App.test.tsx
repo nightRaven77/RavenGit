@@ -1260,3 +1260,91 @@ it("lista archivos del commit, solicita diff por archivo individual y abre menú
   fireEvent.keyDown(window, { key: ",", ctrlKey: true });
   await screen.findByRole("heading", { name: "Apariencia y colores" });
 });
+
+it("agrupa ramas con prefijo en el sidebar, permite redimensionar el inspector y copiar hash desde cabecera", async () => {
+  const fallback = api.getMockImplementation()!;
+  const hashA = "a".repeat(40);
+  const hashB = "b".repeat(40);
+  const groupedRepo = {
+    ...repo,
+    head: hashA,
+    branch: "feature/auth",
+    refs: [
+      { name: "refs/heads/main", hash: hashA, kind: "branch" as const },
+      { name: "refs/heads/feature/auth", hash: hashA, kind: "branch" as const },
+      { name: "refs/heads/feature/ui", hash: hashB, kind: "branch" as const },
+    ],
+    page: {
+      commits: [
+        {
+          hash: hashA,
+          parents: [hashB],
+          author: "Ada",
+          date: "2026-04-11T08:00:00Z",
+          subject: "feat: login",
+        },
+        {
+          hash: hashB,
+          parents: [],
+          author: "Ada",
+          date: "2026-04-10T08:00:00Z",
+          subject: "base",
+        },
+      ],
+      nextOffset: null,
+      generation: 1,
+    },
+  };
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") return structuredClone(groupedRepo);
+    if (command === "read_commit_files") {
+      return { hash: hashA, parent: hashB, parentCount: 1, files: [] };
+    }
+    return fallback(command, args);
+  });
+
+  await opened();
+
+  // Agrupación visual de ramas locales con `/` conservando nombre accesible y clic
+  const sidebarSections = document.querySelector(
+    ".sidebar-sections",
+  ) as HTMLElement;
+  const authBranchBtn = within(sidebarSections).getByRole("button", {
+    name: /^feature\/auth/,
+  });
+  const uiBranchBtn = within(sidebarSections).getByRole("button", {
+    name: /^feature\/ui/,
+  });
+  expect(authBranchBtn.closest("details.branch-folder")).toBeTruthy();
+  await userEvent.click(uiBranchBtn);
+  expect(uiBranchBtn.getAttribute("title")).toContain("feature/ui");
+
+  // Separador vertical redimensionable por teclado
+  const mainShell = document.querySelector(
+    "main.workspace-shell",
+  ) as HTMLElement;
+  const separator = screen.getByRole("separator", {
+    name: "Redimensionar panel de detalle",
+  });
+  expect(separator.getAttribute("aria-valuenow")).toBe("38");
+  fireEvent.keyDown(separator, { key: "ArrowLeft" });
+  expect(separator.getAttribute("aria-valuenow")).toBe("40");
+  expect(mainShell.style.getPropertyValue("--inspector-size")).toBe("40%");
+  fireEvent.keyDown(separator, { key: "ArrowRight" });
+  expect(separator.getAttribute("aria-valuenow")).toBe("38");
+
+  // Barra compacta de historial unificada con alcance, búsqueda, Ir a HEAD, Vista y toggle inspector
+  expect(screen.getByRole("combobox", { name: "Mostrar" })).toBeTruthy();
+  expect(
+    screen.getByRole("textbox", { name: "Buscar en commits cargados" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Ir a HEAD" })).toBeTruthy();
+  expect(screen.getByText("Vista", { selector: "summary" })).toBeTruthy();
+
+  // Botón de copia rápida del hash en la cabecera del inspector
+  const copyHashBtn = screen.getByRole("button", {
+    name: /Copiar hash completo/,
+  });
+  await userEvent.click(copyHashBtn);
+  expect(await screen.findByText(/Hash copiado/)).toBeTruthy();
+});

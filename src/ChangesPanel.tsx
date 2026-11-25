@@ -879,6 +879,24 @@ export default function ChangesPanel({
                   group.entries.map((e) => {
                     const current =
                       selected?.path === e.path && selected.area === group.area;
+                    const statusCode = e.conflict
+                      ? "!"
+                      : e.untracked
+                        ? "?"
+                        : group.area === "staged"
+                          ? e.indexStatus
+                          : e.worktreeStatus;
+                    const statusClass = e.conflict
+                      ? "conflict"
+                      : e.untracked
+                        ? "untracked"
+                        : statusCode === "A"
+                          ? "added"
+                          : statusCode === "D"
+                            ? "deleted"
+                            : statusCode === "R" || statusCode === "C"
+                              ? "renamed"
+                              : "modified";
                     return (
                       <div
                         className={`change-file-row ${current ? "selected" : ""}`}
@@ -910,16 +928,8 @@ export default function ChangesPanel({
                           }
                           title={e.path}
                         >
-                          <span
-                            className={`file-status ${e.conflict ? "conflict" : ""}`}
-                          >
-                            {e.conflict
-                              ? "!"
-                              : e.untracked
-                                ? "?"
-                                : group.area === "staged"
-                                  ? e.indexStatus
-                                  : e.worktreeStatus}
+                          <span className={`file-status ${statusClass}`}>
+                            {statusCode}
                           </span>
                           <span className="change-path">{e.path}</span>
                           {e.submodule && <small>submódulo</small>}
@@ -955,11 +965,39 @@ export default function ChangesPanel({
                 : (state.branch ?? "Sin rama activa")}
             </span>
           </div>
-          <label htmlFor="commit-summary">Resumen del commit</label>
+          <div className="commit-field-head">
+            <label htmlFor="commit-summary">Resumen del commit</label>
+            <span
+              className={`commit-char-count${
+                summary.length > 72
+                  ? " danger"
+                  : summary.length > 50
+                    ? " warning"
+                    : ""
+              }`}
+              aria-live="polite"
+            >
+              {summary.length} / 72
+            </span>
+          </div>
           <input
             id="commit-summary"
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                (e.metaKey || e.ctrlKey) &&
+                e.key === "Enter" &&
+                canWrite &&
+                state?.author &&
+                state.branch &&
+                staged.length > 0 &&
+                summary.trim().length > 0
+              ) {
+                e.preventDefault();
+                void createCommit();
+              }
+            }}
             placeholder="Describe el cambio que vas a guardar"
             maxLength={500}
             disabled={writing}
@@ -971,6 +1009,20 @@ export default function ChangesPanel({
             id="commit-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                (e.metaKey || e.ctrlKey) &&
+                e.key === "Enter" &&
+                canWrite &&
+                state?.author &&
+                state.branch &&
+                staged.length > 0 &&
+                summary.trim().length > 0
+              ) {
+                e.preventDefault();
+                void createCommit();
+              }
+            }}
             placeholder="Contexto y motivo del cambio"
             maxLength={60000}
             rows={3}
@@ -988,30 +1040,33 @@ export default function ChangesPanel({
             Sólo se incluirán los archivos y bloques de «Preparados». Los hooks
             de Git pueden validar o modificar el contenido.
           </p>
-          <button
-            type="submit"
-            className="button primary"
-            disabled={
-              !canWrite ||
-              !state?.author ||
-              !state.branch ||
-              !staged.length ||
-              !summary.trim()
-            }
-          >
-            <CheckIcon />
-            {writing ? "Procesando…" : "Crear commit"}
-          </button>
-          <button
-            type="button"
-            className="button"
-            disabled={
-              !canWrite || !state?.head || !state.branch || !state.author
-            }
-            onClick={() => setAmendOpen(true)}
-          >
-            Reemplazar último commit…
-          </button>
+          <div className="commit-form-actions">
+            <button
+              type="button"
+              className="button"
+              disabled={
+                !canWrite || !state?.head || !state.branch || !state.author
+              }
+              onClick={() => setAmendOpen(true)}
+            >
+              Reemplazar último commit…
+            </button>
+            <button
+              type="submit"
+              className="button primary"
+              title="Crear commit (Ctrl+Enter / Cmd+Enter)"
+              disabled={
+                !canWrite ||
+                !state?.author ||
+                !state.branch ||
+                !staged.length ||
+                !summary.trim()
+              }
+            >
+              <CheckIcon />
+              {writing ? "Procesando…" : "Crear commit"}
+            </button>
+          </div>
         </form>
       </section>
       <aside
@@ -1031,54 +1086,62 @@ export default function ChangesPanel({
           <>
             <div className="change-diff-header">
               <code>{selected.path}</code>
-              {selectedEntry?.conflict && (
+              <div className="change-diff-actions">
+                {selectedEntry?.conflict && (
+                  <button
+                    className="button"
+                    disabled={writing || loading || !state?.trusted}
+                    onClick={() => setConflictPath(selected.path)}
+                  >
+                    Consultar conflicto…
+                  </button>
+                )}
                 <button
                   className="button"
-                  disabled={writing || loading || !state?.trusted}
-                  onClick={() => setConflictPath(selected.path)}
+                  disabled={
+                    !canWrite ||
+                    !!selectedEntry?.conflict ||
+                    !!selectedEntry?.submodule
+                  }
+                  onClick={() => apply(null)}
                 >
-                  Consultar conflicto…
+                  {selected.area === "staged" ? <MinusIcon /> : <PlusIcon />}
+                  {selected.area === "staged"
+                    ? "Quitar archivo de preparados"
+                    : "Preparar archivo"}
                 </button>
-              )}
-              <button
-                className="button"
-                disabled={
-                  !canWrite ||
-                  !!selectedEntry?.conflict ||
-                  !!selectedEntry?.submodule
-                }
-                onClick={() => apply(null)}
-              >
-                {selected.area === "staged" ? <MinusIcon /> : <PlusIcon />}
-                {selected.area === "staged"
-                  ? "Quitar archivo de preparados"
-                  : "Preparar archivo"}
-              </button>
-              {selected.area === "unstaged" &&
-                !selectedEntry?.conflict &&
-                !selectedEntry?.submodule &&
-                !selectedEntry?.untracked && (
-                  <>
-                    <button
-                      className="button"
-                      disabled={!canWrite}
-                      onClick={() =>
-                        setRestoreTarget({ path: selected.path, isRedo: false })
-                      }
-                    >
-                      Restaurar archivo…
-                    </button>
-                    <button
-                      className="button"
-                      disabled={!canWrite}
-                      onClick={() =>
-                        setRestoreTarget({ path: selected.path, isRedo: true })
-                      }
-                    >
-                      Rehacer…
-                    </button>
-                  </>
-                )}
+                {selected.area === "unstaged" &&
+                  !selectedEntry?.conflict &&
+                  !selectedEntry?.submodule &&
+                  !selectedEntry?.untracked && (
+                    <>
+                      <button
+                        className="button"
+                        disabled={!canWrite}
+                        onClick={() =>
+                          setRestoreTarget({
+                            path: selected.path,
+                            isRedo: false,
+                          })
+                        }
+                      >
+                        Restaurar archivo…
+                      </button>
+                      <button
+                        className="button"
+                        disabled={!canWrite}
+                        onClick={() =>
+                          setRestoreTarget({
+                            path: selected.path,
+                            isRedo: true,
+                          })
+                        }
+                      >
+                        Rehacer…
+                      </button>
+                    </>
+                  )}
+              </div>
             </div>
             <div className="diff-body" aria-busy={diffLoading}>
               {diffLoading ? (

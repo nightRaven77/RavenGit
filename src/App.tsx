@@ -199,12 +199,15 @@ function App() {
   const [historyScope, setHistoryScope] = useState("all");
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorSize, setInspectorSize] = useState(38);
+  const [draggingSplit, setDraggingSplit] = useState(false);
   const [authorWidth, setAuthorWidth] = useState(160);
   const [showHash, setShowHash] = useState(false);
   const [showDate, setShowDate] = useState(true);
   const request = useRef(0),
     filesRequest = useRef(0),
     diffRequest = useRef(0);
+  const mainShellRef = useRef<HTMLElement>(null);
+  const splitResizeCleanup = useRef<(() => void) | null>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const restoreSelectionPosition = useRef(false);
   const tableHeading = useRef<HTMLDivElement>(null);
@@ -219,6 +222,29 @@ function App() {
   useEffect(() => {
     applyAppearance(theme, graphPalette);
   }, [theme, graphPalette]);
+  useEffect(() => () => splitResizeCleanup.current?.(), []);
+  function startInspectorResize(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    splitResizeCleanup.current?.();
+    setDraggingSplit(true);
+    const move = (ev: PointerEvent) => {
+      const rect = mainShellRef.current?.getBoundingClientRect();
+      if (!rect || rect.width <= 0) return;
+      const pct = Math.round(((rect.right - ev.clientX) / rect.width) * 100);
+      setInspectorSize(Math.max(30, Math.min(60, pct)));
+    };
+    const stop = () => {
+      setDraggingSplit(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      splitResizeCleanup.current = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    splitResizeCleanup.current = stop;
+  }
   useEffect(() => {
     if (!isTauri()) return;
     let active = true;
@@ -1206,6 +1232,7 @@ function App() {
   };
   return (
     <main
+      ref={mainShellRef}
       className="app-shell workspace-shell"
       data-history={view === "history"}
       data-inspector={inspectorOpen}
@@ -1434,27 +1461,31 @@ function App() {
         </div>
       </div>
       <aside className="sidebar">
-        <button
-          className="library-launcher"
-          onClick={() => setLibraryOpen(true)}
-          disabled={busy || loadingMore || writing}
-        >
-          Repositorios <span aria-hidden="true">▾</span>
-        </button>
-        <button
-          className="button sidebar-create"
-          disabled={busy || loadingMore || writing}
-          onClick={() => setCreation("initialize")}
-        >
-          Nuevo repositorio…
-        </button>
-        <button
-          className="button sidebar-create"
-          disabled={busy || loadingMore || writing}
-          onClick={() => setCreation("clone")}
-        >
-          Clonar repositorio…
-        </button>
+        <div className="sidebar-repo-controls">
+          <button
+            className="library-launcher"
+            onClick={() => setLibraryOpen(true)}
+            disabled={busy || loadingMore || writing}
+          >
+            Repositorios <span aria-hidden="true">▾</span>
+          </button>
+          <div className="sidebar-quick-create">
+            <button
+              className="button sidebar-create"
+              disabled={busy || loadingMore || writing}
+              onClick={() => setCreation("initialize")}
+            >
+              Nuevo repositorio…
+            </button>
+            <button
+              className="button sidebar-create"
+              disabled={busy || loadingMore || writing}
+              onClick={() => setCreation("clone")}
+            >
+              Clonar repositorio…
+            </button>
+          </div>
+        </div>
         <div className="section-label">ESPACIO LOCAL</div>
         <div className="workspace-name">
           <OpenInNewWindowIcon />
@@ -1563,39 +1594,93 @@ function App() {
             { label: "RAMAS LOCALES", refs: branches },
             { label: "REFERENCIAS REMOTAS", refs: remotes },
             { label: "ETIQUETAS", refs: tags },
-          ].map((group) => (
-            <details key={group.label} open={group.label === "RAMAS LOCALES"}>
-              <summary>
-                {group.label}
-                <span>{group.refs.length}</span>
-              </summary>
-              {group.refs.length ? (
-                group.refs.map((r) => (
-                  <button
-                    className="branch-button"
-                    disabled={writing}
-                    key={r.name}
-                    onClick={() => jump(r.hash)}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      openRefContextMenu(r, event.clientX, event.clientY);
-                    }}
-                    title={`Localizar ${refName(r.name)} en el historial; no cambia la rama activa`}
-                  >
-                    <span className={`branch-dot ${r.kind}`} />
-                    <span className="truncate">{refName(r.name)}</span>
-                    {refName(r.name) === repo?.branch && (
-                      <span className="current-indicator">actual</span>
+          ].map((group) => {
+            const renderRefButton = (r: GitRef, prefix?: string) => {
+              const shortName = refName(r.name);
+              const leaf = prefix
+                ? shortName.slice(prefix.length + 1)
+                : shortName;
+              return (
+                <button
+                  className="branch-button"
+                  disabled={writing}
+                  key={r.name}
+                  onClick={() => jump(r.hash)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    openRefContextMenu(r, event.clientX, event.clientY);
+                  }}
+                  title={`Localizar ${shortName} en el historial; no cambia la rama activa`}
+                >
+                  <span className={`branch-dot ${r.kind}`} />
+                  <span className="truncate">
+                    {prefix ? (
+                      <>
+                        <span className="branch-prefix">{prefix}/</span>
+                        {leaf}
+                      </>
+                    ) : (
+                      shortName
                     )}
-                  </button>
-                ))
-              ) : (
-                <p className="sidebar-empty">
-                  {repo ? "Sin referencias" : "Abre un repositorio"}
-                </p>
-              )}
-            </details>
-          ))}
+                  </span>
+                  {shortName === repo?.branch && (
+                    <span className="current-indicator">actual</span>
+                  )}
+                </button>
+              );
+            };
+            const renderLocalBranches = () => {
+              const root: GitRef[] = [];
+              const folders = new Map<string, GitRef[]>();
+              for (const ref of group.refs) {
+                const name = refName(ref.name);
+                const slash = name.indexOf("/");
+                if (slash > 0) {
+                  const prefix = name.slice(0, slash);
+                  const bucket = folders.get(prefix);
+                  if (bucket) bucket.push(ref);
+                  else folders.set(prefix, [ref]);
+                } else {
+                  root.push(ref);
+                }
+              }
+              return (
+                <>
+                  {root.map((r) => renderRefButton(r))}
+                  {[...folders.entries()].map(([prefix, items]) => (
+                    <details key={prefix} className="branch-folder" open>
+                      <summary className="branch-folder-summary">
+                        {prefix}
+                        <span>{items.length}</span>
+                      </summary>
+                      <div className="branch-folder-items">
+                        {items.map((r) => renderRefButton(r, prefix))}
+                      </div>
+                    </details>
+                  ))}
+                </>
+              );
+            };
+            return (
+              <details key={group.label} open={group.label === "RAMAS LOCALES"}>
+                <summary>
+                  {group.label}
+                  <span>{group.refs.length}</span>
+                </summary>
+                {group.refs.length ? (
+                  group.label === "RAMAS LOCALES" ? (
+                    renderLocalBranches()
+                  ) : (
+                    group.refs.map((r) => renderRefButton(r))
+                  )
+                ) : (
+                  <p className="sidebar-empty">
+                    {repo ? "Sin referencias" : "Abre un repositorio"}
+                  </p>
+                )}
+              </details>
+            );
+          })}
         </div>
         <div className="sidebar-foot">
           <LockClosedIcon />
@@ -1660,10 +1745,90 @@ function App() {
         className="history-panel"
         aria-label="Historial del repositorio"
       >
-        <div className="panel-heading">
-          <div>
-            <div className="eyebrow">HISTORIAL</div>
-            <h1>Historial</h1>
+        <div className="history-toolbar">
+          <h1 className="sr-only">Historial</h1>
+          {repo && (
+            <div className="history-navigation">
+              <label className="sr-only" htmlFor="history-scope">
+                Mostrar
+              </label>
+              <select
+                id="history-scope"
+                title="Leer la ascendencia de una referencia sin cambiar de rama ni contactar remotos"
+                value={historyScope}
+                disabled={busy || loadingMore || writing}
+                onChange={(e) => void refresh(e.target.value, true)}
+              >
+                <option value="all">Todas las referencias</option>
+                <option value="HEAD" disabled={!repo.head}>
+                  Rama actual / HEAD
+                </option>
+                <optgroup label="Ramas locales">
+                  {branches.map((ref) => (
+                    <option key={ref.name} value={ref.name}>
+                      {refName(ref.name)}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Ramas remotas">
+                  {remotes.map((ref) => (
+                    <option key={ref.name} value={ref.name}>
+                      {refName(ref.name)}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+              <button
+                className="button"
+                disabled={!repo.head || busy || loadingMore || writing}
+                title="Localizar HEAD; si no está cargado, abrir su historial"
+                onClick={() => {
+                  if (commits.some((c) => c.hash === repo.head))
+                    jump(repo.head!);
+                  else void refresh("HEAD", true, true);
+                }}
+              >
+                Ir a HEAD
+              </button>
+              {busy && (
+                <span className="history-busy-badge" role="status">
+                  Leyendo historial…
+                </span>
+              )}
+            </div>
+          )}
+          <div className="searchbar history-search-inline">
+            <MagnifyingGlassIcon />
+            <label className="sr-only" htmlFor="history-search">
+              Buscar en commits cargados
+            </label>
+            <input
+              ref={searchInput}
+              id="history-search"
+              maxLength={500}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                scroll.current?.scrollTo({ top: 0 });
+              }}
+              placeholder="Buscar mensaje, autor o hash…"
+              disabled={!repo}
+            />
+            {query && (
+              <button
+                aria-label="Limpiar búsqueda"
+                onClick={() => setQuery("")}
+              >
+                ×
+              </button>
+            )}
+            <span role="status" aria-live="polite" aria-atomic="true">
+              {filtering
+                ? "Filtrando…"
+                : query
+                  ? `${visible.length} coincidencias`
+                  : `${commits.length} cargados`}
+            </span>
           </div>
           <div className="history-controls">
             <details className="history-options">
@@ -1731,79 +1896,6 @@ function App() {
             Repositorio shallow: Git sólo dispone de una parte del historial.
           </div>
         )}
-        {repo && (
-          <div className="history-navigation">
-            <label htmlFor="history-scope">Mostrar</label>
-            <select
-              id="history-scope"
-              title="Leer la ascendencia de una referencia sin cambiar de rama ni contactar remotos"
-              value={historyScope}
-              disabled={busy || loadingMore || writing}
-              onChange={(e) => void refresh(e.target.value, true)}
-            >
-              <option value="all">Todas las referencias</option>
-              <option value="HEAD" disabled={!repo.head}>
-                Rama actual / HEAD
-              </option>
-              <optgroup label="Ramas locales">
-                {branches.map((ref) => (
-                  <option key={ref.name} value={ref.name}>
-                    {refName(ref.name)}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Ramas remotas">
-                {remotes.map((ref) => (
-                  <option key={ref.name} value={ref.name}>
-                    {refName(ref.name)}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-            <button
-              className="button"
-              disabled={!repo.head || busy || loadingMore || writing}
-              title="Localizar HEAD; si no está cargado, abrir su historial"
-              onClick={() => {
-                if (commits.some((c) => c.hash === repo.head)) jump(repo.head!);
-                else void refresh("HEAD", true, true);
-              }}
-            >
-              Ir a HEAD
-            </button>
-            {busy && <span role="status">Leyendo historial…</span>}
-          </div>
-        )}
-        <div className="searchbar">
-          <MagnifyingGlassIcon />
-          <label className="sr-only" htmlFor="history-search">
-            Buscar en commits cargados
-          </label>
-          <input
-            ref={searchInput}
-            id="history-search"
-            maxLength={500}
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              scroll.current?.scrollTo({ top: 0 });
-            }}
-            placeholder="Buscar mensaje, autor o hash en lo cargado"
-            disabled={!repo}
-          />
-          {query && (
-            <button aria-label="Limpiar búsqueda" onClick={() => setQuery("")}>
-              ×
-            </button>
-          )}
-          <span role="status" aria-live="polite" aria-atomic="true">
-            {filtering
-              ? "Filtrando…"
-              : query
-                ? `${visible.length} coincidencias`
-                : `${commits.length} cargados`}
-          </span>
-        </div>
         {repo && !query && (
           <div className="history-table-header">
             <div
@@ -2012,9 +2104,46 @@ function App() {
         className="inspector history-inspector"
         aria-label="Detalle del commit"
       >
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Redimensionar panel de detalle"
+          aria-valuemin={30}
+          aria-valuemax={60}
+          aria-valuenow={inspectorSize}
+          tabIndex={0}
+          className={`inspector-resizer${draggingSplit ? " active" : ""}`}
+          onPointerDown={startInspectorResize}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") {
+              e.preventDefault();
+              setInspectorSize((v) => Math.min(60, v + 2));
+            } else if (e.key === "ArrowRight") {
+              e.preventDefault();
+              setInspectorSize((v) => Math.max(30, v - 2));
+            }
+          }}
+        />
         <div className="inspector-heading">
           <FileTextIcon />
           <h2>Detalle del commit</h2>
+          {active && (
+            <button
+              type="button"
+              className="inspector-hash-pill"
+              title="Copiar hash completo del commit"
+              aria-label={`Copiar hash completo ${short(active.hash)}`}
+              onClick={() => copyText(active.hash, "Hash copiado")}
+            >
+              <code>{short(active.hash)}</code>
+              <svg viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M4 1.5h5.5A1.5 1.5 0 0 1 11 3v5.5H9.8V3a.3.3 0 0 0-.3-.3H4V1.5Zm-1.5 2A1.5 1.5 0 0 0 1 5v5.5A1.5 1.5 0 0 0 2.5 12H8a1.5 1.5 0 0 0 1.5-1.5V5A1.5 1.5 0 0 0 8 3.5H2.5Zm0 1.2H8a.3.3 0 0 1 .3.3v5.5a.3.3 0 0 1-.3.3H2.5a.3.3 0 0 1-.3-.3V5a.3.3 0 0 1 .3-.3Z"
+                />
+              </svg>
+            </button>
+          )}
           <div
             className="commit-step-navigation"
             role="group"

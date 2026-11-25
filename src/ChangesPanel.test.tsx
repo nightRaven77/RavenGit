@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -10,7 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import ChangesPanel from "./ChangesPanel";
-import type { ChangesState, FileDiff } from "./types";
+import type { ChangesState, FileDiff, MutationResult } from "./types";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const api = vi.mocked(invoke);
 const entry = {
@@ -807,5 +808,127 @@ describe("Cambios y commits", () => {
     expect(
       screen.getByRole("button", { name: "Rehacer cambios" }),
     ).toBeTruthy();
+  });
+
+  it("muestra badges semánticos de estado incluyendo conflictos", async () => {
+    const statusEntries: ChangesState = {
+      ...base,
+      entries: [
+        {
+          path: "src/nuevo.ts",
+          indexStatus: "A",
+          worktreeStatus: " ",
+          untracked: false,
+          conflict: false,
+          submodule: false,
+        },
+        {
+          path: "src/editado.ts",
+          indexStatus: " ",
+          worktreeStatus: "M",
+          untracked: false,
+          conflict: false,
+          submodule: false,
+        },
+        {
+          path: "src/borrado.ts",
+          indexStatus: " ",
+          worktreeStatus: "D",
+          untracked: false,
+          conflict: false,
+          submodule: false,
+        },
+        {
+          path: "src/sin_seguimiento.ts",
+          indexStatus: "?",
+          worktreeStatus: "?",
+          untracked: true,
+          conflict: false,
+          submodule: false,
+        },
+        {
+          path: "src/conflicto.ts",
+          indexStatus: "U",
+          worktreeStatus: "U",
+          untracked: false,
+          conflict: true,
+          submodule: false,
+        },
+      ],
+    };
+    api.mockImplementation(async (command) => {
+      if (command === "read_changes") return statusEntries;
+      if (command === "read_file_diff") return preview;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    mount();
+    await screen.findByRole("button", { name: /src\/nuevo\.ts/ });
+    const badges = Array.from(document.querySelectorAll(".file-status")).map(
+      (el) => ({
+        text: el.textContent,
+        classes: [...el.classList],
+      }),
+    );
+    expect(
+      badges.some((b) => b.text === "A" && b.classes.includes("added")),
+    ).toBe(true);
+    expect(
+      badges.some((b) => b.text === "M" && b.classes.includes("modified")),
+    ).toBe(true);
+    expect(
+      badges.some((b) => b.text === "D" && b.classes.includes("deleted")),
+    ).toBe(true);
+    expect(
+      badges.some((b) => b.text === "?" && b.classes.includes("untracked")),
+    ).toBe(true);
+    expect(
+      badges.some((b) => b.text === "!" && b.classes.includes("conflict")),
+    ).toBe(true);
+  });
+
+  it("muestra contador 50/72 y envía commit con Ctrl+Enter", async () => {
+    const resolveCommitRef: { fn?: (value: MutationResult) => void } = {};
+    api.mockImplementation(async (command) => {
+      if (command === "read_changes") return staged;
+      if (command === "read_file_diff") return preview;
+      if (command === "create_commit") {
+        return new Promise<MutationResult>((resolve) => {
+          resolveCommitRef.fn = resolve;
+        });
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const user = userEvent.setup();
+    const { onCommitted } = mount();
+
+    await screen.findByRole("button", { name: /archivo ü\.txt/ });
+    const summary = screen.getByLabelText("Resumen del commit");
+    const counter = document.querySelector(".commit-char-count") as HTMLElement;
+    expect(counter.textContent).toBe("0 / 72");
+
+    await user.type(summary, "a".repeat(55));
+    expect(counter.textContent).toBe("55 / 72");
+    expect(counter.classList.contains("warning")).toBe(true);
+
+    await user.type(summary, "b".repeat(20));
+    expect(counter.textContent).toBe("75 / 72");
+    expect(counter.classList.contains("danger")).toBe(true);
+
+    fireEvent.keyDown(summary, { key: "Enter", ctrlKey: true });
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("create_commit", {
+        id: "repo-1",
+        token: staged.token,
+        message: "a".repeat(55) + "b".repeat(20),
+      }),
+    );
+    resolveCommitRef.fn?.({
+      commitHash: "c".repeat(40),
+      changes: { ...staged, token: "after-ctrl-enter", entries: [] },
+      warning: null,
+    });
+    await waitFor(() => expect(onCommitted).toHaveBeenCalledTimes(1));
   });
 });

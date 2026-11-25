@@ -46,6 +46,8 @@ export interface AppSettings {
   theme: ThemeId;
   graphPalette: GraphPaletteId;
   external: ExternalPreferences;
+  openTabs?: string[];
+  activeTab?: string | null;
 }
 
 export interface ThemeDefinition {
@@ -75,6 +77,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     customEditorPath: null,
     customEditorName: null,
   },
+  openTabs: [],
+  activeTab: null,
 };
 
 export const THEMES: readonly ThemeDefinition[] = [

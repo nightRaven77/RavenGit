@@ -78,6 +78,20 @@ export interface FileDiff {
   partialAllowed: boolean;
   partialReason: string | null;
 }
+export interface WorktreeSummary {
+  trusted: boolean;
+  staged: number;
+  unstaged: number;
+  untracked: number;
+  conflicts: number;
+  total: number;
+  operation: string | null;
+}
+export type RepoChangeKind = "worktree" | "git" | "both";
+export interface RepoChangedEvent {
+  id: string;
+  kind: RepoChangeKind;
+}
 export interface MutationResult {
   commitHash: string | null;
   changes: ChangesState | null;
@@ -242,3 +256,46 @@ export type RebaseState = {
   conflicts: string[];
   canContinue: boolean;
 };
+export interface WorktreeItem {
+  path: string;
+  name: string;
+  head: string | null;
+  branch: string | null;
+  detached: boolean;
+  bare: boolean;
+  main: boolean;
+  current: boolean;
+  locked: boolean;
+  lockReason: string | null;
+  prunable: boolean;
+  prunableReason: string | null;
+}
+export interface WorktreesState {
+  trusted: boolean;
+  currentPath: string;
+  worktrees: WorktreeItem[];
+  branches: string[];
+  restriction: string | null;
+}
+export interface WorktreeOutcome {
+  message: string;
+  createdPath: string | null;
+  state: WorktreesState;
+}
+export type AddWorktreeRequest =
+  | {
+      mode: "newBranch";
+      path: string;
+      branch: string;
+      baseRef: string | null;
+    }
+  | {
+      mode: "existingBranch";
+      path: string;
+      branch: string;
+    }
+  | {
+      mode: "detached";
+      path: string;
+      startPoint: string | null;
+    };

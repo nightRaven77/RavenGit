@@ -1,7 +1,7 @@
 # RavenGit · Plan Maestro de Mejoras
 
 Fecha: 22 de noviembre de 2026.  
-Estado: **aprobado** · **Fases 1 y 2 completadas** (Fases 3–5 pendientes).
+Estado: **aprobado** · **Fases 1, 2 y 3 completadas** (Fases 4–5 pendientes).
 
 Este documento reúne el plan maestro en cinco fases para la evolución de **RavenGit**, integrando ideas de referencia de **GitCraft**, **Tributary** y **GitKraken**, las metas del [Roadmap](../../ROADMAP.md) y los tres cambios prioritarios definidos para el producto (*Abrir en…*, *Grafo colorido* y *Explorador de colores y temas*).
 

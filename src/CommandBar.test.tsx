@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CommandBar from "./CommandBar";
 afterEach(cleanup);
@@ -126,4 +126,117 @@ it("muestra la pestaña activa, utilidades del encabezado y el slot externo", as
 
   await userEvent.click(screen.getByRole("button", { name: "Apariencia" }));
   expect(onAppearance).toHaveBeenCalledOnce();
+});
+
+it("gestiona múltiples pestañas: selección, cierre por botón/clic medio, reorden y bloqueo", async () => {
+  const onSelectTab = vi.fn();
+  const onCloseTab = vi.fn();
+  const onReorderTabs = vi.fn();
+  const tabs = [
+    {
+      id: "1",
+      name: "repo-uno",
+      path: "/fixture/repo-uno",
+      branch: "main",
+      dirtyCount: 2,
+    },
+    {
+      id: "2",
+      name: "repo-dos",
+      path: "/fixture/repo-dos",
+      branch: "feat/ui",
+    },
+  ];
+  const { rerender } = render(
+    <CommandBar
+      repo={{
+        name: "repo-uno",
+        path: "/fixture/repo-uno",
+        branch: "main",
+        head: "a".repeat(40),
+      }}
+      tabs={tabs}
+      activeTabId="1"
+      onSelectTab={onSelectTab}
+      onCloseTab={onCloseTab}
+      onReorderTabs={onReorderTabs}
+      locked={false}
+      onOpen={vi.fn()}
+      onRefresh={vi.fn()}
+      onChanges={vi.fn()}
+      onFetch={vi.fn()}
+      onPush={vi.fn()}
+      onPull={vi.fn()}
+      onBranches={vi.fn()}
+      onSearch={vi.fn()}
+      onStash={vi.fn()}
+    />,
+  );
+
+  const tabOne = screen.getByRole("tab", { name: /repo-uno/ });
+  const tabTwo = screen.getByRole("tab", { name: /repo-dos/ });
+  expect(tabOne.getAttribute("aria-selected")).toBe("true");
+  expect(tabTwo.getAttribute("aria-selected")).toBe("false");
+  expect(screen.getByLabelText("2 cambios").textContent).toBe("2");
+
+  await userEvent.click(tabTwo);
+  expect(onSelectTab).toHaveBeenCalledWith("2");
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Cerrar repo-dos" }),
+  );
+  expect(onCloseTab).toHaveBeenCalledWith("2");
+
+  fireEvent.mouseUp(tabTwo, { button: 1 });
+  fireEvent(tabTwo, new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+  expect(onCloseTab).toHaveBeenCalledTimes(2);
+
+  const dataTransfer = {
+    data: "",
+    effectAllowed: "move",
+    setData(_type: string, val: string) {
+      this.data = val;
+    },
+    getData() {
+      return this.data;
+    },
+  };
+  fireEvent.dragStart(tabOne, { dataTransfer });
+  const wrapTwo = tabTwo.closest(".repo-tab-wrap")!;
+  fireEvent.dragOver(wrapTwo, { dataTransfer });
+  fireEvent.drop(wrapTwo, { dataTransfer });
+  expect(onReorderTabs).toHaveBeenCalledWith("1", "2");
+
+  rerender(
+    <CommandBar
+      repo={{
+        name: "repo-uno",
+        path: "/fixture/repo-uno",
+        branch: "main",
+        head: "a".repeat(40),
+      }}
+      tabs={tabs}
+      activeTabId="1"
+      onSelectTab={onSelectTab}
+      onCloseTab={onCloseTab}
+      onReorderTabs={onReorderTabs}
+      locked={true}
+      onOpen={vi.fn()}
+      onRefresh={vi.fn()}
+      onChanges={vi.fn()}
+      onFetch={vi.fn()}
+      onPush={vi.fn()}
+      onPull={vi.fn()}
+      onBranches={vi.fn()}
+      onSearch={vi.fn()}
+      onStash={vi.fn()}
+    />,
+  );
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Cerrar repo-uno",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
 });

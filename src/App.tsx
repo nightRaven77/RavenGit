@@ -1,5 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -19,7 +20,11 @@ import type {
   CommitFiles,
   GitRef,
   HistoryPage,
+  RepoChangedEvent,
   Snapshot,
+  WorktreeItem,
+  WorktreeSummary,
+  WorktreesState,
 } from "./types";
 import "./themes.css";
 import "./App.css";
@@ -53,6 +58,7 @@ import CommandBar from "./CommandBar";
 import BranchesPanel from "./BranchesPanel";
 import DiffViewer, { DiffModeControl } from "./DiffViewer";
 import StashDialog from "./StashDialog";
+import WorktreeDialog from "./WorktreeDialog";
 import ConflictRestoreDialog from "./ConflictRestoreDialog";
 import ReplayDialog, { type ReplayTarget } from "./ReplayDialog";
 import TagDialog from "./TagDialog";
@@ -124,6 +130,49 @@ function RefBadgeIcon({
     </svg>
   );
 }
+type RepoView =
+  "history" | "changes" | "remotes" | "push" | "branches" | "pull";
+
+const MAX_OPEN_TABS = 12;
+
+interface TabEntry {
+  snapshot: Snapshot;
+  view: RepoView;
+  lastSyncView: "remotes" | "pull" | "push";
+  selected: string | null;
+  historyScope: string;
+  query: string;
+  inspectorOpen: boolean;
+  inspectorSize: number;
+  authorWidth: number;
+  showDate: boolean;
+  showHash: boolean;
+  preferencesRepo: string | null;
+  branchPreselect: string | null;
+  wip: WorktreeSummary | null;
+  worktrees: WorktreesState | null;
+}
+
+function defaultTabEntry(snapshot: Snapshot): TabEntry {
+  return {
+    snapshot,
+    view: "history",
+    lastSyncView: "remotes",
+    selected: null,
+    historyScope: "all",
+    query: "",
+    inspectorOpen: true,
+    inspectorSize: 38,
+    authorWidth: 160,
+    showDate: true,
+    showHash: false,
+    preferencesRepo: null,
+    branchPreselect: null,
+    wip: null,
+    worktrees: null,
+  };
+}
+
 function App() {
   const [theme, setTheme] = useState<ThemeId>(
     () => loadCachedAppearance().theme,
@@ -137,16 +186,29 @@ function App() {
     null,
   );
   const [appearanceOpen, setAppearanceOpen] = useState(false);
-  const [repo, setRepo] = useState<Snapshot | null>(null);
+  const [tabs, setTabs] = useState<TabEntry[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const tabsRef = useRef<TabEntry[]>([]);
+  const activeTabIdRef = useRef<string | null>(null);
+  const tabsTouchedRef = useRef(false);
+  const startupRestoredRef = useRef(false);
+  const lastFocusRefreshRef = useRef(0);
+  tabsRef.current = tabs;
+  activeTabIdRef.current = activeTabId;
+  const activeTab = useMemo(
+    () => tabs.find((item) => item.snapshot.id === activeTabId) ?? null,
+    [tabs, activeTabId],
+  );
+  const repo = activeTab?.snapshot ?? null;
+  const wip = activeTab?.wip ?? null;
+  const worktrees = activeTab?.worktrees?.worktrees ?? [];
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [preferencesRepo, setPreferencesRepo] = useState<string | null>(null);
   const [preferenceSave, setPreferenceSave] = useState<
     "pending" | "saved" | "failed"
   >("saved");
   const [saveAttempt, setSaveAttempt] = useState(0);
-  const [view, setView] = useState<
-    "history" | "changes" | "remotes" | "push" | "branches" | "pull"
-  >("history");
+  const [view, setView] = useState<RepoView>("history");
   const [lastSyncView, setLastSyncView] = useState<"remotes" | "pull" | "push">(
     "remotes",
   );
@@ -166,6 +228,7 @@ function App() {
   );
   const [activityOpen, setActivityOpen] = useState(false);
   const [stashOpen, setStashOpen] = useState(false);
+  const [worktreeOpen, setWorktreeOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [changesRevision, setChangesRevision] = useState(0);
   const [replay, setReplay] = useState<ReplayTarget | null | undefined>(
@@ -212,6 +275,10 @@ function App() {
   const restoreSelectionPosition = useRef(false);
   const tableHeading = useRef<HTMLDivElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
+  const writingRef = useRef(writing);
+  const historyScopeRef = useRef(historyScope);
+  writingRef.current = writing;
+  historyScopeRef.current = historyScope;
   const commits = repo?.page.commits ?? [];
   const rows = useMemo(() => layoutGraph(commits), [commits]);
   const graphWidth = useMemo(() => graphPixelWidth(rows), [rows]);
@@ -251,10 +318,29 @@ function App() {
     void invoke<AppSettings>("read_app_settings")
       .then((loaded) => {
         if (!active || !loaded) return;
+        const resolvedTheme = isThemeId(loaded.theme) ? loaded.theme : theme;
+        const resolvedPalette = isGraphPaletteId(loaded.graphPalette)
+          ? loaded.graphPalette
+          : graphPalette;
+        const resolvedExternal = loaded.external ?? externalPreferences;
         if (isThemeId(loaded.theme)) setTheme(loaded.theme);
         if (isGraphPaletteId(loaded.graphPalette))
           setGraphPalette(loaded.graphPalette);
         if (loaded.external) setExternalPreferences(loaded.external);
+        if (
+          !startupRestoredRef.current &&
+          Array.isArray(loaded.openTabs) &&
+          loaded.openTabs.length > 0
+        ) {
+          startupRestoredRef.current = true;
+          void restoreStartupTabs(
+            loaded.openTabs,
+            loaded.activeTab ?? null,
+            resolvedTheme,
+            resolvedPalette,
+            resolvedExternal,
+          );
+        }
       })
       .catch(() => {});
     void invoke<ExternalAppsState>("read_external_apps")
@@ -275,16 +361,394 @@ function App() {
     if (!isTauri()) return;
     await invoke<AppSettings>("save_app_settings", { settings: next });
   }
+  function buildSettingsPayload(
+    nextTheme: ThemeId,
+    nextPalette: GraphPaletteId,
+    nextExternal: ExternalPreferences,
+    tabList: TabEntry[],
+    currentId: string | null,
+  ): AppSettings {
+    const payload: AppSettings = {
+      version: 1,
+      theme: nextTheme,
+      graphPalette: nextPalette,
+      external: nextExternal,
+    };
+    if (tabList.length > 0 || tabsTouchedRef.current) {
+      payload.openTabs = tabList.map((item) => item.snapshot.path);
+      payload.activeTab =
+        tabList.find((item) => item.snapshot.id === currentId)?.snapshot.path ??
+        null;
+    }
+    return payload;
+  }
+  function persistTabState(
+    nextTabs: TabEntry[],
+    nextActiveId: string | null,
+    overrideTheme = theme,
+    overridePalette = graphPalette,
+    overrideExternal = externalPreferences,
+  ) {
+    if (!isTauri()) return;
+    void persistSettings(
+      buildSettingsPayload(
+        overrideTheme,
+        overridePalette,
+        overrideExternal,
+        nextTabs,
+        nextActiveId,
+      ),
+    ).catch(() => {});
+  }
+  function snapshotCurrentUi(list: TabEntry[], currentId: string | null) {
+    if (!currentId) return list;
+    return list.map((item) =>
+      item.snapshot.id === currentId
+        ? {
+            ...item,
+            view,
+            lastSyncView,
+            selected,
+            historyScope,
+            query,
+            inspectorOpen,
+            inspectorSize,
+            authorWidth,
+            showDate,
+            showHash,
+            preferencesRepo,
+            branchPreselect,
+          }
+        : item,
+    );
+  }
+  function resetTransientInspectorState() {
+    setSelectedFile(null);
+    setCommitFiles(null);
+    setDiff(null);
+    setDiffError("");
+    setParentIndex(0);
+    setContextMenu(null);
+    setPaletteOpen(false);
+    setStashOpen(false);
+    setRestoreOpen(false);
+    setReplay(undefined);
+    setTagTarget(null);
+    setTagPublication(undefined);
+  }
+  function applyTabUi(tab: TabEntry | null) {
+    resetTransientInspectorState();
+    setError("");
+    setNotice("");
+    if (!tab) {
+      setView("history");
+      setLastSyncView("remotes");
+      setSelected(null);
+      setHistoryScope("all");
+      setQuery("");
+      setInspectorOpen(true);
+      setInspectorSize(38);
+      setAuthorWidth(160);
+      setShowDate(true);
+      setShowHash(false);
+      setPreferencesRepo(null);
+      setBranchPreselect(null);
+      return;
+    }
+    restoreSelectionPosition.current = !!tab.selected;
+    setView(tab.view);
+    setLastSyncView(tab.lastSyncView);
+    setSelected(tab.selected);
+    setHistoryScope(tab.historyScope);
+    setQuery(tab.query);
+    setInspectorOpen(tab.inspectorOpen);
+    setInspectorSize(tab.inspectorSize);
+    setAuthorWidth(tab.authorWidth);
+    setShowDate(tab.showDate);
+    setShowHash(tab.showHash);
+    setPreferencesRepo(tab.preferencesRepo);
+    setBranchPreselect(tab.branchPreselect);
+  }
+  async function refreshWip(targetId: string) {
+    if (!isTauri()) return;
+    try {
+      const summary = await invoke<WorktreeSummary>("read_worktree_summary", {
+        id: targetId,
+      });
+      setTabs((list) => {
+        const nextList = list.map((item) =>
+          item.snapshot.id === targetId ? { ...item, wip: summary } : item,
+        );
+        tabsRef.current = nextList;
+        return nextList;
+      });
+    } catch {
+      // Silencioso: no interrumpir la sesión si falla la lectura rápida de estado.
+    }
+  }
+  async function refreshWorktrees(targetId: string) {
+    if (!isTauri()) return;
+    try {
+      const wtState = await invoke<WorktreesState>("read_worktrees", {
+        id: targetId,
+      });
+      setTabs((list) => {
+        const nextList = list.map((item) =>
+          item.snapshot.id === targetId
+            ? { ...item, worktrees: wtState }
+            : item,
+        );
+        tabsRef.current = nextList;
+        return nextList;
+      });
+    } catch {
+      // Silencioso: no interrumpir si la lectura de worktrees falla puntualmente.
+    }
+  }
+  async function refreshTabBackground(targetId: string, scope: string) {
+    if (!isTauri()) return;
+    try {
+      let effectiveScope = scope;
+      let next: Snapshot;
+      try {
+        next = await invoke<Snapshot>("refresh_repository", {
+          id: targetId,
+          scope: effectiveScope,
+        });
+      } catch (err) {
+        const code =
+          typeof err === "object" && err && "code" in err
+            ? String((err as { code?: unknown }).code)
+            : "";
+        if (code === "INVALID_SCOPE" && effectiveScope !== "all") {
+          effectiveScope = "all";
+          next = await invoke<Snapshot>("refresh_repository", {
+            id: targetId,
+            scope: "all",
+          });
+        } else {
+          return;
+        }
+      }
+      setTabs((list) => {
+        const nextList = list.map((item) =>
+          item.snapshot.id === targetId
+            ? { ...item, snapshot: next, historyScope: effectiveScope }
+            : item,
+        );
+        tabsRef.current = nextList;
+        return nextList;
+      });
+      if (activeTabIdRef.current === targetId) {
+        setHistoryScope(effectiveScope);
+        setSelected((current) =>
+          next.page.commits.some((c) => c.hash === current)
+            ? current
+            : ((next.page.commits.some((c) => c.hash === next.head)
+                ? next.head
+                : null) ??
+              next.page.commits[0]?.hash ??
+              null),
+        );
+        setParentIndex(0);
+        setChangesRevision((value) => value + 1);
+      }
+    } catch {
+      // Silencioso al refrescar pestaña al cambiar el foco.
+    }
+  }
+  function activateTab(nextId: string) {
+    if (nextId === activeTabIdRef.current || writing || busy || loadingMore)
+      return;
+    const target = tabsRef.current.find((item) => item.snapshot.id === nextId);
+    if (!target) return;
+    const persisted = snapshotCurrentUi(
+      tabsRef.current,
+      activeTabIdRef.current,
+    );
+    tabsTouchedRef.current = true;
+    tabsRef.current = persisted;
+    activeTabIdRef.current = nextId;
+    setTabs(persisted);
+    setActiveTabId(nextId);
+    applyTabUi(target);
+    persistTabState(persisted, nextId);
+    if (isTauri()) {
+      void refreshWip(nextId);
+      void refreshWorktrees(nextId);
+      void refreshTabBackground(nextId, target.historyScope);
+    }
+  }
+  async function closeTab(targetId: string) {
+    if (writing || busy || loadingMore) return;
+    const currentTabs = tabsRef.current;
+    const index = currentTabs.findIndex(
+      (item) => item.snapshot.id === targetId,
+    );
+    if (index < 0) return;
+    try {
+      await invoke("close_repository", { id: targetId });
+    } catch (reason) {
+      setError(errorText(reason));
+      return;
+    }
+    const remaining = currentTabs.filter(
+      (item) => item.snapshot.id !== targetId,
+    );
+    const closingActive = targetId === activeTabIdRef.current;
+    const nextActive = closingActive
+      ? (remaining[Math.min(index, remaining.length - 1)] ?? null)
+      : (remaining.find(
+          (item) => item.snapshot.id === activeTabIdRef.current,
+        ) ?? null);
+    const nextActiveId = nextActive?.snapshot.id ?? null;
+    tabsTouchedRef.current = true;
+    tabsRef.current = remaining;
+    activeTabIdRef.current = nextActiveId;
+    setTabs(remaining);
+    setActiveTabId(nextActiveId);
+    if (closingActive) {
+      applyTabUi(nextActive);
+    }
+    persistTabState(remaining, nextActiveId);
+  }
+  function reorderTabs(fromId: string, toId: string) {
+    if (fromId === toId || writing || busy || loadingMore) return;
+    const list = [...tabsRef.current];
+    const fromIdx = list.findIndex((item) => item.snapshot.id === fromId);
+    const toIdx = list.findIndex((item) => item.snapshot.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    tabsTouchedRef.current = true;
+    tabsRef.current = list;
+    setTabs(list);
+    persistTabState(list, activeTabIdRef.current);
+  }
+  async function restoreStartupTabs(
+    paths: string[],
+    preferredPath: string | null,
+    resolvedTheme: ThemeId,
+    resolvedPalette: GraphPaletteId,
+    resolvedExternal: ExternalPreferences,
+  ) {
+    const openedList: TabEntry[] = [];
+    const failedPaths: string[] = [];
+    for (const targetPath of paths.slice(0, MAX_OPEN_TABS)) {
+      if (tabsRef.current.some((item) => item.snapshot.path === targetPath)) {
+        continue;
+      }
+      try {
+        let next = await invoke<Snapshot>("open_repository", {
+          path: targetPath,
+        });
+        let saved: HistoryPreferences | undefined;
+        let remembered = false;
+        try {
+          const library = await invoke<RepositoryLibrary>(
+            "remember_repository",
+            { id: next.id },
+          );
+          saved = library.repositories.find(
+            (entry) => entry.path === next.path,
+          )?.preferences;
+          remembered = true;
+        } catch {
+          // Optional library metadata failure should not prevent restoring the tab.
+        }
+        let restoredScope = saved?.scope ?? "all";
+        if (restoredScope !== "all") {
+          const available =
+            restoredScope === "HEAD"
+              ? !!next.head
+              : next.refs.some((ref) => ref.name === restoredScope);
+          if (available) {
+            try {
+              next = await invoke<Snapshot>("refresh_repository", {
+                id: next.id,
+                scope: restoredScope,
+              });
+            } catch {
+              restoredScope = "all";
+            }
+          } else {
+            restoredScope = "all";
+          }
+        }
+        const entry = defaultTabEntry(next);
+        entry.historyScope = restoredScope;
+        entry.inspectorOpen = saved?.inspectorOpen ?? true;
+        entry.inspectorSize = saved?.inspectorSize ?? 38;
+        entry.authorWidth = saved?.authorWidth ?? 160;
+        entry.showDate = saved?.showDate ?? true;
+        entry.showHash = saved?.showHash ?? false;
+        entry.query = saved?.query ?? "";
+        entry.preferencesRepo = remembered ? next.id : null;
+        entry.selected =
+          (next.page.commits.some((c) => c.hash === saved?.selectedCommit)
+            ? saved!.selectedCommit
+            : null) ??
+          (next.page.commits.some((c) => c.hash === next.head)
+            ? next.head
+            : null) ??
+          next.page.commits[0]?.hash ??
+          null;
+        openedList.push(entry);
+      } catch {
+        failedPaths.push(targetPath);
+      }
+    }
+    if (!openedList.length) {
+      if (failedPaths.length) {
+        setNotice(
+          "No se pudieron restaurar las pestañas anteriores porque sus carpetas no están disponibles.",
+        );
+      }
+      return;
+    }
+    const merged = [...tabsRef.current];
+    for (const entry of openedList) {
+      if (!merged.some((item) => item.snapshot.id === entry.snapshot.id)) {
+        merged.push(entry);
+      }
+    }
+    const target =
+      merged.find((item) => item.snapshot.path === preferredPath) ??
+      openedList[0];
+    tabsTouchedRef.current = true;
+    tabsRef.current = merged;
+    activeTabIdRef.current = target.snapshot.id;
+    setTabs(merged);
+    setActiveTabId(target.snapshot.id);
+    applyTabUi(target);
+    persistTabState(
+      merged,
+      target.snapshot.id,
+      resolvedTheme,
+      resolvedPalette,
+      resolvedExternal,
+    );
+    void refreshWip(target.snapshot.id);
+    void refreshWorktrees(target.snapshot.id);
+    if (failedPaths.length) {
+      setNotice(
+        `No se restauraron ${failedPaths.length} pestañas porque sus rutas ya no están disponibles.`,
+      );
+    }
+  }
   function changeAppearance(nextTheme: ThemeId, nextPalette: GraphPaletteId) {
     setTheme(nextTheme);
     setGraphPalette(nextPalette);
     applyAppearance(nextTheme, nextPalette);
-    void persistSettings({
-      version: 1,
-      theme: nextTheme,
-      graphPalette: nextPalette,
-      external: externalPreferences,
-    }).catch((reason) =>
+    void persistSettings(
+      buildSettingsPayload(
+        nextTheme,
+        nextPalette,
+        externalPreferences,
+        tabsRef.current,
+        activeTabIdRef.current,
+      ),
+    ).catch((reason) =>
       setNotice(
         `No se pudo guardar la apariencia en disco: ${errorText(reason)}`,
       ),
@@ -295,12 +759,15 @@ function App() {
     setExternalApps((current) =>
       current ? { ...current, preferences: nextExternal } : current,
     );
-    await persistSettings({
-      version: 1,
-      theme,
-      graphPalette,
-      external: nextExternal,
-    });
+    await persistSettings(
+      buildSettingsPayload(
+        theme,
+        graphPalette,
+        nextExternal,
+        tabsRef.current,
+        activeTabIdRef.current,
+      ),
+    );
     await reloadExternalApps();
   }
   const historyColumns = `${graphWidth}px minmax(240px,1fr) ${authorWidth}px${showDate ? " 90px" : ""}${showHash ? " 80px" : ""}`;
@@ -420,6 +887,18 @@ function App() {
       selectedCommit: selected || null,
     };
   }
+  async function openRepositoryPath(path: string) {
+    const existing = tabsRef.current.find(
+      (item) => item.snapshot.path === path,
+    );
+    if (existing) {
+      if (existing.snapshot.id !== activeTabIdRef.current) {
+        activateTab(existing.snapshot.id);
+      }
+      return true;
+    }
+    return choose(path);
+  }
   async function choose(knownPath?: string) {
     if (!isTauri()) {
       setError(
@@ -455,6 +934,17 @@ function App() {
       }
       setPreferencesRepo(null);
       let next = await invoke<Snapshot>("open_repository", { path });
+      const existing = tabsRef.current.find(
+        (item) =>
+          item.snapshot.id === next.id || item.snapshot.path === next.path,
+      );
+      if (!existing && tabsRef.current.length >= MAX_OPEN_TABS) {
+        void invoke("close_repository", { id: next.id }).catch(() => {});
+        setNotice(
+          `Ya hay ${MAX_OPEN_TABS} pestañas abiertas. Cierra una antes de abrir otro repositorio.`,
+        );
+        return false;
+      }
       let saved: HistoryPreferences | undefined;
       let remembered = false;
       try {
@@ -506,33 +996,64 @@ function App() {
         setNotice(
           "La selección guardada está fuera de los primeros 200 commits. Se seleccionó un commit disponible.",
         );
-      restoreSelectionPosition.current = !!saved?.selectedCommit;
-      setTagTarget(null);
-      setTagPublication(undefined);
-      setSelectedFile(null);
-      setCommitFiles(null);
-      setBranchPreselect(null);
-      setContextMenu(null);
-      setRepo(next);
-      setHistoryScope(restoredScope);
-      setInspectorOpen(saved?.inspectorOpen ?? true);
-      setInspectorSize(saved?.inspectorSize ?? 38);
-      setAuthorWidth(saved?.authorWidth ?? 160);
-      setShowDate(saved?.showDate ?? true);
-      setShowHash(saved?.showHash ?? false);
-      select(
+      const selectedHash =
         (next.page.commits.some((c) => c.hash === saved?.selectedCommit)
           ? saved!.selectedCommit
           : null) ??
-          (next.page.commits.some((c) => c.hash === next.head)
-            ? next.head
-            : null) ??
-          next.page.commits[0]?.hash ??
-          "",
+        (next.page.commits.some((c) => c.hash === next.head)
+          ? next.head
+          : null) ??
+        next.page.commits[0]?.hash ??
+        "";
+      const nextEntry: TabEntry = {
+        ...(existing ?? defaultTabEntry(next)),
+        snapshot: next,
+        historyScope: restoredScope,
+        inspectorOpen: saved?.inspectorOpen ?? existing?.inspectorOpen ?? true,
+        inspectorSize: saved?.inspectorSize ?? existing?.inspectorSize ?? 38,
+        authorWidth: saved?.authorWidth ?? existing?.authorWidth ?? 160,
+        showDate: saved?.showDate ?? existing?.showDate ?? true,
+        showHash: saved?.showHash ?? existing?.showHash ?? false,
+        query: saved?.query ?? existing?.query ?? "",
+        selected: selectedHash,
+        preferencesRepo: remembered ? next.id : null,
+        branchPreselect: null,
+      };
+      const updatedList = snapshotCurrentUi(
+        tabsRef.current,
+        activeTabIdRef.current,
       );
-      setQuery(saved?.query ?? "");
+      const nextTabs = existing
+        ? updatedList.map((item) =>
+            item.snapshot.id === nextEntry.snapshot.id ||
+            item.snapshot.path === nextEntry.snapshot.path
+              ? nextEntry
+              : item,
+          )
+        : [...updatedList, nextEntry];
+      tabsTouchedRef.current = true;
+      tabsRef.current = nextTabs;
+      activeTabIdRef.current = next.id;
+      setTabs(nextTabs);
+      setActiveTabId(next.id);
+      resetTransientInspectorState();
+      restoreSelectionPosition.current = !!saved?.selectedCommit;
+      setView(nextEntry.view);
+      setLastSyncView(nextEntry.lastSyncView);
+      setBranchPreselect(null);
+      setHistoryScope(restoredScope);
+      setInspectorOpen(nextEntry.inspectorOpen);
+      setInspectorSize(nextEntry.inspectorSize);
+      setAuthorWidth(nextEntry.authorWidth);
+      setShowDate(nextEntry.showDate);
+      setShowHash(nextEntry.showHash);
+      select(selectedHash);
+      setQuery(nextEntry.query);
       setPreferencesRepo(remembered ? next.id : null);
       scroll.current?.scrollTo({ top: 0, left: 0 });
+      persistTabState(nextTabs, next.id);
+      void refreshWip(next.id);
+      void refreshWorktrees(next.id);
       return true;
     } catch (e) {
       if (token === request.current) {
@@ -584,67 +1105,161 @@ function App() {
     nextScope = historyScope,
     resetPosition = false,
     locateHead = false,
+    silent = false,
   ) {
     if (!repo) return false;
+    const targetId = repo.id;
     const token = ++request.current;
-    setBusy(true);
-    setError("");
-    setNotice("");
+    if (!silent) {
+      setBusy(true);
+      setError("");
+      setNotice("");
+    }
     try {
-      const next = await invoke<Snapshot>("refresh_repository", {
-        id: repo.id,
-        scope: nextScope,
-      });
-      if (token !== request.current) return false;
-      setRepo(next);
-      setHistoryScope(nextScope);
-      if (resetPosition) {
-        setQuery("");
-        scroll.current?.scrollTo({ top: 0, left: 0 });
+      let effectiveScope = nextScope;
+      let next: Snapshot;
+      try {
+        next = await invoke<Snapshot>("refresh_repository", {
+          id: targetId,
+          scope: effectiveScope,
+        });
+      } catch (err) {
+        const code =
+          typeof err === "object" && err && "code" in err
+            ? String((err as { code?: unknown }).code)
+            : "";
+        if (code === "INVALID_SCOPE" && effectiveScope !== "all") {
+          effectiveScope = "all";
+          next = await invoke<Snapshot>("refresh_repository", {
+            id: targetId,
+            scope: "all",
+          });
+        } else {
+          throw err;
+        }
       }
-      setSelected((current) =>
-        locateHead && next.page.commits.some((c) => c.hash === next.head)
-          ? next.head
-          : next.page.commits.some((c) => c.hash === current)
-            ? current
-            : ((next.page.commits.some((c) => c.hash === next.head)
-                ? next.head
-                : null) ??
-              next.page.commits[0]?.hash ??
-              null),
+      if (token !== request.current) return false;
+      setTabs((list) =>
+        list.map((item) =>
+          item.snapshot.id === targetId
+            ? { ...item, snapshot: next, historyScope: effectiveScope }
+            : item,
+        ),
       );
-      setParentIndex(0);
+      if (activeTabIdRef.current === targetId) {
+        setHistoryScope(effectiveScope);
+        if (resetPosition) {
+          setQuery("");
+          scroll.current?.scrollTo({ top: 0, left: 0 });
+        }
+        setSelected((current) =>
+          locateHead && next.page.commits.some((c) => c.hash === next.head)
+            ? next.head
+            : next.page.commits.some((c) => c.hash === current)
+              ? current
+              : ((next.page.commits.some((c) => c.hash === next.head)
+                  ? next.head
+                  : null) ??
+                next.page.commits[0]?.hash ??
+                null),
+        );
+        setParentIndex(0);
+        setChangesRevision((value) => value + 1);
+      }
+      void refreshWip(targetId);
+      void refreshWorktrees(targetId);
       return true;
     } catch (e) {
-      if (token === request.current) setError(errorText(e));
+      if (!silent && token === request.current) setError(errorText(e));
       return false;
     } finally {
-      if (token === request.current) setBusy(false);
+      if (!silent && token === request.current) setBusy(false);
     }
   }
+  useEffect(() => {
+    if (!isTauri()) return;
+    void invoke("watch_repository", { id: activeTabId ?? null }).catch(
+      () => {},
+    );
+  }, [activeTabId]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    return () => {
+      void invoke("watch_repository", { id: null }).catch(() => {});
+    };
+  }, []);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<RepoChangedEvent>("ravengit://repo-changed", ({ payload }) => {
+      if (disposed || !payload || payload.id !== activeTabIdRef.current) return;
+      if (writingRef.current) return;
+      if (payload.kind === "worktree") {
+        void refreshWip(payload.id);
+        setChangesRevision((value) => value + 1);
+      } else {
+        void refreshTabBackground(payload.id, historyScopeRef.current);
+        void refreshWip(payload.id);
+        void refreshWorktrees(payload.id);
+      }
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+  useEffect(() => {
+    if (view === "history" && activeTabId && isTauri()) {
+      void refreshWip(activeTabId);
+    }
+  }, [view, activeTabId]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    const onFocus = () => {
+      if (!activeTabIdRef.current || writing || busy || loadingMore) return;
+      const now = Date.now();
+      if (now - lastFocusRefreshRef.current < 1500) return;
+      lastFocusRefreshRef.current = now;
+      void refresh(historyScope, false, false, true);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [repo?.id, historyScope, writing, busy, loadingMore]);
   async function more() {
     if (!repo || repo.page.nextOffset === null) return;
+    const targetId = repo.id;
     const token = request.current;
     setLoadingMore(true);
     setError("");
     try {
       const page = await invoke<HistoryPage>("read_history", {
-        id: repo.id,
+        id: targetId,
         offset: repo.page.nextOffset,
         generation: repo.page.generation,
         scope: historyScope,
       });
       if (token !== request.current) return;
-      setRepo((current) =>
-        current?.id === repo.id
-          ? {
-              ...current,
-              page: {
-                ...page,
-                commits: [...current.page.commits, ...page.commits],
-              },
-            }
-          : current,
+      setTabs((list) =>
+        list.map((item) =>
+          item.snapshot.id === targetId
+            ? {
+                ...item,
+                snapshot: {
+                  ...item.snapshot,
+                  page: {
+                    ...page,
+                    commits: [...item.snapshot.page.commits, ...page.commits],
+                  },
+                },
+              }
+            : item,
+        ),
       );
     } catch (e) {
       if (token === request.current) setError(errorText(e));
@@ -759,9 +1374,30 @@ function App() {
       }
       if (hasModalDialog || paletteOpen) return;
 
-      if (lower === "o") {
+      if (e.key === "Tab" && e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (tabsRef.current.length > 1 && !writing && !busy && !loadingMore) {
+          e.preventDefault();
+          const idx = tabsRef.current.findIndex(
+            (item) => item.snapshot.id === activeTabIdRef.current,
+          );
+          const step = e.shiftKey ? -1 : 1;
+          const nextIdx =
+            (Math.max(0, idx) + step + tabsRef.current.length) %
+            tabsRef.current.length;
+          activateTab(tabsRef.current[nextIdx].snapshot.id);
+        }
+        return;
+      }
+
+      if (lower === "o" || lower === "t") {
         e.preventDefault();
         if (!busy && !loadingMore && !writing) void choose();
+      } else if (lower === "w") {
+        if (!activeTabIdRef.current) return;
+        e.preventDefault();
+        if (!busy && !loadingMore && !writing) {
+          void closeTab(activeTabIdRef.current);
+        }
       } else if (e.key === ",") {
         e.preventDefault();
         if (!writing) setAppearanceOpen(true);
@@ -912,6 +1548,56 @@ function App() {
       items,
     });
   }
+  function openWorktreeContextMenu(wt: WorktreeItem, x: number, y: number) {
+    if (!repo) return;
+    const launchWt = (kind: "editor" | "terminal" | "explorer") => {
+      void invoke<{ message: string }>("open_worktree_external", {
+        id: repo.id,
+        path: wt.path,
+        kind,
+      })
+        .then((res) => setNotice(res.message))
+        .catch((reason) => setError(errorText(reason)));
+    };
+    setContextMenu({
+      x,
+      y,
+      label: `Acciones del worktree ${wt.name}`,
+      items: [
+        {
+          id: "wt-tab",
+          label: "Abrir en pestaña",
+          disabled: writing || wt.current || wt.prunable,
+          onSelect: () => void openRepositoryPath(wt.path),
+        },
+        {
+          id: "wt-editor",
+          label: "Abrir en editor",
+          disabled: writing || wt.prunable,
+          onSelect: () => launchWt("editor"),
+        },
+        {
+          id: "wt-terminal",
+          label: "Abrir en terminal",
+          disabled: writing || wt.prunable,
+          onSelect: () => launchWt("terminal"),
+        },
+        {
+          id: "wt-explorer",
+          label: "Mostrar en carpeta",
+          disabled: writing || wt.prunable,
+          onSelect: () => launchWt("explorer"),
+        },
+        {
+          id: "wt-manage",
+          label: "Gestionar worktrees…",
+          separatorBefore: true,
+          disabled: writing,
+          onSelect: () => setWorktreeOpen(true),
+        },
+      ],
+    });
+  }
   const launchExternal = (kind: "editor" | "terminal" | "explorer") => {
     if (!repo) return;
     const appId =
@@ -1015,6 +1701,13 @@ function App() {
         onSelect: () => setStashOpen(true),
       },
       {
+        id: "worktrees",
+        category: "Git",
+        label: "Worktrees…",
+        disabled: !repo || writing,
+        onSelect: () => setWorktreeOpen(true),
+      },
+      {
         id: "tag-head",
         category: "Git",
         label: "Etiquetar commit seleccionado o HEAD",
@@ -1059,6 +1752,24 @@ function App() {
         shortcut: "⌘O",
         disabled: busy || loadingMore || writing,
         onSelect: () => void choose(),
+      },
+      {
+        id: "new-tab-repo",
+        category: "Pestañas",
+        label: "Abrir repositorio en nueva pestaña…",
+        shortcut: "⌘T",
+        disabled: busy || loadingMore || writing,
+        onSelect: () => void choose(),
+      },
+      {
+        id: "close-tab-repo",
+        category: "Pestañas",
+        label: "Cerrar pestaña actual",
+        shortcut: "⌘W",
+        disabled: !activeTabId || busy || loadingMore || writing,
+        onSelect: () => {
+          if (activeTabId) void closeTab(activeTabId);
+        },
       },
       {
         id: "library",
@@ -1242,21 +1953,25 @@ function App() {
         <LibraryDialog
           onLock={setWriting}
           onDeleted={(path) => {
-            if (path === repo?.path) {
-              setRepo(null);
-              setPreferencesRepo(null);
-              setSelected(null);
-              setSelectedFile(null);
-              setCommitFiles(null);
-              setDiff(null);
-              setBranchPreselect(null);
-              setContextMenu(null);
-              setPaletteOpen(false);
-              setView("history");
-              setStashOpen(false);
-              setReplay(undefined);
-              setTagTarget(null);
-              setTagPublication(undefined);
+            const currentTabs = tabsRef.current;
+            const remaining = currentTabs.filter(
+              (item) => item.snapshot.path !== path,
+            );
+            if (remaining.length !== currentTabs.length) {
+              const removedActive = activeTab?.snapshot.path === path;
+              const nextActive = removedActive
+                ? (remaining[remaining.length - 1] ?? null)
+                : (remaining.find(
+                    (item) => item.snapshot.id === activeTabIdRef.current,
+                  ) ?? null);
+              const nextActiveId = nextActive?.snapshot.id ?? null;
+              tabsTouchedRef.current = true;
+              tabsRef.current = remaining;
+              activeTabIdRef.current = nextActiveId;
+              setTabs(remaining);
+              setActiveTabId(nextActiveId);
+              if (removedActive) applyTabUi(nextActive);
+              persistTabState(remaining, nextActiveId);
             }
             setNotice(
               "Carpeta movida a la Papelera del sistema. No se eliminó el repositorio remoto.",
@@ -1351,6 +2066,20 @@ function App() {
           onUpdated={refresh}
         />
       )}
+      {repo && worktreeOpen && (
+        <WorktreeDialog
+          key={`worktrees:${repo.id}`}
+          repoId={repo.id}
+          repoPath={repo.path}
+          repoName={repo.name}
+          openTabPaths={tabs.map((item) => item.snapshot.path)}
+          onClose={() => setWorktreeOpen(false)}
+          onLock={setWriting}
+          onUpdated={() => refresh()}
+          onOpenInTab={(targetPath) => openRepositoryPath(targetPath)}
+          onAuthorize={() => setView("changes")}
+        />
+      )}
       {repo && replay !== undefined && (
         <ReplayDialog
           key={`replay:${repo.id}`}
@@ -1367,6 +2096,17 @@ function App() {
         </a>
         <CommandBar
           repo={repo}
+          tabs={tabs.map((item) => ({
+            id: item.snapshot.id,
+            name: item.snapshot.name,
+            path: item.snapshot.path,
+            branch: item.snapshot.branch,
+            dirtyCount: item.wip?.trusted ? item.wip.total : undefined,
+          }))}
+          activeTabId={activeTabId}
+          onSelectTab={activateTab}
+          onCloseTab={(id) => void closeTab(id)}
+          onReorderTabs={reorderTabs}
           locked={busy || loadingMore || writing}
           onOpen={() => void choose()}
           onRefresh={() => void refresh()}
@@ -1505,6 +2245,7 @@ function App() {
           >
             <FileTextIcon />
             Cambios
+            {wip?.trusted && wip.total > 0 && <span>{wip.total}</span>}
           </button>
           <button
             disabled={writing}
@@ -1572,6 +2313,13 @@ function App() {
               onClick={() => setView("branches")}
             >
               Ramas
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing}
+              onClick={() => setWorktreeOpen(true)}
+            >
+              Worktrees…
             </button>
             <button
               className="nav-button"
@@ -1681,6 +2429,86 @@ function App() {
               </details>
             );
           })}
+          <details open={worktrees.length > 1}>
+            <summary>
+              WORKTREES
+              <span>{worktrees.length}</span>
+            </summary>
+            {repo ? (
+              <>
+                {worktrees.map((wt: WorktreeItem) => {
+                  const isOpenTab = tabs.some(
+                    (tab) => tab.snapshot.path === wt.path,
+                  );
+                  const subtitle = wt.branch
+                    ? wt.branch
+                    : wt.bare
+                      ? "bare"
+                      : wt.detached
+                        ? "HEAD separado"
+                        : "sin rama";
+                  return (
+                    <button
+                      key={wt.path}
+                      type="button"
+                      className={`branch-button worktree-item ${wt.current ? "current" : ""}`}
+                      disabled={writing || wt.current || wt.prunable}
+                      title={`${wt.path} · ${subtitle}${wt.locked ? " (bloqueado)" : ""}${wt.prunable ? " (obsoleto)" : ""}`}
+                      onClick={() => {
+                        if (!wt.current && !wt.prunable) {
+                          void openRepositoryPath(wt.path);
+                        }
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        openWorktreeContextMenu(
+                          wt,
+                          event.clientX,
+                          event.clientY,
+                        );
+                      }}
+                    >
+                      <span
+                        className={`branch-dot ${wt.prunable ? "other" : wt.current ? "branch" : "remote"}`}
+                      />
+                      <span className="truncate">{wt.name}</span>
+                      <span className="worktree-side-meta">
+                        {wt.current
+                          ? "actual"
+                          : wt.locked
+                            ? "bloq."
+                            : wt.prunable
+                              ? "obsoleto"
+                              : isOpenTab
+                                ? "abierto"
+                                : subtitle}
+                      </span>
+                    </button>
+                  );
+                })}
+                <div className="sidebar-worktree-actions">
+                  <button
+                    type="button"
+                    className="nav-button"
+                    disabled={writing}
+                    onClick={() => setWorktreeOpen(true)}
+                  >
+                    Nuevo worktree…
+                  </button>
+                  <button
+                    type="button"
+                    className="nav-button"
+                    disabled={writing}
+                    onClick={() => setWorktreeOpen(true)}
+                  >
+                    Gestionar…
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="sidebar-empty">Abre un repositorio</p>
+            )}
+          </details>
         </div>
         <div className="sidebar-foot">
           <LockClosedIcon />
@@ -2053,24 +2881,90 @@ function App() {
               )}
             </div>
           ) : (
-            <div
-              className="virtual-list"
-              style={{
-                height: virtual.getTotalSize(),
-                minWidth: historyMinWidth,
-              }}
-            >
-              {virtual.getVirtualItems().map((item) =>
-                commitRow(item.index, {
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: item.size,
-                  transform: `translateY(${item.start}px)`,
-                }),
+            <>
+              {wip?.trusted && wip.total > 0 && (
+                <button
+                  type="button"
+                  className="wip-row"
+                  disabled={writing}
+                  onClick={() => setView("changes")}
+                  aria-label={`Cambios sin commitear (${wip.total}) — Ir a Cambios`}
+                  style={{ minWidth: historyMinWidth }}
+                >
+                  <span
+                    className="wip-graph-cell"
+                    style={{ width: graphWidth }}
+                    aria-hidden="true"
+                  >
+                    <svg width={graphWidth} height={44}>
+                      <line
+                        x1={graphWidth > 20 ? 16 : Math.floor(graphWidth / 2)}
+                        y1={24}
+                        x2={graphWidth > 20 ? 16 : Math.floor(graphWidth / 2)}
+                        y2={44}
+                        stroke="var(--accent-text)"
+                        strokeWidth={2}
+                        strokeDasharray="3 3"
+                      />
+                      <circle
+                        cx={graphWidth > 20 ? 16 : Math.floor(graphWidth / 2)}
+                        cy={18}
+                        r={5.5}
+                        fill="var(--bg-canvas)"
+                        stroke="var(--accent-text)"
+                        strokeWidth={2}
+                      />
+                    </svg>
+                  </span>
+                  <span className="wip-main">
+                    <span className="wip-title">
+                      Cambios sin commitear (WIP)
+                    </span>
+                    <span className="wip-badges">
+                      {wip.staged > 0 && (
+                        <span className="wip-badge staged">
+                          {wip.staged} preparados
+                        </span>
+                      )}
+                      {wip.unstaged > 0 && (
+                        <span className="wip-badge unstaged">
+                          {wip.unstaged} sin preparar
+                        </span>
+                      )}
+                      {wip.untracked > 0 && (
+                        <span className="wip-badge untracked">
+                          {wip.untracked} nuevos
+                        </span>
+                      )}
+                      {wip.conflicts > 0 && (
+                        <span className="wip-badge conflict">
+                          {wip.conflicts} conflictos
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                  <span className="wip-cta">Ir a Cambios →</span>
+                </button>
               )}
-            </div>
+              <div
+                className="virtual-list"
+                style={{
+                  height: virtual.getTotalSize(),
+                  minWidth: historyMinWidth,
+                }}
+              >
+                {virtual.getVirtualItems().map((item) =>
+                  commitRow(item.index, {
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: item.size,
+                    transform: `translateY(${item.start}px)`,
+                  }),
+                )}
+              </div>
+            </>
           )}
         </div>
         {repo && (

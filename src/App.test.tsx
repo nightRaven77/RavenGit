@@ -2,6 +2,7 @@
 // App integration uses simulated IPC; these tests never execute Git.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -14,9 +15,32 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import App from "./App";
 import { operationEvent } from "./operations";
+const tauriEventListeners = vi.hoisted(
+  () => new Map<string, Set<(event: { payload: unknown }) => void>>(),
+);
+function emitTauriEvent(name: string, payload: unknown) {
+  for (const listener of tauriEventListeners.get(name) ?? []) {
+    listener({ payload });
+  }
+}
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
   isTauri: () => true,
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(
+    (name: string, handler: (event: { payload: unknown }) => void) => {
+      let set = tauriEventListeners.get(name);
+      if (!set) {
+        set = new Set();
+        tauriEventListeners.set(name, set);
+      }
+      set.add(handler);
+      return Promise.resolve(() => {
+        set?.delete(handler);
+      });
+    },
+  ),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(),
@@ -295,6 +319,7 @@ beforeEach(() => {
   dialog.mockReset();
   dialog.mockResolvedValue("/fixture/repo");
   api.mockReset();
+  tauriEventListeners.clear();
   Element.prototype.scrollTo = vi.fn();
   api.mockImplementation(async (command, args) => {
     if (command === "read_app_settings")
@@ -435,6 +460,40 @@ beforeEach(() => {
         message: "Push confirmado",
         warning: null,
         state: structuredClone(remotes),
+      };
+    if (command === "read_worktree_summary")
+      return {
+        trusted: false,
+        staged: 0,
+        unstaged: 0,
+        untracked: 0,
+        conflicts: 0,
+        total: 0,
+        operation: null,
+      };
+    if (command === "watch_repository") return null;
+    if (command === "read_worktrees")
+      return {
+        trusted: true,
+        currentPath: repo.path,
+        branches: [repo.branch ?? "main"],
+        restriction: null,
+        worktrees: [
+          {
+            path: repo.path,
+            name: repo.name,
+            head: repo.head,
+            branch: repo.branch,
+            detached: false,
+            bare: false,
+            main: true,
+            current: true,
+            locked: false,
+            lockReason: null,
+            prunable: false,
+            prunableReason: null,
+          },
+        ],
       };
     if (command === "record_activity") return null;
     throw new Error(command);
@@ -1347,4 +1406,388 @@ it("agrupa ramas con prefijo en el sidebar, permite redimensionar el inspector y
   });
   await userEvent.click(copyHashBtn);
   expect(await screen.findByText(/Hash copiado/)).toBeTruthy();
+});
+
+it("gestiona múltiples pestañas independientes, persiste el estado y actualiza la rama en la barra aunque el filtro quede obsoleto", async () => {
+  const fallback = api.getMockImplementation()!;
+  let currentBranch = "feat/vieja";
+  let filterDropped = false;
+  const repoA = {
+    ...repo,
+    id: "repo-a",
+    path: "/fixture/repo-a",
+    name: "Repo Alpha",
+    branch: currentBranch,
+    refs: [
+      { name: "refs/heads/main", hash, kind: "branch" as const },
+      { name: "refs/heads/feat/vieja", hash, kind: "branch" as const },
+    ],
+  };
+  const repoB = {
+    ...repo,
+    id: "repo-b",
+    path: "/fixture/repo-b",
+    name: "Repo Beta",
+    branch: "develop",
+    refs: [{ name: "refs/heads/develop", hash, kind: "branch" as const }],
+  };
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") {
+      const p = (args as { path: string }).path;
+      return structuredClone(p === repoB.path ? repoB : repoA);
+    }
+    if (command === "close_repository") return;
+    if (command === "read_branches") {
+      return {
+        rebaseRecord: false,
+        operation: null,
+        token: "br-token",
+        trusted: true,
+        current: currentBranch,
+        head: hash,
+        branches: [
+          { name: currentBranch, hash },
+          { name: "main", hash },
+        ],
+        restriction: null,
+      };
+    }
+    if (command === "edit_branch") {
+      currentBranch = "feat/nueva";
+      filterDropped = true;
+      return {
+        message: "Rama feat/vieja renombrada a feat/nueva.",
+        warning: null,
+      };
+    }
+    if (command === "refresh_repository") {
+      const payload = args as { id: string; scope?: string };
+      if (
+        payload.id === repoA.id &&
+        filterDropped &&
+        payload.scope === "refs/heads/feat/vieja"
+      ) {
+        throw {
+          code: "INVALID_SCOPE",
+          message: "La rama seleccionada ya no existe.",
+        };
+      }
+      if (payload.id === repoB.id) return structuredClone(repoB);
+      return {
+        ...structuredClone(repoA),
+        branch: currentBranch,
+        refs: [
+          { name: "refs/heads/main", hash, kind: "branch" as const },
+          {
+            name: `refs/heads/${currentBranch}`,
+            hash,
+            kind: "branch" as const,
+          },
+        ],
+      };
+    }
+    return fallback(command, args);
+  });
+
+  // Abrir Repo Alpha y comprobar rama inicial en barra
+  dialog.mockResolvedValueOnce(repoA.path);
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /Repo Alpha/ });
+  expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+    "feat/vieja",
+  );
+
+  // Abrir Repo Beta en segunda pestaña y cambiar de vista
+  dialog.mockResolvedValueOnce(repoB.path);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /Repo Beta/ });
+  expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+    "develop",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Cambios" }));
+
+  // Volver a Repo Alpha conserva vista Historial
+  await userEvent.click(screen.getByRole("tab", { name: /Repo Alpha/ }));
+  expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+    "feat/vieja",
+  );
+  expect(
+    screen
+      .getByRole("region", { name: "Historial del repositorio" })
+      .hasAttribute("hidden"),
+  ).toBe(false);
+
+  // Filtrar historial por la rama actual y luego renombrarla -> refresh hace fallback a "all" y actualiza .toolbar-branch
+  await userEvent.selectOptions(
+    screen.getByRole("combobox", { name: "Mostrar" }),
+    "refs/heads/feat/vieja",
+  );
+  await userEvent.click(
+    within(document.querySelector(".header-toolbar") as HTMLElement).getByRole(
+      "button",
+      { name: "Rama" },
+    ),
+  );
+  const renameBtn = await screen.findByRole("button", {
+    name: "Renombrar feat/vieja",
+  });
+  await userEvent.click(renameBtn);
+  const renameInput = screen.getByLabelText(
+    "Nuevo nombre de la rama seleccionada",
+  );
+  await userEvent.type(renameInput, "feat/nueva");
+  await userEvent.click(screen.getByRole("button", { name: "Renombrar rama" }));
+  await waitFor(() =>
+    expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+      "feat/nueva",
+    ),
+  );
+
+  // Cerrar Repo Alpha con Ctrl+W invoca close_repository y activa Repo Beta
+  fireEvent.keyDown(window, { key: "w", ctrlKey: true });
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("close_repository", { id: repoA.id }),
+  );
+  await waitFor(() =>
+    expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+      "develop",
+    ),
+  );
+});
+
+it("vigila sólo la pestaña activa, muestra fila WIP en el grafo y refresca en silencio al cambiar el repo", async () => {
+  const fallback = api.getMockImplementation()!;
+  let repoABranch = "main";
+  let repoBBranch = "main";
+  const repoA = {
+    ...repo,
+    id: "watch-repo-a",
+    path: "/fixture/watch-a",
+    name: "Watch Alpha",
+    branch: repoABranch,
+    refs: [{ name: "refs/heads/main", hash, kind: "branch" as const }],
+  };
+  const repoB = {
+    ...repo,
+    id: "watch-repo-b",
+    path: "/fixture/watch-b",
+    name: "Watch Beta",
+    branch: repoBBranch,
+    refs: [{ name: "refs/heads/main", hash, kind: "branch" as const }],
+  };
+  const dirtySummary = {
+    trusted: true,
+    staged: 1,
+    unstaged: 2,
+    untracked: 1,
+    conflicts: 0,
+    total: 4,
+    operation: null,
+  };
+  const cleanSummary = {
+    trusted: true,
+    staged: 0,
+    unstaged: 0,
+    untracked: 0,
+    conflicts: 0,
+    total: 0,
+    operation: null,
+  };
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") {
+      const p = (args as { path: string }).path;
+      return structuredClone(p === repoB.path ? repoB : repoA);
+    }
+    if (command === "read_worktree_summary") {
+      const id = (args as { id: string }).id;
+      return id === repoB.id ? dirtySummary : cleanSummary;
+    }
+    if (command === "refresh_repository") {
+      const { id } = args as { id: string };
+      if (id === repoB.id) {
+        return {
+          ...structuredClone(repoB),
+          branch: repoBBranch,
+          refs: [
+            {
+              name: `refs/heads/${repoBBranch}`,
+              hash,
+              kind: "branch" as const,
+            },
+          ],
+        };
+      }
+      return {
+        ...structuredClone(repoA),
+        branch: repoABranch,
+        refs: [
+          { name: `refs/heads/${repoABranch}`, hash, kind: "branch" as const },
+        ],
+      };
+    }
+    return fallback(command, args);
+  });
+
+  dialog.mockResolvedValueOnce(repoA.path);
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /Watch Alpha/ });
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("watch_repository", { id: repoA.id }),
+  );
+
+  // Abrir Watch Beta mueve el watcher sólo a repoB y muestra fila WIP + badge sucio
+  dialog.mockResolvedValueOnce(repoB.path);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  const tabB = await screen.findByRole("tab", { name: /Watch Beta/ });
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("watch_repository", { id: repoB.id }),
+  );
+  const wipButton = await screen.findByRole("button", {
+    name: /Cambios sin commitear \(4\)/,
+  });
+  expect(within(wipButton).getByText("1 preparados")).toBeTruthy();
+  expect(within(wipButton).getByText("2 sin preparar")).toBeTruthy();
+  expect(within(wipButton).getByText("1 nuevos")).toBeTruthy();
+  expect(tabB.querySelector(".repo-tab-dirty")?.textContent).toBe("4");
+
+  // Click en fila WIP navega a la vista Cambios
+  await userEvent.click(wipButton);
+  expect(
+    screen
+      .getByRole("region", { name: "Cambios locales" })
+      .hasAttribute("hidden"),
+  ).toBe(false);
+
+  await userEvent.click(screen.getByRole("button", { name: /^Historial/ }));
+
+  // Evento externo de repoA (en segundo plano) se ignora mientras repoB está activo
+  const refreshCountBefore = api.mock.calls.filter(
+    ([cmd, payload]) =>
+      cmd === "refresh_repository" &&
+      (payload as { id?: string } | undefined)?.id === repoB.id,
+  ).length;
+  repoBBranch = "feat/live";
+  await act(async () => {
+    emitTauriEvent("ravengit://repo-changed", { id: repoA.id, kind: "git" });
+  });
+  expect(
+    api.mock.calls.filter(
+      ([cmd, payload]) =>
+        cmd === "refresh_repository" &&
+        (payload as { id?: string } | undefined)?.id === repoB.id,
+    ).length,
+  ).toBe(refreshCountBefore);
+
+  // Evento externo sobre pestaña activa refresca silenciosamente y actualiza .toolbar-branch
+  await act(async () => {
+    emitTauriEvent("ravengit://repo-changed", { id: repoB.id, kind: "git" });
+  });
+  await waitFor(() =>
+    expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+      "feat/live",
+    ),
+  );
+
+  // Cambiar a Watch Alpha actualiza el watcher a repoA y sincroniza repoA en segundo plano
+  repoABranch = "hotfix/focus";
+  await userEvent.click(screen.getByRole("tab", { name: /Watch Alpha/ }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("watch_repository", { id: repoA.id }),
+  );
+  await waitFor(() =>
+    expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+      "hotfix/focus",
+    ),
+  );
+});
+
+it("lista worktrees en el sidebar y permite abrir un worktree enlazado en nueva pestaña", async () => {
+  const fallback = api.getMockImplementation()!;
+  const mainRepo = {
+    ...repo,
+    id: "wt-main",
+    path: "/fixture/wt-main",
+    name: "Repo Principal",
+    branch: "main",
+    refs: [{ name: "refs/heads/main", hash, kind: "branch" as const }],
+  };
+  const linkedRepo = {
+    ...repo,
+    id: "wt-linked",
+    path: "/fixture/wt-linked",
+    name: "wt-linked",
+    branch: "feat/worktree",
+    refs: [
+      { name: "refs/heads/main", hash, kind: "branch" as const },
+      { name: "refs/heads/feat/worktree", hash, kind: "branch" as const },
+    ],
+  };
+
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") {
+      const p = (args as { path: string }).path;
+      return structuredClone(p === linkedRepo.path ? linkedRepo : mainRepo);
+    }
+    if (command === "read_worktrees") {
+      const id = (args as { id: string }).id;
+      const onLinked = id === linkedRepo.id;
+      return {
+        trusted: true,
+        currentPath: onLinked ? linkedRepo.path : mainRepo.path,
+        branches: ["main", "feat/worktree"],
+        restriction: null,
+        worktrees: [
+          {
+            path: mainRepo.path,
+            name: mainRepo.name,
+            head: hash,
+            branch: "main",
+            detached: false,
+            bare: false,
+            main: true,
+            current: !onLinked,
+            locked: false,
+            lockReason: null,
+            prunable: false,
+            prunableReason: null,
+          },
+          {
+            path: linkedRepo.path,
+            name: linkedRepo.name,
+            head: hash,
+            branch: "feat/worktree",
+            detached: false,
+            bare: false,
+            main: false,
+            current: onLinked,
+            locked: false,
+            lockReason: null,
+            prunable: false,
+            prunableReason: null,
+          },
+        ],
+      };
+    }
+    return fallback(command, args);
+  });
+
+  dialog.mockResolvedValueOnce(mainRepo.path);
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /Repo Principal/ });
+
+  const wtButton = await screen.findByRole("button", {
+    name: /wt-linked/,
+  });
+  await userEvent.click(wtButton);
+
+  await screen.findByRole("tab", { name: /wt-linked/ });
+  expect(api).toHaveBeenCalledWith("open_repository", {
+    path: linkedRepo.path,
+  });
+  expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+    "feat/worktree",
+  );
 });

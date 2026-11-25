@@ -2036,29 +2036,101 @@ p {
   align-items: stretch;
   min-width: 0;
   gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.repo-tabs::-webkit-scrollbar {
+  display: none;
+}
+.repo-tab-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  min-width: 0;
+  max-width: 220px;
+  border-top: 2px solid transparent;
+  border-right: 1px solid var(--border-subtle);
+  background: transparent;
+}
+.repo-tab-wrap:hover:not(.active) {
+  background: var(--bg-hover);
+}
+.repo-tab-wrap.active {
+  background: var(--bg-elevated);
+  border-top-color: var(--accent);
+  margin-bottom: -1px;
+}
+.repo-tab-wrap.drag-over {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .repo-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 12px;
+  padding: 0 8px 0 10px;
   max-width: 220px;
   min-width: 0;
   font-size: 12px;
   color: var(--text-muted);
-  border-top: 2px solid transparent;
-  border-right: 1px solid var(--border-subtle);
+  border: 0;
+  background: transparent;
   user-select: none;
 }
 .repo-tab.active {
-  background: var(--bg-elevated);
   color: var(--text-primary);
+}
+.repo-tab-wrap:not(:has(.repo-tab-close)) .repo-tab {
+  border-top: 2px solid transparent;
+  border-right: 1px solid var(--border-subtle);
+  padding: 0 12px;
+}
+.repo-tab-wrap:not(:has(.repo-tab-close)) .repo-tab.active {
+  background: var(--bg-elevated);
   border-top-color: var(--accent);
   margin-bottom: -1px;
+}
+.repo-tab:disabled {
+  transform: none;
 }
 .repo-tab strong {
   font-size: 12px;
   font-weight: 600;
+}
+.repo-tab-dirty {
+  font-size: 10px;
+  font-weight: 650;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border: 1px solid var(--accent-border);
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+.repo-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  margin: 5px 4px 5px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0.72;
+}
+.repo-tab-wrap.active .repo-tab-close,
+.repo-tab-wrap:hover .repo-tab-close,
+.repo-tab-close:focus-visible {
+  opacity: 1;
+  color: var(--text-secondary);
+}
+.repo-tab-close:hover:not(:disabled) {
+  background: var(--bg-control-hover);
+  color: var(--text-primary);
 }
 .repo-tab-icon {
   color: var(--accent);
@@ -2441,4 +2513,216 @@ p {
 .interactive-rebase-dialog pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.worktree-item {
+  justify-content: flex-start;
+}
+.worktree-side-meta {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.sidebar-worktree-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px 4px;
+}
+.sidebar-worktree-actions .nav-button {
+  width: auto;
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.worktree-dialog {
+  width: min(760px, 94vw);
+  max-height: 86vh;
+}
+.worktree-dialog > header {
+  position: sticky;
+  top: -24px;
+  z-index: 2;
+  margin: -24px -24px 0;
+  padding: 20px 24px 14px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.worktree-dialog-sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.worktree-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-top: 16px;
+}
+.worktree-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.worktree-section h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+.worktree-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.worktree-muted {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.worktree-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.worktree-card {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.worktree-card-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.worktree-branch-pill {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.worktree-badge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.worktree-badge.main,
+.worktree-badge.current {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.worktree-badge.locked {
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+}
+.worktree-badge.prunable {
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+.worktree-card-path {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worktree-card-note {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.worktree-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.worktree-inline-box,
+.worktree-confirm-remove {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.worktree-inline-box label,
+.worktree-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.worktree-inline-box input,
+.worktree-form input,
+.worktree-form select {
+  padding: 6px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+}
+.worktree-inline-actions,
+.worktree-form-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.worktree-form {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--bg-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.worktree-mode-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.worktree-mode-switch .button.active {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.worktree-form-row,
+.worktree-path-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+.worktree-path-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.worktree-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  color: var(--text-primary) !important;
+}
+.button.accent-outline {
+  border-color: var(--accent);
+  color: var(--accent-text);
 }

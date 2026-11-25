@@ -28,51 +28,138 @@ mod stash;
 mod tag_push;
 mod tags;
 mod trust;
+mod watcher;
 mod worktree_restore;
+mod worktrees;
 use git::{CommitDiff, CommitFiles, GitError, HistoryPage, Repository, Snapshot};
 use std::{
-    path::Path,
+    collections::HashMap,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
+    time::Duration,
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
+struct RepoSession {
+    repo: Repository,
+    writes: Arc<Mutex<()>>,
+    trusted: Arc<Mutex<bool>>,
+    push_plan: Arc<Mutex<Option<push::Plan>>>,
+    pull_plan: Arc<Mutex<Option<pull::Plan>>>,
+    rebase_plan: Arc<Mutex<Option<rebase::Preview>>>,
+    replay_plan: Arc<Mutex<Option<replay::Plan>>>,
+    amend_plan: Arc<Mutex<Option<amend::Plan>>>,
+    tag_plan: Arc<Mutex<Option<tags::Plan>>>,
+    tag_push_plan: Arc<Mutex<Option<tag_push::Plan>>>,
+    stash_plan: Arc<Mutex<Option<stash::Plan>>>,
+    conflict_plan: Arc<Mutex<Option<conflict_edit::Session>>>,
+    worktree_restore_plan: Arc<Mutex<Option<worktree_restore::Plan>>>,
+}
+impl RepoSession {
+    fn new(repo: Repository, allowed: bool) -> Self {
+        Self {
+            repo,
+            writes: Arc::new(Mutex::new(())),
+            trusted: Arc::new(Mutex::new(allowed)),
+            push_plan: Arc::new(Mutex::new(None)),
+            pull_plan: Arc::new(Mutex::new(None)),
+            rebase_plan: Arc::new(Mutex::new(None)),
+            replay_plan: Arc::new(Mutex::new(None)),
+            amend_plan: Arc::new(Mutex::new(None)),
+            tag_plan: Arc::new(Mutex::new(None)),
+            tag_push_plan: Arc::new(Mutex::new(None)),
+            stash_plan: Arc::new(Mutex::new(None)),
+            conflict_plan: Arc::new(Mutex::new(None)),
+            worktree_restore_plan: Arc::new(Mutex::new(None)),
+        }
+    }
+    fn clear_plans(&self) -> git::Result<()> {
+        let fail = || {
+            GitError::new(
+                "STATE",
+                "No se pudieron descartar las revisiones pendientes.",
+            )
+        };
+        *self.push_plan.lock().map_err(|_| fail())? = None;
+        *self.pull_plan.lock().map_err(|_| fail())? = None;
+        *self.rebase_plan.lock().map_err(|_| fail())? = None;
+        *self.replay_plan.lock().map_err(|_| fail())? = None;
+        *self.amend_plan.lock().map_err(|_| fail())? = None;
+        *self.tag_plan.lock().map_err(|_| fail())? = None;
+        *self.tag_push_plan.lock().map_err(|_| fail())? = None;
+        *self.stash_plan.lock().map_err(|_| fail())? = None;
+        *self.conflict_plan.lock().map_err(|_| fail())? = None;
+        *self.worktree_restore_plan.lock().map_err(|_| fail())? = None;
+        Ok(())
+    }
+    fn is_trusted(&self) -> git::Result<bool> {
+        self.trusted
+            .lock()
+            .map(|guard| *guard)
+            .map_err(|_| GitError::new("STATE", "No se pudo comprobar la confianza."))
+    }
+}
 #[derive(Default)]
 struct AppState {
-    repository: Arc<Mutex<Option<Repository>>>,
+    sessions: Arc<Mutex<HashMap<String, Arc<RepoSession>>>>,
+    active_watcher: Arc<Mutex<Option<watcher::ActiveWatcher>>>,
+    global_writes: Arc<Mutex<()>>,
     activity_lock: Arc<Mutex<()>>,
     library_lock: Arc<Mutex<()>>,
     settings_lock: Arc<Mutex<()>>,
     next: AtomicU64,
-    writes: Arc<Mutex<()>>,
-    trusted: Arc<Mutex<Option<String>>>,
-    push_plan: Arc<Mutex<Option<(String, push::Plan)>>>,
-    pull_plan: Arc<Mutex<Option<(String, pull::Plan)>>>,
-    rebase_plan: Arc<Mutex<Option<(String, rebase::Preview)>>>,
-    replay_plan: Arc<Mutex<Option<(String, replay::Plan)>>>,
     delete_plan: Arc<Mutex<Option<repository_delete::Plan>>>,
-    amend_plan: Arc<Mutex<Option<(String, amend::Plan)>>>,
-    tag_plan: Arc<Mutex<Option<(String, tags::Plan)>>>,
-    tag_push_plan: Arc<Mutex<Option<(String, tag_push::Plan)>>>,
-    stash_plan: Arc<Mutex<Option<(String, stash::Plan)>>>,
-    conflict_plan: Arc<Mutex<Option<(String, conflict_edit::Session)>>>,
-    worktree_restore_plan: Arc<Mutex<Option<(String, worktree_restore::Plan)>>>,
 }
-fn selected(state: &AppState, id: &str) -> git::Result<Repository> {
+fn stop_watcher_for(active_watcher: &Arc<Mutex<Option<watcher::ActiveWatcher>>>, id: &str) {
+    if let Ok(mut slot) = active_watcher.lock()
+        && slot.as_ref().is_some_and(|w| w.repo_id == id)
+    {
+        *slot = None;
+    }
+}
+fn session(state: &AppState, id: &str) -> git::Result<Arc<RepoSession>> {
     state
-        .repository
+        .sessions
         .lock()
         .map_err(|_| GitError::new("STATE", "No se pudo leer el estado de la aplicación."))?
-        .as_ref()
-        .filter(|r| r.id == id)
+        .get(id)
         .cloned()
         .ok_or_else(|| {
             GitError::new(
                 "REPOSITORY_CHANGED",
-                "El repositorio activo cambió. Vuelve a abrirlo.",
+                "El repositorio ya no está abierto. Vuelve a abrirlo.",
             )
         })
+}
+fn selected(state: &AppState, id: &str) -> git::Result<Repository> {
+    Ok(session(state, id)?.repo.clone())
+}
+fn close_session(state: &AppState, id: &str) -> git::Result<()> {
+    let candidate = state
+        .sessions
+        .lock()
+        .map_err(|_| GitError::new("STATE", "No se pudieron consultar las sesiones abiertas."))?
+        .get(id)
+        .cloned();
+    let Some(target) = candidate else {
+        return Ok(());
+    };
+    let _write = target.writes.try_lock().map_err(|_| {
+        GitError::new(
+            "BUSY",
+            "Hay una operación Git en curso en este repositorio.",
+        )
+    })?;
+    target.clear_plans()?;
+    stop_watcher_for(&state.active_watcher, id);
+    state
+        .sessions
+        .lock()
+        .map_err(|_| GitError::new("STATE", "No se pudo cerrar el repositorio."))?
+        .remove(id);
+    Ok(())
 }
 fn library_directory(app: &tauri::AppHandle) -> git::Result<std::path::PathBuf> {
     app.path()
@@ -230,7 +317,7 @@ async fn preview_repository_delete(
     state: State<'_, AppState>,
 ) -> git::Result<repository_delete::Review> {
     let plans = state.delete_plan.clone();
-    let writes = state.writes.clone();
+    let writes = state.global_writes.clone();
     let libraries = state.library_lock.clone();
     let token = format!("delete-{}", state.next.fetch_add(1, Ordering::Relaxed));
     tauri::async_runtime::spawn_blocking(move || {
@@ -272,41 +359,100 @@ async fn trash_repository(
     state: State<'_, AppState>,
 ) -> git::Result<DeletedRepository> {
     let plans = state.delete_plan.clone();
-    let writes = state.writes.clone();
+    let writes = state.global_writes.clone();
     let libraries = state.library_lock.clone();
-    let repository = state.repository.clone();
-    let trusted = state.trusted.clone();
-    let pushes = state.push_plan.clone();
-    let pulls = state.pull_plan.clone();
-    let rebases = state.rebase_plan.clone();
-    let replays = state.replay_plan.clone();
+    let sessions = state.sessions.clone();
+    let active_watcher = state.active_watcher.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let _write=writes.try_lock().map_err(|_|GitError::new("BUSY","Hay una operación Git en curso."))?;
-        let _library=libraries.lock().map_err(|_|GitError::new("STATE","No se pudo actualizar la biblioteca."))?;
-        let plan=plans.lock().map_err(|_|GitError::new("STATE","No se pudo leer la revisión."))?.take().ok_or_else(||GitError::new("DELETE_REVIEW","Vuelve a revisar la carpeta antes de eliminarla."))?;
-        if plan.review.path != path || plan.review.token != token {return Err(GitError::new("DELETE_REVIEW","La revisión no coincide con la carpeta seleccionada."));}
-        let directory=library_directory(&app)?;
-        let mut value=library::read(&directory)?;
-        let mut active=repository.lock().map_err(|_|GitError::new("STATE","No se pudo bloquear el repositorio activo."))?;
-        let deleting_active=active.as_ref().is_some_and(|repo|repo.path == Path::new(&path));
-        let mut authorization=trusted.lock().map_err(|_|GitError::new("STATE","No se pudo actualizar la autorización."))?;
-        let mut push=pushes.lock().map_err(|_|GitError::new("STATE","No se pudo invalidar Push."))?;
-        let mut pull=pulls.lock().map_err(|_|GitError::new("STATE","No se pudo invalidar Pull."))?;
-        let mut rebase=rebases.lock().map_err(|_|GitError::new("STATE","No se pudo invalidar Rebase."))?;
-        let mut replay=replays.lock().map_err(|_|GitError::new("STATE","No se pudo invalidar Replay."))?;
-        repository_delete::execute(plan,&confirmation,&value,&protected_directories(&app)?,|canonical| {
-            trust::set(&trust_directory(&app)?,canonical,false)?;
-            if deleting_active {*authorization=None; *push=None; *pull=None; *rebase=None; *replay=None;}
-            repository_delete::recycle(canonical)
-        })?;
-        if deleting_active {*active=None;}
-        value.repositories.retain(|entry|entry.path != path);
-        let (library,warning)=match library::edit(&directory,library::Edit::Forget {path}) {
-            Ok(saved)=>(saved,None),
-            Err(_)=>(value,Some("La carpeta salió de su ubicación, pero no se guardó la biblioteca. No repitas el traslado: quita la entrada ausente de la lista al volver a abrirla.".into())),
+        let _write = writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
+        let _library = libraries
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo actualizar la biblioteca."))?;
+        let plan = plans
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión."))?
+            .take()
+            .ok_or_else(|| {
+                GitError::new(
+                    "DELETE_REVIEW",
+                    "Vuelve a revisar la carpeta antes de eliminarla.",
+                )
+            })?;
+        if plan.review.path != path || plan.review.token != token {
+            return Err(GitError::new(
+                "DELETE_REVIEW",
+                "La revisión no coincide con la carpeta seleccionada.",
+            ));
+        }
+        let directory = library_directory(&app)?;
+        let mut value = library::read(&directory)?;
+        let target_canonical = std::fs::canonicalize(&path).ok();
+        let matching_sessions: Vec<Arc<RepoSession>> = sessions
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudieron consultar las sesiones."))?
+            .values()
+            .filter(|item| {
+                item.repo.path == Path::new(&path)
+                    || target_canonical
+                        .as_ref()
+                        .is_some_and(|canon| &item.repo.path == canon)
+            })
+            .cloned()
+            .collect();
+        let mut session_guards = Vec::with_capacity(matching_sessions.len());
+        for open_session in &matching_sessions {
+            session_guards.push(open_session.writes.try_lock().map_err(|_| {
+                GitError::new(
+                    "BUSY",
+                    "Hay una operación Git en curso en este repositorio.",
+                )
+            })?);
+        }
+        repository_delete::execute(
+            plan,
+            &confirmation,
+            &value,
+            &protected_directories(&app)?,
+            |canonical| {
+                trust::set(&trust_directory(&app)?, canonical, false)?;
+                for open_session in &matching_sessions {
+                    *open_session.trusted.lock().map_err(|_| {
+                        GitError::new("STATE", "No se pudo actualizar la autorización.")
+                    })? = false;
+                    open_session.clear_plans()?;
+                }
+                repository_delete::recycle(canonical)
+            },
+        )?;
+        drop(session_guards);
+        {
+            let mut map = sessions
+                .lock()
+                .map_err(|_| GitError::new("STATE", "No se pudo cerrar la sesión eliminada."))?;
+            for open_session in &matching_sessions {
+                stop_watcher_for(&active_watcher, &open_session.repo.id);
+                map.remove(&open_session.repo.id);
+            }
+        }
+        value.repositories.retain(|entry| entry.path != path);
+        let (library, warning) = match library::edit(&directory, library::Edit::Forget { path }) {
+            Ok(saved) => (saved, None),
+            Err(_) => (
+                value,
+                Some("La carpeta salió de su ubicación, pero no se guardó la biblioteca. No repitas el traslado: quita la entrada ausente de la lista al volver a abrirla.".into()),
+            ),
         };
-        Ok(DeletedRepository {library,warning})
-    }).await.map_err(|_|GitError::new("DELETE_UNCERTAIN","La operación se interrumpió. Revisa la carpeta y la Papelera antes de repetir."))?
+        Ok(DeletedRepository { library, warning })
+    })
+    .await
+    .map_err(|_| {
+        GitError::new(
+            "DELETE_UNCERTAIN",
+            "La operación se interrumpió. Revisa la carpeta y la Papelera antes de repetir.",
+        )
+    })?
 }
 #[tauri::command]
 async fn read_repository_library(
@@ -399,7 +545,7 @@ async fn clone_repository(
     url: String,
     state: State<'_, AppState>,
 ) -> git::Result<clone::Cloned> {
-    let writes = state.writes.clone();
+    let writes = state.global_writes.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = writes.try_lock().map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
         clone::create(Path::new(&parent), &name, &url)
@@ -412,7 +558,7 @@ async fn initialize_repository(
     branch: String,
     state: State<'_, AppState>,
 ) -> git::Result<initialize::Initialized> {
-    let writes = state.writes.clone();
+    let writes = state.global_writes.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = writes.try_lock().map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
         initialize::create(Path::new(&parent), &name, &branch)
@@ -425,67 +571,277 @@ async fn open_repository(
     state: State<'_, AppState>,
 ) -> git::Result<Snapshot> {
     let id = state.next.fetch_add(1, Ordering::Relaxed).to_string();
-    let writes = state.writes.clone();
-    let repository = state.repository.clone();
-    let trust = state.trusted.clone();
-    let plans = state.push_plan.clone();
-    let pull_plans = state.pull_plan.clone();
-    let rebase_plans = state.rebase_plan.clone();
-    let replay_plans = state.replay_plan.clone();
-    let amend_plans = state.amend_plan.clone();
-    let stash_plans = state.stash_plan.clone();
-    let tag_plans = state.tag_plan.clone();
-    let tag_push_plans = state.tag_push_plan.clone();
-    let conflict_plans = state.conflict_plan.clone();
+    let sessions = state.sessions.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
-            .try_lock()
-            .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let (repo, snapshot) = git::open(Path::new(&path), id)?;
-        *conflict_plans
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo descartar el borrador."))? = None;
-        *tag_push_plans.lock().map_err(|_| {
-            GitError::new("STATE", "No se pudo descartar la publicación de etiqueta.")
-        })? = None;
-        *stash_plans
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo descartar Stash."))? = None;
-        *tag_plans
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo descartar la etiqueta."))? = None;
-        *amend_plans
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo descartar amend."))? = None;
-        *replay_plans
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo descartar la revisión de commit."))? =
-            None;
-        *rebase_plans
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo descartar rebase."))? = None;
-        *pull_plans
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo descartar la revisión de Pull."))? =
-            None;
+        let (repo, mut snapshot) = git::open(Path::new(&path), id)?;
         let allowed = trust::contains(&trust_directory(&app)?, &repo.path)?;
-        let authorization = allowed.then(|| repo.id.clone());
-        *repository
+        let existing = {
+            let guard = sessions
+                .lock()
+                .map_err(|_| GitError::new("STATE", "No se pudo revisar las sesiones abiertas."))?;
+            guard
+                .values()
+                .find(|item| item.repo.path == repo.path)
+                .cloned()
+        };
+        if let Some(current) = existing {
+            *current
+                .trusted
+                .lock()
+                .map_err(|_| GitError::new("STATE", "No se pudo actualizar la confianza."))? =
+                allowed;
+            snapshot.id = current.repo.id.clone();
+            return Ok(snapshot);
+        }
+        let repo_id = repo.id.clone();
+        sessions
             .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo guardar el repositorio activo."))? =
-            Some(repo);
-        *trust
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo actualizar la confianza."))? =
-            authorization;
-        *plans
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo descartar la revisión anterior."))? =
-            None;
+            .map_err(|_| GitError::new("STATE", "No se pudo registrar la sesión del repositorio."))?
+            .insert(repo_id, Arc::new(RepoSession::new(repo, allowed)));
         Ok(snapshot)
     })
     .await
     .map_err(|_| GitError::new("WORKER", "No se pudo completar la apertura."))?
+}
+#[tauri::command]
+async fn close_repository(id: String, state: State<'_, AppState>) -> git::Result<()> {
+    close_session(&state, &id)
+}
+#[tauri::command]
+async fn read_worktrees(
+    id: String,
+    state: State<'_, AppState>,
+) -> git::Result<worktrees::WorktreesState> {
+    let s = session(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let allowed = s.is_trusted()?;
+        worktrees::list(&s.repo, allowed)
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudieron consultar los worktrees."))?
+}
+#[tauri::command]
+async fn add_worktree(
+    id: String,
+    request: worktrees::AddRequest,
+    state: State<'_, AppState>,
+) -> git::Result<worktrees::WorktreeOutcome> {
+    let s = session(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = s
+            .writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
+        let allowed = s.is_trusted()?;
+        worktrees::add(&s.repo, allowed, request)
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo crear el worktree."))?
+}
+#[tauri::command]
+async fn lock_worktree(
+    id: String,
+    path: String,
+    reason: Option<String>,
+    state: State<'_, AppState>,
+) -> git::Result<worktrees::WorktreeOutcome> {
+    let s = session(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = s
+            .writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
+        let allowed = s.is_trusted()?;
+        worktrees::lock(&s.repo, allowed, &path, reason.as_deref())
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo bloquear el worktree."))?
+}
+#[tauri::command]
+async fn unlock_worktree(
+    id: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> git::Result<worktrees::WorktreeOutcome> {
+    let s = session(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = s
+            .writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
+        let allowed = s.is_trusted()?;
+        worktrees::unlock(&s.repo, allowed, &path)
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo desbloquear el worktree."))?
+}
+#[tauri::command]
+async fn remove_worktree(
+    id: String,
+    path: String,
+    force: bool,
+    state: State<'_, AppState>,
+) -> git::Result<worktrees::WorktreeOutcome> {
+    let s = session(&state, &id)?;
+    let target_canon = std::fs::canonicalize(Path::new(path.trim()))
+        .unwrap_or_else(|_| PathBuf::from(path.trim()));
+    {
+        let sessions = state.sessions.lock().map_err(|_| {
+            GitError::new("STATE", "No se pudieron consultar las pestañas abiertas.")
+        })?;
+        for (other_id, other) in sessions.iter() {
+            if other_id == &id {
+                continue;
+            }
+            let other_canon =
+                std::fs::canonicalize(&other.repo.path).unwrap_or_else(|_| other.repo.path.clone());
+            if other_canon == target_canon || other.repo.path == Path::new(path.trim()) {
+                return Err(GitError::new(
+                    "WORKTREE_OPEN_IN_TAB",
+                    "Ese worktree está abierto en otra pestaña. Ciérrala antes de eliminarlo.",
+                ));
+            }
+        }
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = s
+            .writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
+        let allowed = s.is_trusted()?;
+        worktrees::remove(&s.repo, allowed, &path, force)
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo eliminar el worktree."))?
+}
+#[tauri::command]
+async fn prune_worktrees(
+    id: String,
+    state: State<'_, AppState>,
+) -> git::Result<worktrees::WorktreeOutcome> {
+    let s = session(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = s
+            .writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
+        let allowed = s.is_trusted()?;
+        worktrees::prune(&s.repo, allowed)
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudieron limpiar los worktrees obsoletos."))?
+}
+#[tauri::command]
+async fn open_worktree_external(
+    id: String,
+    path: String,
+    kind: external::ExternalKind,
+    app_id: Option<String>,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> git::Result<external::OpenExternalOutcome> {
+    let repo = selected(&state, &id)?;
+    let directory = library_directory(&app)?;
+    let lock = state.settings_lock.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let verified = worktrees::verify_member_path(&repo, &path)?;
+        let current = {
+            let _guard = lock
+                .lock()
+                .map_err(|_| GitError::new("STATE", "No se pudo leer la configuración."))?;
+            settings::read(&directory)?
+        };
+        external::open_path(&verified, kind, app_id.as_deref(), &current.external)
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo abrir la aplicación externa."))?
+}
+#[tauri::command]
+async fn read_worktree_summary(
+    id: String,
+    state: State<'_, AppState>,
+) -> git::Result<changes::WorktreeSummary> {
+    let s = session(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let allowed = s.is_trusted()?;
+        changes::summary(&s.repo, allowed)
+    })
+    .await
+    .map_err(|_| {
+        GitError::new(
+            "WORKER",
+            "No se pudo consultar el resumen de cambios locales.",
+        )
+    })?
+}
+#[tauri::command]
+async fn watch_repository(
+    id: Option<String>,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> git::Result<()> {
+    let Some(target_id) = id else {
+        *state
+            .active_watcher
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo detener el observador."))? = None;
+        return Ok(());
+    };
+    {
+        let current = state
+            .active_watcher
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo consultar el observador."))?;
+        if current
+            .as_ref()
+            .is_some_and(|watcher| watcher.repo_id == target_id)
+        {
+            return Ok(());
+        }
+    }
+    let s = session(&state, &target_id)?;
+    let sessions = state.sessions.clone();
+    let active_watcher = state.active_watcher.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let git_dir = PathBuf::from(
+            git::text(
+                &s.repo.path,
+                &["rev-parse", "--path-format=absolute", "--git-dir"],
+            )?
+            .trim(),
+        );
+        let common_dir = PathBuf::from(
+            git::text(
+                &s.repo.path,
+                &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+            )?
+            .trim(),
+        );
+        let watcher = watcher::ActiveWatcher::start(
+            s.repo.id.clone(),
+            s.repo.path.clone(),
+            git_dir,
+            common_dir,
+            s.writes.clone(),
+            Duration::from_millis(320),
+            move |event| {
+                let _ = app.emit("ravengit://repo-changed", event);
+            },
+        )?;
+        let still_open = sessions
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo registrar el observador."))?
+            .contains_key(&s.repo.id);
+        if still_open {
+            *active_watcher
+                .lock()
+                .map_err(|_| GitError::new("STATE", "No se pudo activar el observador."))? =
+                Some(watcher);
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo iniciar el observador local."))?
 }
 #[tauri::command]
 async fn refresh_repository(
@@ -559,12 +915,7 @@ async fn read_commit_diff(
     .map_err(|_| GitError::new("WORKER", "No se pudo leer el diff."))?
 }
 fn trusted(state: &AppState, id: &str) -> git::Result<bool> {
-    Ok(state
-        .trusted
-        .lock()
-        .map_err(|_| GitError::new("STATE", "No se pudo comprobar la confianza."))?
-        .as_deref()
-        == Some(id))
+    session(state, id)?.is_trusted()
 }
 fn trust_directory(app: &tauri::AppHandle) -> git::Result<std::path::PathBuf> {
     app.path()
@@ -583,53 +934,17 @@ fn set_repository_trust(
     id: &str,
     allowed: bool,
 ) -> git::Result<Repository> {
-    let _guard = state
+    let s = session(state, id)?;
+    let _guard = s
         .writes
         .try_lock()
         .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-    let repo = selected(state, id)?;
-    *state
-        .conflict_plan
+    s.clear_plans()?;
+    trust::set(&trust_directory(app)?, &s.repo.path, allowed)?;
+    *s.trusted
         .lock()
-        .map_err(|_| GitError::new("STATE", "No se pudo descartar el borrador."))? = None;
-    *state
-        .stash_plan
-        .lock()
-        .map_err(|_| GitError::new("STATE", "No se pudo descartar Stash."))? = None;
-    *state.tag_push_plan.lock().map_err(|_| {
-        GitError::new("STATE", "No se pudo descartar la publicación de etiqueta.")
-    })? = None;
-    *state
-        .tag_plan
-        .lock()
-        .map_err(|_| GitError::new("STATE", "No se pudo descartar la etiqueta."))? = None;
-    *state
-        .amend_plan
-        .lock()
-        .map_err(|_| GitError::new("STATE", "No se pudo descartar amend."))? = None;
-    *state
-        .replay_plan
-        .lock()
-        .map_err(|_| GitError::new("STATE", "No se pudo descartar la revisión de commit."))? = None;
-    *state
-        .rebase_plan
-        .lock()
-        .map_err(|_| GitError::new("STATE", "No se pudo descartar rebase."))? = None;
-    *state
-        .pull_plan
-        .lock()
-        .map_err(|_| GitError::new("STATE", "No se pudo descartar la revisión de Pull."))? = None;
-    trust::set(&trust_directory(app)?, &repo.path, allowed)?;
-    *state
-        .trusted
-        .lock()
-        .map_err(|_| GitError::new("STATE", "No se pudo actualizar la confianza."))? =
-        allowed.then(|| id.to_string());
-    *state
-        .push_plan
-        .lock()
-        .map_err(|_| GitError::new("STATE", "No se pudo descartar la revisión anterior."))? = None;
-    Ok(repo)
+        .map_err(|_| GitError::new("STATE", "No se pudo actualizar la confianza."))? = allowed;
+    Ok(s.repo.clone())
 }
 #[tauri::command]
 async fn revoke_repository_authorization(
@@ -701,26 +1016,30 @@ async fn read_conflict(
 async fn with_conflict<T: Send + 'static>(
     state: &AppState,
     id: String,
-    work: impl FnOnce(
-        &Repository,
-        bool,
-        &mut Option<(String, conflict_edit::Session)>,
-    ) -> git::Result<T>
+    work: impl FnOnce(&Repository, bool, &mut Option<conflict_edit::Session>) -> git::Result<T>
     + Send
     + 'static,
 ) -> git::Result<T> {
-    let repository = state.repository.clone();
-    let authorization = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.conflict_plan.clone();
+    let s = session(state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _write = writes.try_lock().map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository.lock().map_err(|_| GitError::new("STATE", "No se pudo revisar el repositorio."))?.as_ref().filter(|repo| repo.id == id).cloned().ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = authorization.lock().map_err(|_| GitError::new("STATE", "No se pudo revisar la autorización."))?.as_deref() == Some(&id);
-        let mut plans = plans.lock().map_err(|_| GitError::new("STATE", "No se pudo revisar el borrador."))?;
-        if plans.as_ref().is_some_and(|(owner, _)| owner != &id) { *plans = None; }
-        work(&repo, allowed, &mut plans)
-    }).await.map_err(|_| GitError::new("CONFLICT_UNCERTAIN", "La operación se interrumpió. Comprueba el archivo y su respaldo en la carpeta Git antes de repetir."))?
+        let _write = s
+            .writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
+        let allowed = s.is_trusted()?;
+        let mut plans = s
+            .conflict_plan
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo revisar el borrador."))?;
+        work(&s.repo, allowed, &mut plans)
+    })
+    .await
+    .map_err(|_| {
+        GitError::new(
+            "CONFLICT_UNCERTAIN",
+            "La operación se interrumpió. Comprueba el archivo y su respaldo en la carpeta Git antes de repetir.",
+        )
+    })?
 }
 #[tauri::command]
 async fn read_conflict_backups(
@@ -739,12 +1058,11 @@ async fn preview_conflict_restore(
     backup: String,
     state: State<'_, AppState>,
 ) -> git::Result<conflict_restore::Review> {
-    let owner = id.clone();
     with_conflict(&state, id, move |repo, allowed, plans| {
         *plans = None;
         let plan = conflict_restore::preview(repo, &backup, allowed)?;
         let view = plan.view.clone();
-        *plans = Some((owner, conflict_edit::Session::Recovering(plan)));
+        *plans = Some(conflict_edit::Session::Recovering(plan));
         Ok(view)
     })
     .await
@@ -756,7 +1074,7 @@ async fn restore_conflict_backup(
     state: State<'_, AppState>,
 ) -> git::Result<conflict_restore::Outcome> {
     with_conflict(&state, id, move |repo, allowed, plans| {
-        let Some((_, conflict_edit::Session::Recovering(plan))) = plans.take() else {
+        let Some(conflict_edit::Session::Recovering(plan)) = plans.take() else {
             return Err(GitError::new(
                 "CONFLICT_RESTORE_REVIEW",
                 "Vuelve a revisar el respaldo antes de restaurar.",
@@ -779,11 +1097,11 @@ async fn preview_conflict_edit(
     path: String,
     state: State<'_, AppState>,
 ) -> git::Result<conflict_edit::Preview> {
-    with_conflict(&state, id.clone(), move |repo, allowed, plans| {
+    with_conflict(&state, id, move |repo, allowed, plans| {
         *plans = None;
         let plan = conflict_edit::preview(repo, &token, &path, allowed)?;
         let view = plan.view.clone();
-        *plans = Some((id, conflict_edit::Session::Editing(plan)));
+        *plans = Some(conflict_edit::Session::Editing(plan));
         Ok(view)
     })
     .await
@@ -795,8 +1113,8 @@ async fn save_conflict_result(
     result: String,
     state: State<'_, AppState>,
 ) -> git::Result<conflict_edit::Outcome> {
-    with_conflict(&state, id.clone(), move |repo, allowed, plans| {
-        let Some((_, conflict_edit::Session::Editing(plan))) = plans.take() else {
+    with_conflict(&state, id, move |repo, allowed, plans| {
+        let Some(conflict_edit::Session::Editing(plan)) = plans.take() else {
             return Err(GitError::new(
                 "CONFLICT_STALE",
                 "La revisión se consumió o cambió. Conserva el borrador y vuelve a revisar.",
@@ -807,7 +1125,7 @@ async fn save_conflict_result(
         }
         let mut outcome = conflict_edit::save(repo, plan, &result, allowed)?;
         if let Some(receipt) = outcome.receipt.take() {
-            *plans = Some((id, conflict_edit::Session::Saved(receipt)));
+            *plans = Some(conflict_edit::Session::Saved(receipt));
         }
         Ok(outcome)
     })
@@ -819,8 +1137,8 @@ async fn preview_conflict_stage(
     token: String,
     state: State<'_, AppState>,
 ) -> git::Result<conflict_stage::Preview> {
-    with_conflict(&state, id.clone(), move |repo, allowed, plans| {
-        let Some((_, conflict_edit::Session::Saved(receipt))) = plans.take() else {
+    with_conflict(&state, id, move |repo, allowed, plans| {
+        let Some(conflict_edit::Session::Saved(receipt)) = plans.take() else {
             return Err(GitError::new(
                 "CONFLICT_STAGE_STALE",
                 "El guardado revisado ya no está disponible. Actualiza Cambios.",
@@ -833,7 +1151,7 @@ async fn preview_conflict_stage(
             ));
         }
         let view = conflict_stage::preview(repo, &receipt, allowed)?;
-        *plans = Some((id, conflict_edit::Session::Reviewed(receipt, view.clone())));
+        *plans = Some(conflict_edit::Session::Reviewed(receipt, view.clone()));
         Ok(view)
     })
     .await
@@ -845,7 +1163,7 @@ async fn prepare_conflict_result(
     state: State<'_, AppState>,
 ) -> git::Result<conflict_stage::Outcome> {
     with_conflict(&state, id, move |repo, allowed, plans| {
-        let Some((_, conflict_edit::Session::Reviewed(receipt, view))) = plans.take() else {
+        let Some(conflict_edit::Session::Reviewed(receipt, view)) = plans.take() else {
             return Err(GitError::new(
                 "CONFLICT_STAGE_STALE",
                 "La revisión se consumió. Actualiza y comprueba el índice antes de repetir.",
@@ -871,15 +1189,15 @@ async fn change_file(
     context_lines: Option<usize>,
     state: State<'_, AppState>,
 ) -> git::Result<changes::MutationResult> {
-    let repo = selected(&state, &id)?;
-    let allowed = trusted(&state, &id)?;
-    let writes = state.writes.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
+        let allowed = s.is_trusted()?;
         changes::stage_with_options(
-            &repo,
+            &s.repo,
             &token,
             &path,
             area,
@@ -910,15 +1228,15 @@ async fn discard_file_lines(
     context_lines: Option<usize>,
     state: State<'_, AppState>,
 ) -> git::Result<changes::MutationResult> {
-    let repo = selected(&state, &id)?;
-    let allowed = trusted(&state, &id)?;
-    let writes = state.writes.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
+        let allowed = s.is_trusted()?;
         changes::discard_lines(
-            &repo,
+            &s.repo,
             &token,
             &path,
             hunk_index,
@@ -943,14 +1261,14 @@ async fn change_files(
     paths: Vec<String>,
     state: State<'_, AppState>,
 ) -> git::Result<changes::MutationResult> {
-    let repo = selected(&state, &id)?;
-    let allowed = trusted(&state, &id)?;
-    let writes = state.writes.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
-        changes::stage_files(&repo, &token, &paths, allowed)
+        let allowed = s.is_trusted()?;
+        changes::stage_files(&s.repo, &token, &paths, allowed)
     })
     .await
     .map_err(|_| {
@@ -967,14 +1285,14 @@ async fn create_commit(
     message: String,
     state: State<'_, AppState>,
 ) -> git::Result<changes::MutationResult> {
-    let repo = selected(&state, &id)?;
-    let allowed = trusted(&state, &id)?;
-    let writes = state.writes.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
-        changes::commit(&repo, &token, &message, allowed)
+        let allowed = s.is_trusted()?;
+        changes::commit(&s.repo, &token, &message, allowed)
     })
     .await
     .map_err(|_| {
@@ -987,65 +1305,58 @@ async fn create_commit(
 async fn with_amend<T: Send + 'static>(
     state: &AppState,
     id: String,
-    work: impl FnOnce(&Repository, bool, &mut Option<(String, amend::Plan)>) -> git::Result<T>
-    + Send
-    + 'static,
+    work: impl FnOnce(&Repository, bool, &mut Option<amend::Plan>) -> git::Result<T> + Send + 'static,
 ) -> git::Result<T> {
-    let repository = state.repository.clone();
-    let authorization = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.amend_plan.clone();
-    let pushes = state.push_plan.clone();
-    let pulls = state.pull_plan.clone();
-    let rebases = state.rebase_plan.clone();
-    let replays = state.replay_plan.clone();
+    let s = session(state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _write = writes.try_lock().map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository.lock().map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?.as_ref().filter(|repo| repo.id == id).cloned().ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = authorization.lock().map_err(|_| GitError::new("STATE", "No se pudo leer la autorización."))?.as_deref() == Some(&id);
-        let mut plans = plans.lock().map_err(|_| GitError::new("STATE", "No se pudo leer la revisión de amend."))?;
-        if plans.as_ref().is_some_and(|(owner, _)| owner != &id) {*plans = None;}
-        *pushes.lock().map_err(|_| GitError::new("STATE", "No se pudo descartar Push."))? = None;
-        *pulls.lock().map_err(|_| GitError::new("STATE", "No se pudo descartar Pull."))? = None;
-        *rebases.lock().map_err(|_| GitError::new("STATE", "No se pudo descartar Rebase."))? = None;
-        *replays.lock().map_err(|_| GitError::new("STATE", "No se pudo descartar Replay."))? = None;
-        work(&repo, allowed, &mut plans)
-    }).await.map_err(|_| GitError::new("AMEND_UNCERTAIN", "La operación se interrumpió. Comprueba HEAD, index y refs/ravengit/amend antes de repetir."))?
+        let _write = s
+            .writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
+        let allowed = s.is_trusted()?;
+        let mut plans = s
+            .amend_plan
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión de amend."))?;
+        *s.push_plan
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo descartar Push."))? = None;
+        *s.pull_plan
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo descartar Pull."))? = None;
+        *s.rebase_plan
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo descartar Rebase."))? = None;
+        *s.replay_plan
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo descartar Replay."))? = None;
+        work(&s.repo, allowed, &mut plans)
+    })
+    .await
+    .map_err(|_| {
+        GitError::new(
+            "AMEND_UNCERTAIN",
+            "La operación se interrumpió. Comprueba HEAD, index y refs/ravengit/amend antes de repetir.",
+        )
+    })?
 }
 async fn with_stash<T: Send + 'static>(
     state: &AppState,
     id: String,
-    work: impl FnOnce(&Repository, bool, &mut Option<(String, stash::Plan)>) -> git::Result<T>
-    + Send
-    + 'static,
+    work: impl FnOnce(&Repository, bool, &mut Option<stash::Plan>) -> git::Result<T> + Send + 'static,
 ) -> git::Result<T> {
-    let repository = state.repository.clone();
-    let authorization = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.stash_plan.clone();
+    let s = session(state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _write = writes
+        let _write = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?
-            .as_ref()
-            .filter(|repo| repo.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = authorization
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer la autorización."))?
-            .as_deref()
-            == Some(&id);
-        let mut plans = plans
+        let allowed = s.is_trusted()?;
+        let mut plans = s
+            .stash_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión de stash."))?;
-        if plans.as_ref().is_some_and(|(owner, _)| owner != &id) {
-            *plans = None;
-        }
-        work(&repo, allowed, &mut plans)
+        work(&s.repo, allowed, &mut plans)
     })
     .await
     .map_err(|_| {
@@ -1058,57 +1369,34 @@ async fn with_stash<T: Send + 'static>(
 async fn with_worktree_restore<T: Send + 'static>(
     state: &AppState,
     id: String,
-    work: impl FnOnce(
-        &Repository,
-        bool,
-        &mut Option<(String, worktree_restore::Plan)>,
-    ) -> git::Result<T>
+    work: impl FnOnce(&Repository, bool, &mut Option<worktree_restore::Plan>) -> git::Result<T>
     + Send
     + 'static,
 ) -> git::Result<T> {
-    let repository = state.repository.clone();
-    let authorization = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.worktree_restore_plan.clone();
-    let pushes = state.push_plan.clone();
-    let pulls = state.pull_plan.clone();
-    let rebases = state.rebase_plan.clone();
-    let replays = state.replay_plan.clone();
+    let s = session(state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _write = writes
+        let _write = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?
-            .as_ref()
-            .filter(|repo| repo.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = authorization
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer la autorización."))?
-            .as_deref()
-            == Some(&id);
-        let mut plans = plans
+        let allowed = s.is_trusted()?;
+        let mut plans = s
+            .worktree_restore_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión de restauración."))?;
-        if plans.as_ref().is_some_and(|(owner, _)| owner != &id) {
-            *plans = None;
-        }
-        *pushes
+        *s.push_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo descartar Push."))? = None;
-        *pulls
+        *s.pull_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo descartar Pull."))? = None;
-        *rebases
+        *s.rebase_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo descartar Rebase."))? = None;
-        *replays
+        *s.replay_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo descartar Replay."))? = None;
-        work(&repo, allowed, &mut plans)
+        work(&s.repo, allowed, &mut plans)
     })
     .await
     .map_err(|_| {
@@ -1129,11 +1417,10 @@ async fn preview_stash(
     action: stash::Action,
     state: State<'_, AppState>,
 ) -> git::Result<stash::Plan> {
-    let owner = id.clone();
     with_stash(&state, id, move |repo, allowed, plans| {
         *plans = None;
         let plan = stash::preview(repo, action, allowed)?;
-        *plans = Some((owner, plan.clone()));
+        *plans = Some(plan.clone());
         Ok(plan)
     })
     .await
@@ -1145,9 +1432,9 @@ async fn confirm_stash(
     state: State<'_, AppState>,
 ) -> git::Result<String> {
     with_stash(&state, id, move |repo, allowed, plans| {
-        let (_, plan) = plans
+        let plan = plans
             .take()
-            .filter(|(_, plan)| plan.token == token)
+            .filter(|plan| plan.token == token)
             .ok_or_else(|| {
                 GitError::new("STASH_REVIEW", "Vuelve a revisar Stash antes de confirmar.")
             })?;
@@ -1170,37 +1457,20 @@ async fn finish_stash(
 async fn with_tag<T: Send + 'static>(
     state: &AppState,
     id: String,
-    work: impl FnOnce(&Repository, bool, &mut Option<(String, tags::Plan)>) -> git::Result<T>
-    + Send
-    + 'static,
+    work: impl FnOnce(&Repository, bool, &mut Option<tags::Plan>) -> git::Result<T> + Send + 'static,
 ) -> git::Result<T> {
-    let repository = state.repository.clone();
-    let authorization = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.tag_plan.clone();
+    let s = session(state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _write = writes
+        let _write = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?
-            .as_ref()
-            .filter(|repo| repo.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = authorization
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer la autorización."))?
-            .as_deref()
-            == Some(&id);
-        let mut plans = plans
+        let allowed = s.is_trusted()?;
+        let mut plans = s
+            .tag_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión de etiqueta."))?;
-        if plans.as_ref().is_some_and(|(owner, _)| owner != &id) {
-            *plans = None;
-        }
-        work(&repo, allowed, &mut plans)
+        work(&s.repo, allowed, &mut plans)
     })
     .await
     .map_err(|_| {
@@ -1217,11 +1487,10 @@ async fn preview_tag(
     commit: String,
     state: State<'_, AppState>,
 ) -> git::Result<tags::Plan> {
-    let owner = id.clone();
     with_tag(&state, id, move |repo, allowed, plans| {
         *plans = None;
         let plan = tags::preview(repo, &name, &commit, allowed)?;
-        *plans = Some((owner, plan.clone()));
+        *plans = Some(plan.clone());
         Ok(plan)
     })
     .await
@@ -1229,9 +1498,9 @@ async fn preview_tag(
 #[tauri::command]
 async fn create_tag(id: String, token: String, state: State<'_, AppState>) -> git::Result<String> {
     with_tag(&state, id, move |repo, allowed, plans| {
-        let (_, plan) = plans
+        let plan = plans
             .take()
-            .filter(|(_, plan)| plan.token == token)
+            .filter(|plan| plan.token == token)
             .ok_or_else(|| {
                 GitError::new(
                     "TAG_REVIEW",
@@ -1245,37 +1514,20 @@ async fn create_tag(id: String, token: String, state: State<'_, AppState>) -> gi
 async fn with_tag_push<T: Send + 'static>(
     state: &AppState,
     id: String,
-    work: impl FnOnce(&Repository, bool, &mut Option<(String, tag_push::Plan)>) -> git::Result<T>
-    + Send
-    + 'static,
+    work: impl FnOnce(&Repository, bool, &mut Option<tag_push::Plan>) -> git::Result<T> + Send + 'static,
 ) -> git::Result<T> {
-    let repository = state.repository.clone();
-    let authorization = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.tag_push_plan.clone();
+    let s = session(state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _write = writes
+        let _write = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?
-            .as_ref()
-            .filter(|repo| repo.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = authorization
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer confianza."))?
-            .as_deref()
-            == Some(&id);
-        let mut plans = plans
+        let allowed = s.is_trusted()?;
+        let mut plans = s
+            .tag_push_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión."))?;
-        if plans.as_ref().is_some_and(|(owner, _)| owner != &id) {
-            *plans = None;
-        }
-        work(&repo, allowed, &mut plans)
+        work(&s.repo, allowed, &mut plans)
     })
     .await
     .map_err(|_| {
@@ -1304,12 +1556,11 @@ async fn preview_tag_push(
     tag: String,
     state: State<'_, AppState>,
 ) -> git::Result<tag_push::Preview> {
-    let owner = id.clone();
     with_tag_push(&state, id, move |repo, allowed, plans| {
         *plans = None;
         let plan = tag_push::preview(repo, &token, &remote, &tag, allowed)?;
         let view = plan.view.clone();
-        *plans = Some((owner, plan));
+        *plans = Some(plan);
         Ok(view)
     })
     .await
@@ -1321,9 +1572,9 @@ async fn publish_tag(
     state: State<'_, AppState>,
 ) -> git::Result<tag_push::Outcome> {
     with_tag_push(&state, id, move |repo, allowed, plans| {
-        let (_, plan) = plans
+        let plan = plans
             .take()
-            .filter(|(_, plan)| plan.view.token == token)
+            .filter(|plan| plan.view.token == token)
             .ok_or_else(|| {
                 GitError::new(
                     "TAG_PUSH_REVIEW",
@@ -1340,11 +1591,10 @@ async fn preview_amend(
     message: Option<String>,
     state: State<'_, AppState>,
 ) -> git::Result<amend::Plan> {
-    let owner = id.clone();
     with_amend(&state, id, move |repo, allowed, plans| {
         *plans = None;
         let plan = amend::preview(repo, message.as_deref(), allowed)?;
-        *plans = Some((owner, plan.clone()));
+        *plans = Some(plan.clone());
         Ok(plan)
     })
     .await
@@ -1356,9 +1606,9 @@ async fn confirm_amend(
     state: State<'_, AppState>,
 ) -> git::Result<amend::Outcome> {
     with_amend(&state, id, move |repo, allowed, plans| {
-        let (_, plan) = plans
+        let plan = plans
             .take()
-            .filter(|(_, plan)| plan.token == token)
+            .filter(|plan| plan.token == token)
             .ok_or_else(|| {
                 GitError::new("AMEND_REVIEW", "Vuelve a revisar amend antes de confirmar.")
             })?;
@@ -1372,22 +1622,10 @@ async fn check_worktree_restore(
     path: String,
     state: State<'_, AppState>,
 ) -> git::Result<worktree_restore::RestoreStatus> {
-    let repository = state.repository.clone();
-    let authorization = state.trusted.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?
-            .as_ref()
-            .filter(|repo| repo.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = authorization
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer la autorización."))?
-            .as_deref()
-            == Some(&id);
-        worktree_restore::check_status(&repo, &path, allowed)
+        let allowed = s.is_trusted()?;
+        worktree_restore::check_status(&s.repo, &path, allowed)
     })
     .await
     .map_err(|_| GitError::new("STATE", "No se pudo consultar el estado de restauración."))?
@@ -1400,11 +1638,10 @@ async fn preview_worktree_restore(
     is_redo: bool,
     state: State<'_, AppState>,
 ) -> git::Result<worktree_restore::Plan> {
-    let owner = id.clone();
     with_worktree_restore(&state, id, move |repo, allowed, plans| {
         *plans = None;
         let plan = worktree_restore::preview(repo, &path, is_redo, allowed)?;
-        *plans = Some((owner, plan.clone()));
+        *plans = Some(plan.clone());
         Ok(plan)
     })
     .await
@@ -1417,9 +1654,9 @@ async fn confirm_worktree_restore(
     state: State<'_, AppState>,
 ) -> git::Result<worktree_restore::Outcome> {
     with_worktree_restore(&state, id, move |repo, allowed, plans| {
-        let (_, plan) = plans
+        let plan = plans
             .take()
-            .filter(|(_, plan)| plan.token == token)
+            .filter(|plan| plan.token == token)
             .ok_or_else(|| {
                 GitError::new(
                     "RESTORE_REVIEW",
@@ -1466,19 +1703,19 @@ async fn save_ssh_accounts(
 }
 #[tauri::command]
 async fn read_ssh_agent(id: String, state: State<'_, AppState>) -> git::Result<ssh::AgentStatus> {
-    let repo = selected(&state, &id)?;
-    if !trusted(&state, &id)? {
+    let s = session(&state, &id)?;
+    if !s.is_trusted()? {
         return Err(GitError::new(
             "UNTRUSTED",
             "Autoriza el repositorio antes de consultar su cliente SSH.",
         ));
     }
-    let writes = state.writes.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Otra operación sigue en curso."))?;
-        ssh::agent_status(&repo)
+        ssh::agent_status(&s.repo)
     })
     .await
     .map_err(|_| GitError::new("WORKER", "No se pudo consultar el agente SSH."))?
@@ -1488,19 +1725,19 @@ async fn read_authentication_status(
     id: String,
     state: State<'_, AppState>,
 ) -> git::Result<ssh::AuthenticationStatus> {
-    let repo = selected(&state, &id)?;
-    if !trusted(&state, &id)? {
+    let s = session(&state, &id)?;
+    if !s.is_trusted()? {
         return Err(GitError::new(
             "UNTRUSTED",
             "Autoriza el repositorio antes de consultar autenticación.",
         ));
     }
-    let writes = state.writes.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Otra operación sigue en curso."))?;
-        ssh::authentication_status(&repo)
+        ssh::authentication_status(&s.repo)
     })
     .await
     .map_err(|_| GitError::new("WORKER", "No se pudo consultar autenticación."))?
@@ -1523,14 +1760,14 @@ async fn edit_remote(
     edit: remotes::Edit,
     state: State<'_, AppState>,
 ) -> git::Result<remotes::OperationResult> {
-    let repo = selected(&state, &id)?;
-    let allowed = trusted(&state, &id)?;
-    let writes = state.writes.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Otra operación Git sigue en curso."))?;
-        remotes::edit(&repo, &token, edit, allowed)
+        let allowed = s.is_trusted()?;
+        remotes::edit(&s.repo, &token, edit, allowed)
     })
     .await
     .map_err(|_| {
@@ -1548,10 +1785,22 @@ async fn contact_remote(
     fetch: bool,
     state: State<'_, AppState>,
 ) -> git::Result<remotes::OperationResult> {
-    let repo = selected(&state, &id)?;
-    let allowed = trusted(&state, &id)?;
-    let writes = state.writes.clone();
-    tauri::async_runtime::spawn_blocking(move||{let _guard=writes.try_lock().map_err(|_|GitError::new("BUSY","Otra operación Git sigue en curso."))?;remotes::contact(&repo,&token,&name,fetch,allowed)}).await.map_err(|_|GitError::new("WORKER","La operación se interrumpió. Actualiza antes de repetir; no hay reintentos automáticos."))?
+    let s = session(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = s
+            .writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Otra operación Git sigue en curso."))?;
+        let allowed = s.is_trusted()?;
+        remotes::contact(&s.repo, &token, &name, fetch, allowed)
+    })
+    .await
+    .map_err(|_| {
+        GitError::new(
+            "WORKER",
+            "La operación se interrumpió. Actualiza antes de repetir; no hay reintentos automáticos.",
+        )
+    })?
 }
 #[tauri::command]
 async fn read_push_options(id: String, state: State<'_, AppState>) -> git::Result<push::Options> {
@@ -1570,37 +1819,20 @@ async fn preview_push(
     set_upstream: bool,
     state: State<'_, AppState>,
 ) -> git::Result<push::Preview> {
-    let repo = selected(&state, &id)?;
-    let repository = state.repository.clone();
-    let trust = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.push_plan.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Otra operación Git sigue en curso."))?;
-        if !repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo comprobar el repositorio activo."))?
-            .as_ref()
-            .is_some_and(|r| r.id == id)
-        {
-            return Err(GitError::new(
-                "REPOSITORY_CHANGED",
-                "El repositorio activo cambió. Vuelve a revisarlo.",
-            ));
-        }
-        let allowed = trust
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo comprobar la confianza."))?
-            .as_deref()
-            == Some(&id);
-        let mut slot = plans
+        let allowed = s.is_trusted()?;
+        let mut slot = s
+            .push_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo guardar la revisión de push."))?;
         *slot = None;
         let plan = push::preview(
-            &repo,
+            &s.repo,
             &token,
             &remote,
             &source_branch,
@@ -1609,7 +1841,7 @@ async fn preview_push(
             allowed,
         )?;
         let view = plan.view.clone();
-        *slot = Some((id, plan));
+        *slot = Some(plan);
         Ok(view)
     })
     .await
@@ -1626,24 +1858,39 @@ async fn publish_push(
     preview_token: String,
     state: State<'_, AppState>,
 ) -> git::Result<push::Outcome> {
-    let repo = selected(&state, &id)?;
-    let repository = state.repository.clone();
-    let trust = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.push_plan.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes.try_lock().map_err(|_| GitError::new("BUSY", "Otra operación Git sigue en curso."))?;
-        if !repository.lock().map_err(|_| GitError::new("STATE", "No se pudo comprobar el repositorio activo."))?.as_ref().is_some_and(|r| r.id == id) {
-            return Err(GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió. Vuelve a revisarlo."));
+        let _guard = s
+            .writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Otra operación Git sigue en curso."))?;
+        let allowed = s.is_trusted()?;
+        let plan = s
+            .push_plan
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión."))?
+            .take()
+            .ok_or_else(|| {
+                GitError::new(
+                    "PUSH_REVIEW",
+                    "No hay revisión activa. Revisa el destino antes de publicar.",
+                )
+            })?;
+        if plan.view.token != preview_token {
+            return Err(GitError::new(
+                "PUSH_REVIEW",
+                "La revisión ya no está activa. Vuelve a revisar antes de publicar.",
+            ));
         }
-        let allowed = trust.lock().map_err(|_| GitError::new("STATE", "No se pudo comprobar la confianza."))?.as_deref() == Some(&id);
-        let (owner, plan) = plans.lock().map_err(|_| GitError::new("STATE", "No se pudo leer la revisión."))?.take()
-            .ok_or_else(|| GitError::new("PUSH_REVIEW", "No hay revisión activa. Revisa el destino antes de publicar."))?;
-        if owner != id || plan.view.token != preview_token {
-            return Err(GitError::new("PUSH_REVIEW", "La revisión ya no está activa. Vuelve a revisar antes de publicar."));
-        }
-        push::publish(&repo, plan, allowed)
-    }).await.map_err(|_| GitError::new("WORKER", "La publicación se interrumpió. Comprueba el destino antes de repetir; no hay reintentos automáticos."))?
+        push::publish(&s.repo, plan, allowed)
+    })
+    .await
+    .map_err(|_| {
+        GitError::new(
+            "WORKER",
+            "La publicación se interrumpió. Comprueba el destino antes de repetir; no hay reintentos automáticos.",
+        )
+    })?
 }
 #[tauri::command]
 async fn read_branches(id: String, state: State<'_, AppState>) -> git::Result<branches::State> {
@@ -1660,19 +1907,26 @@ async fn edit_branch(
     edit: branches::Edit,
     state: State<'_, AppState>,
 ) -> git::Result<branches::Outcome> {
-    let repository = state.repository.clone();
-    let trust = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.push_plan.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes.try_lock().map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository.lock().map_err(|_| GitError::new("STATE", "No se pudo comprobar el repositorio activo."))?
-            .as_ref().filter(|repo| repo.id == id).cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió. Vuelve a abrirlo."))?;
-        let allowed = trust.lock().map_err(|_| GitError::new("STATE", "No se pudo comprobar la confianza."))?.as_deref() == Some(&id);
-        *plans.lock().map_err(|_| GitError::new("STATE", "No se pudo descartar la revisión de publicación."))? = None;
-        branches::edit(&repo, &token, edit, allowed)
-    }).await.map_err(|_| GitError::new("WORKER", "La operación de rama se interrumpió. Actualiza y comprueba el estado antes de repetir."))?
+        let _guard = s
+            .writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
+        let allowed = s.is_trusted()?;
+        *s.push_plan
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo descartar la revisión de publicación."))? =
+            None;
+        branches::edit(&s.repo, &token, edit, allowed)
+    })
+    .await
+    .map_err(|_| {
+        GitError::new(
+            "WORKER",
+            "La operación de rama se interrumpió. Actualiza y comprueba el estado antes de repetir.",
+        )
+    })?
 }
 #[tauri::command]
 async fn preview_merge(
@@ -1694,32 +1948,20 @@ async fn preview_rebase(
     base: String,
     state: State<'_, AppState>,
 ) -> git::Result<rebase::Preview> {
-    let plans = state.rebase_plan.clone();
-    let repository = state.repository.clone();
-    let trust = state.trusted.clone();
-    let writes = state.writes.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?
-            .as_ref()
-            .filter(|repo| repo.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = trust
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo comprobar confianza."))?
-            .as_deref()
-            == Some(&id);
-        let mut plans = plans
+        let allowed = s.is_trusted()?;
+        let mut plans = s
+            .rebase_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo guardar la revisión."))?;
         *plans = None;
-        let view = rebase::preview(&repo, &token, &base, allowed)?;
-        *plans = Some((id, view.clone()));
+        let view = rebase::preview(&s.repo, &token, &base, allowed)?;
+        *plans = Some(view.clone());
         Ok(view)
     })
     .await
@@ -1732,33 +1974,33 @@ async fn review_interactive_rebase(
     steps: Vec<rebase_plan::Step>,
     state: State<'_, AppState>,
 ) -> git::Result<rebase::Preview> {
-    let repo = selected(&state, &id)?;
-    let allowed = trusted(&state, &id)?;
-    let plans = state.rebase_plan.clone();
-    let writes = state.writes.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let mut plans = plans
+        let allowed = s.is_trusted()?;
+        let mut plans = s
+            .rebase_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión."))?;
-        let (owner, old) = plans
+        let old = plans
             .take()
-            .filter(|(owner, plan)| owner == &id && plan.token == token)
+            .filter(|plan| plan.token == token)
             .ok_or_else(|| {
                 GitError::new("REBASE_REVIEW", "Actualiza y revisa de nuevo el rango.")
             })?;
-        let mut fresh = rebase::preview(&repo, &old.token, &old.base, allowed)?;
+        let mut fresh = rebase::preview(&s.repo, &old.token, &old.base, allowed)?;
         if let Err(error) = rebase_plan::validate(&fresh, &steps) {
-            *plans = Some((owner, fresh));
+            *plans = Some(fresh);
             return Err(error);
         }
         fresh.interactive = Some(rebase_plan::Plan {
             token: conflict_edit::nonce(),
             steps,
         });
-        *plans = Some((owner, fresh.clone()));
+        *plans = Some(fresh.clone());
         Ok(fresh)
     })
     .await
@@ -1782,49 +2024,29 @@ async fn read_replay(id: String, state: State<'_, AppState>) -> git::Result<repl
 }
 async fn with_replay<T: Send + 'static, F>(state: &AppState, id: String, work: F) -> git::Result<T>
 where
-    F: FnOnce(&Repository, bool, &mut Option<(String, replay::Plan)>) -> git::Result<T>
-        + Send
-        + 'static,
+    F: FnOnce(&Repository, bool, &mut Option<replay::Plan>) -> git::Result<T> + Send + 'static,
 {
-    let repository = state.repository.clone();
-    let trust = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.replay_plan.clone();
-    let pushes = state.push_plan.clone();
-    let pulls = state.pull_plan.clone();
-    let rebases = state.rebase_plan.clone();
+    let s = session(state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?
-            .as_ref()
-            .filter(|r| r.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = trust
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer confianza."))?
-            .as_deref()
-            == Some(&id);
-        let mut plans = plans
+        let allowed = s.is_trusted()?;
+        let mut plans = s
+            .replay_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión."))?;
-        if plans.as_ref().is_some_and(|(owner, _)| owner != &id) {
-            *plans = None;
-        }
-        *pushes
+        *s.push_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo descartar Push."))? = None;
-        *pulls
+        *s.pull_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo descartar Pull."))? = None;
-        *rebases
+        *s.rebase_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo descartar Rebase."))? = None;
-        work(&repo, allowed, &mut plans)
+        work(&s.repo, allowed, &mut plans)
     })
     .await
     .map_err(|_| {
@@ -1841,11 +2063,10 @@ async fn preview_replay(
     commit: String,
     state: State<'_, AppState>,
 ) -> git::Result<replay::Plan> {
-    let owner = id.clone();
     with_replay(&state, id, move |repo, allowed, plans| {
         *plans = None;
         let plan = replay::preview(repo, kind, &commit, allowed)?;
-        *plans = Some((owner, plan.clone()));
+        *plans = Some(plan.clone());
         Ok(plan)
     })
     .await
@@ -1862,7 +2083,7 @@ async fn edit_replay(
         match action {
             Some(action) => replay::edit(repo, &token, action, allowed),
             None => {
-                let (_, plan) = plan.filter(|(_, p)| p.token == token).ok_or_else(|| {
+                let plan = plan.filter(|p| p.token == token).ok_or_else(|| {
                     GitError::new("REPLAY_REVIEW", "Revisa el commit antes de confirmar.")
                 })?;
                 replay::start(repo, plan, allowed)
@@ -1878,55 +2099,38 @@ async fn edit_rebase(
     edit: Option<rebase::Edit>,
     state: State<'_, AppState>,
 ) -> git::Result<merge::Outcome> {
-    let repository = state.repository.clone();
-    let trust = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.rebase_plan.clone();
-    let pushes = state.push_plan.clone();
-    let pulls = state.pull_plan.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo leer el repositorio."))?
-            .as_ref()
-            .filter(|repo| repo.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = trust
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo comprobar confianza."))?
-            .as_deref()
-            == Some(&id);
-        let plan = plans
+        let allowed = s.is_trusted()?;
+        let plan = s
+            .rebase_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión."))?
             .take();
-        *pushes
+        *s.push_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo descartar Push."))? = None;
-        *pulls
+        *s.pull_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo descartar Pull."))? = None;
         match edit {
-            Some(edit) => rebase::edit(&repo, &token, edit, allowed),
+            Some(edit) => rebase::edit(&s.repo, &token, edit, allowed),
             None => {
-                let (owner, plan) = plan
-                    .filter(|(owner, plan)| {
-                        owner == &id
-                            && plan
-                                .interactive
-                                .as_ref()
-                                .map_or(plan.token.as_str(), |p| p.token.as_str())
-                                == token
+                let plan = plan
+                    .filter(|plan| {
+                        plan.interactive
+                            .as_ref()
+                            .map_or(plan.token.as_str(), |p| p.token.as_str())
+                            == token
                     })
                     .ok_or_else(|| {
                         GitError::new("REBASE_REVIEW", "Revisa de nuevo antes de ejecutar rebase.")
                     })?;
-                let _ = owner;
-                rebase::start(&repo, plan, allowed)
+                rebase::start(&s.repo, plan, allowed)
             }
         }
     })
@@ -1953,30 +2157,17 @@ async fn edit_merge(
     edit: merge::Edit,
     state: State<'_, AppState>,
 ) -> git::Result<merge::Outcome> {
-    let repository = state.repository.clone();
-    let trust = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.push_plan.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo comprobar el repositorio activo."))?
-            .as_ref()
-            .filter(|repo| repo.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = trust
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo comprobar la confianza."))?
-            .as_deref()
-            == Some(&id);
-        *plans.lock().map_err(|_| {
+        let allowed = s.is_trusted()?;
+        *s.push_plan.lock().map_err(|_| {
             GitError::new("STATE", "No se pudo descartar la revisión de publicación.")
         })? = None;
-        merge::edit(&repo, &token, edit, allowed)
+        merge::edit(&s.repo, &token, edit, allowed)
     })
     .await
     .map_err(|_| {
@@ -2000,38 +2191,25 @@ async fn preview_pull(
     token: String,
     state: State<'_, AppState>,
 ) -> git::Result<pull::Preview> {
-    let repository = state.repository.clone();
-    let trust = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.pull_plan.clone();
-    let pushes = state.push_plan.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo comprobar el repositorio."))?
-            .as_ref()
-            .filter(|repo| repo.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = trust
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo comprobar la confianza."))?
-            .as_deref()
-            == Some(&id);
-        let mut slot = plans
+        let allowed = s.is_trusted()?;
+        let mut slot = s
+            .pull_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo invalidar la revisión de Pull."))?;
         *slot = None;
-        *pushes
+        *s.push_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo invalidar la revisión de push."))? =
             None;
-        let plan = pull::preview(&repo, &token, allowed)?;
+        let plan = pull::preview(&s.repo, &token, allowed)?;
         let view = plan.view.clone();
-        *slot = Some((id, plan));
+        *slot = Some(plan);
         Ok(view)
     })
     .await
@@ -2048,28 +2226,15 @@ async fn integrate_pull(
     preview_token: String,
     state: State<'_, AppState>,
 ) -> git::Result<merge::Outcome> {
-    let repository = state.repository.clone();
-    let trust = state.trusted.clone();
-    let writes = state.writes.clone();
-    let plans = state.pull_plan.clone();
-    let pushes = state.push_plan.clone();
+    let s = session(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = writes
+        let _guard = s
+            .writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Hay una operación Git en curso."))?;
-        let repo = repository
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo comprobar el repositorio."))?
-            .as_ref()
-            .filter(|repo| repo.id == id)
-            .cloned()
-            .ok_or_else(|| GitError::new("REPOSITORY_CHANGED", "El repositorio activo cambió."))?;
-        let allowed = trust
-            .lock()
-            .map_err(|_| GitError::new("STATE", "No se pudo comprobar la confianza."))?
-            .as_deref()
-            == Some(&id);
-        let (owner, plan) = plans
+        let allowed = s.is_trusted()?;
+        let plan = s
+            .pull_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo leer la revisión de Pull."))?
             .take()
@@ -2079,17 +2244,17 @@ async fn integrate_pull(
                     "No hay revisión activa. Confirma Fetch y vuelve a revisar Pull.",
                 )
             })?;
-        if owner != id || plan.view.token != preview_token {
+        if plan.view.token != preview_token {
             return Err(GitError::new(
                 "PULL_REVIEW",
                 "La revisión ya no está activa. Vuelve a revisar Pull.",
             ));
         }
-        *pushes
+        *s.push_plan
             .lock()
             .map_err(|_| GitError::new("STATE", "No se pudo invalidar la revisión de push."))? =
             None;
-        pull::integrate(&repo, plan, allowed)
+        pull::integrate(&s.repo, plan, allowed)
     })
     .await
     .map_err(|_| {
@@ -2194,6 +2359,16 @@ pub fn run() {
             clear_activity,
             export_diagnostics,
             open_repository,
+            close_repository,
+            read_worktrees,
+            add_worktree,
+            lock_worktree,
+            unlock_worktree,
+            remove_worktree,
+            prune_worktrees,
+            open_worktree_external,
+            read_worktree_summary,
+            watch_repository,
             get_default_repository_directory,
             preview_repository_delete,
             trash_repository,
@@ -2286,4 +2461,63 @@ pub fn run_rebase_editor() -> Option<i32> {
             1
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn multi_repo_sessions_isolate_locks_trust_and_close() {
+        let state = AppState::default();
+        let s1 = Arc::new(RepoSession::new(
+            Repository {
+                id: "1".into(),
+                path: PathBuf::from("/tmp/repo-a"),
+            },
+            true,
+        ));
+        let s2 = Arc::new(RepoSession::new(
+            Repository {
+                id: "2".into(),
+                path: PathBuf::from("/tmp/repo-b"),
+            },
+            false,
+        ));
+        {
+            let mut guard = state.sessions.lock().unwrap();
+            guard.insert("1".into(), s1);
+            guard.insert("2".into(), s2);
+        }
+
+        assert!(trusted(&state, "1").unwrap());
+        assert!(!trusted(&state, "2").unwrap());
+        assert_eq!(
+            selected(&state, "2").unwrap().path,
+            PathBuf::from("/tmp/repo-b")
+        );
+
+        let a = session(&state, "1").unwrap();
+        let b = session(&state, "2").unwrap();
+        let _lock_a = a.writes.try_lock().unwrap();
+        // Holding session A write lock must not block session B write lock
+        assert!(b.writes.try_lock().is_ok());
+
+        // Closing session A fails with BUSY while its write lock is held
+        let busy_err = close_session(&state, "1").unwrap_err();
+        assert_eq!(busy_err.code, "BUSY");
+        drop(_lock_a);
+
+        // Once unlocked, closing removes only session A and leaves session B intact
+        close_session(&state, "1").unwrap();
+        assert_eq!(
+            selected(&state, "1").unwrap_err().code,
+            "REPOSITORY_CHANGED"
+        );
+        assert_eq!(
+            selected(&state, "2").unwrap().path,
+            PathBuf::from("/tmp/repo-b")
+        );
+    }
 }

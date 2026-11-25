@@ -11,6 +11,7 @@ use std::{
 
 const VERSION: u8 = 1;
 const MAX_BYTES: u64 = 64 * 1024;
+const MAX_OPEN_TABS: usize = 12;
 const FILE_NAME: &str = "settings-v1.json";
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
@@ -42,6 +43,8 @@ pub struct AppSettings {
     pub theme: String,
     pub graph_palette: String,
     pub external: ExternalPreferences,
+    pub open_tabs: Vec<String>,
+    pub active_tab: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -51,6 +54,8 @@ impl Default for AppSettings {
             theme: "obsidian".into(),
             graph_palette: "kraken".into(),
             external: ExternalPreferences::default(),
+            open_tabs: Vec::new(),
+            active_tab: None,
         }
     }
 }
@@ -90,6 +95,12 @@ pub fn validate(settings: &AppSettings) -> Result<()> {
     if settings.version != VERSION
         || !THEMES.contains(&settings.theme.as_str())
         || !GRAPH_PALETTES.contains(&settings.graph_palette.as_str())
+        || settings.open_tabs.len() > MAX_OPEN_TABS
+        || settings.open_tabs.iter().any(|path| !valid_path(path))
+        || settings
+            .active_tab
+            .as_deref()
+            .is_some_and(|path| !valid_path(path))
         || settings
             .external
             .preferred_editor_id
@@ -112,6 +123,12 @@ pub fn validate(settings: &AppSettings) -> Result<()> {
             .is_some_and(|name| !valid_name(name))
     {
         return Err(invalid());
+    }
+    let mut seen_tabs = std::collections::HashSet::with_capacity(settings.open_tabs.len());
+    for tab in &settings.open_tabs {
+        if !seen_tabs.insert(tab.as_str()) {
+            return Err(invalid());
+        }
     }
     Ok(())
 }
@@ -232,11 +249,26 @@ mod tests {
                 custom_editor_path: Some("/Applications/Custom.app".into()),
                 custom_editor_name: Some("Custom Editor".into()),
             },
+            open_tabs: vec![
+                "/Users/erick/repo-uno".into(),
+                "/Users/erick/repo-dos".into(),
+            ],
+            active_tab: Some("/Users/erick/repo-dos".into()),
         };
         let saved = save(&fixture.0, &settings).unwrap();
         assert_eq!(saved, settings);
         let reloaded = read(&fixture.0).unwrap();
         assert_eq!(reloaded, settings);
+
+        // Legacy v1 settings without openTabs / activeTab must deserialize cleanly
+        fs::write(
+            fixture.0.join(FILE_NAME),
+            br#"{"version":1,"theme":"obsidian","graphPalette":"kraken","external":{}}"#,
+        )
+        .unwrap();
+        let legacy = read(&fixture.0).unwrap();
+        assert!(legacy.open_tabs.is_empty());
+        assert_eq!(legacy.active_tab, None);
     }
 
     #[test]
@@ -253,6 +285,18 @@ mod tests {
             },
             AppSettings {
                 graph_palette: "unknown-palette".into(),
+                ..AppSettings::default()
+            },
+            AppSettings {
+                open_tabs: (0..=MAX_OPEN_TABS).map(|i| format!("/repo-{i}")).collect(),
+                ..AppSettings::default()
+            },
+            AppSettings {
+                open_tabs: vec!["/dup".into(), "/dup".into()],
+                ..AppSettings::default()
+            },
+            AppSettings {
+                active_tab: Some("/bad\0/tab".into()),
                 ..AppSettings::default()
             },
             AppSettings {

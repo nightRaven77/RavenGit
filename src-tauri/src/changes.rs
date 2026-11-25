@@ -33,6 +33,17 @@ pub struct Changes {
     pub operation: Option<String>,
     pub trusted: bool,
 }
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeSummary {
+    pub trusted: bool,
+    pub staged: usize,
+    pub unstaged: usize,
+    pub untracked: usize,
+    pub conflicts: usize,
+    pub total: usize,
+    pub operation: Option<String>,
+}
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Area {
@@ -303,6 +314,47 @@ pub fn read(repo: &Repository, trusted: bool) -> Result<Changes> {
         author,
         operation,
         trusted,
+    })
+}
+pub fn summary(repo: &Repository, trusted: bool) -> Result<WorktreeSummary> {
+    if !trusted {
+        return Ok(WorktreeSummary {
+            trusted: false,
+            staged: 0,
+            unstaged: 0,
+            untracked: 0,
+            conflicts: 0,
+            total: 0,
+            operation: None,
+        });
+    }
+    let state = read(repo, true)?;
+    let mut staged = 0usize;
+    let mut unstaged = 0usize;
+    let mut untracked = 0usize;
+    let mut conflicts = 0usize;
+    for entry in &state.entries {
+        if entry.conflict {
+            conflicts += 1;
+        } else if entry.untracked {
+            untracked += 1;
+        } else {
+            if entry.index_status != ' ' {
+                staged += 1;
+            }
+            if entry.worktree_status != ' ' {
+                unstaged += 1;
+            }
+        }
+    }
+    Ok(WorktreeSummary {
+        trusted: true,
+        staged,
+        unstaged,
+        untracked,
+        conflicts,
+        total: state.entries.len(),
+        operation: state.operation,
     })
 }
 fn checked(repo: &Repository, token: &str, trusted: bool, write: bool) -> Result<Changes> {
@@ -2011,5 +2063,46 @@ mod tests {
             "uno modificado\ndos\ntres\ncuatro\n"
         );
         assert!(f.0.path.join(".git/ravengit-restore").exists());
+    }
+
+    #[test]
+    fn summary_respects_trust_and_counts_entries() {
+        let f = Fixture::new();
+        fs::write(f.0.path.join("limpio.txt"), "base\n").unwrap();
+        f.git(&["add", "limpio.txt"]);
+        f.git(&["commit", "-m", "base"]);
+
+        fs::write(f.0.path.join("staged.txt"), "staged\n").unwrap();
+        f.git(&["add", "staged.txt"]);
+        fs::write(f.0.path.join("limpio.txt"), "mod\n").unwrap();
+        fs::write(f.0.path.join("nuevo.txt"), "untracked\n").unwrap();
+
+        let untrusted = summary(&f.0, false).unwrap();
+        assert_eq!(
+            untrusted,
+            WorktreeSummary {
+                trusted: false,
+                staged: 0,
+                unstaged: 0,
+                untracked: 0,
+                conflicts: 0,
+                total: 0,
+                operation: None,
+            }
+        );
+
+        let trusted_summary = summary(&f.0, true).unwrap();
+        assert_eq!(
+            trusted_summary,
+            WorktreeSummary {
+                trusted: true,
+                staged: 1,
+                unstaged: 1,
+                untracked: 1,
+                conflicts: 0,
+                total: 3,
+                operation: None,
+            }
+        );
     }
 }

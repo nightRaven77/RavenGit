@@ -62,7 +62,7 @@ pub(crate) fn text(path: &Path, args: &[&str]) -> Result<String> {
 fn oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|v| v.is_ascii_hexdigit())
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Repository {
     pub id: String,
     pub path: PathBuf,
@@ -144,11 +144,12 @@ pub fn open(path: &Path, id: String) -> Result<(Repository, Snapshot)> {
     Ok((repo, snapshot))
 }
 fn generation(path: &Path) -> Result<String> {
-    // Includes all refs (including unreachable-by-HEAD branches), tags and detached HEAD.
+    // Includes all refs (including unreachable-by-HEAD branches), tags, detached HEAD and current branch name.
     let refs = text(path, &["for-each-ref", "--format=%(objectname) %(refname)"])?;
     let head = text(path, &["rev-parse", "--verify", "HEAD"]).unwrap_or_default();
+    let branch = text(path, &["symbolic-ref", "--quiet", "--short", "HEAD"]).unwrap_or_default();
     let mut hash = 14695981039346656037u64;
-    for byte in refs.bytes().chain(head.bytes()) {
+    for byte in refs.bytes().chain(head.bytes()).chain(branch.bytes()) {
         hash ^= byte as u64;
         hash = hash.wrapping_mul(1099511628211);
     }

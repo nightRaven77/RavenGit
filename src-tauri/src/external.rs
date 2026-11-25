@@ -730,13 +730,13 @@ fn build_command(repo_path: &Path, target: &ExternalApp) -> Command {
     }
 }
 
-pub fn open_in(
-    repo: &Repository,
+pub fn open_path(
+    path: &Path,
     kind: ExternalKind,
     app_id: Option<&str>,
     preferences: &ExternalPreferences,
 ) -> Result<OpenExternalOutcome> {
-    let repo_path = clean_repo_path(&repo.path)?;
+    let repo_path = clean_repo_path(path)?;
     let state = detect_apps(preferences);
     let target = resolve_target(&state, kind, app_id)?;
 
@@ -759,6 +759,15 @@ pub fn open_in(
         kind: target.kind,
         message: format!("Abierto en {}", target.name),
     })
+}
+
+pub fn open_in(
+    repo: &Repository,
+    kind: ExternalKind,
+    app_id: Option<&str>,
+    preferences: &ExternalPreferences,
+) -> Result<OpenExternalOutcome> {
+    open_path(&repo.path, kind, app_id, preferences)
 }
 
 #[cfg(test)]

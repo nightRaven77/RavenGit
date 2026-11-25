@@ -11,6 +11,15 @@ import {
 } from "@radix-ui/react-icons";
 import type { Snapshot } from "./types";
 
+export interface RepoTabItem {
+  id: string;
+  name: string;
+  path: string;
+  branch: string | null;
+  dirtyCount?: number;
+  busy?: boolean;
+}
+
 type Props = {
   repo: Pick<Snapshot, "name" | "path" | "branch" | "head"> | null;
   locked: boolean;
@@ -28,6 +37,11 @@ type Props = {
   onCommandPalette?: () => void;
   themeSwatches?: readonly string[];
   externalSlot?: ReactNode;
+  tabs?: RepoTabItem[];
+  activeTabId?: string | null;
+  onSelectTab?: (id: string) => void;
+  onCloseTab?: (id: string) => void;
+  onReorderTabs?: (fromId: string, toId: string) => void;
 };
 
 type Action = {
@@ -56,8 +70,15 @@ export default function CommandBar({
   onCommandPalette,
   themeSwatches,
   externalSlot,
+  tabs,
+  activeTabId,
+  onSelectTab,
+  onCloseTab,
+  onReorderTabs,
 }: Props) {
   const [hint, setHint] = useState("");
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
 
   useEffect(() => {
     const dismiss = (event: KeyboardEvent) => {
@@ -157,28 +178,134 @@ export default function CommandBar({
             role="tablist"
             aria-label="Repositorios abiertos"
           >
-            <div
-              className="repo-tab active"
-              role="tab"
-              aria-selected="true"
-              title={repo?.path ?? "Sin repositorio abierto"}
-            >
-              <svg
-                className="repo-tab-icon"
-                viewBox="0 0 16 16"
-                width="13"
-                height="13"
-                aria-hidden="true"
+            {tabs && tabs.length > 0 ? (
+              tabs.map((tab) => {
+                const isActive = tab.id === activeTabId;
+                return (
+                  <div
+                    key={tab.id}
+                    className={`repo-tab-wrap${isActive ? " active" : ""}${
+                      dragOverTabId === tab.id && draggedTabId !== tab.id
+                        ? " drag-over"
+                        : ""
+                    }`}
+                    onDragOver={(event) => {
+                      if (!onReorderTabs || locked || !draggedTabId) return;
+                      event.preventDefault();
+                      setDragOverTabId(tab.id);
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverTabId === tab.id) setDragOverTabId(null);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const sourceId =
+                        draggedTabId ||
+                        event.dataTransfer.getData("text/plain");
+                      setDraggedTabId(null);
+                      setDragOverTabId(null);
+                      if (
+                        !locked &&
+                        sourceId &&
+                        sourceId !== tab.id &&
+                        onReorderTabs
+                      ) {
+                        onReorderTabs(sourceId, tab.id);
+                      }
+                    }}
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      className={`repo-tab${isActive ? " active" : ""}`}
+                      disabled={locked}
+                      title={`${tab.path}${tab.branch ? ` · ${tab.branch}` : ""}`}
+                      draggable={!locked && !!onReorderTabs}
+                      onDragStart={(event) => {
+                        if (locked || !onReorderTabs) return;
+                        setDraggedTabId(tab.id);
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", tab.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedTabId(null);
+                        setDragOverTabId(null);
+                      }}
+                      onClick={() => {
+                        if (!locked) onSelectTab?.(tab.id);
+                      }}
+                      onAuxClick={(event) => {
+                        if (event.button === 1 && !locked) {
+                          event.preventDefault();
+                          onCloseTab?.(tab.id);
+                        }
+                      }}
+                    >
+                      <svg
+                        className="repo-tab-icon"
+                        viewBox="0 0 16 16"
+                        width="13"
+                        height="13"
+                        aria-hidden="true"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M1.75 2.5A1.75 1.75 0 0 1 3.5.75h3.1c.46 0 .9.18 1.24.51l.65.65c.1.1.24.16.38.16h3.63a1.75 1.75 0 0 1 1.75 1.75v7.93a1.75 1.75 0 0 1-1.75 1.75h-9a1.75 1.75 0 0 1-1.75-1.75V2.5Zm1.75-.25a.25.25 0 0 0-.25.25v9.25c0 .14.11.25.25.25h9a.25.25 0 0 0 .25-.25V3.82a.25.25 0 0 0-.25-.25H8.87a1.75 1.75 0 0 1-1.24-.51l-.65-.65a.25.25 0 0 0-.18-.07H3.5Z"
+                        />
+                      </svg>
+                      <strong className="truncate">{tab.name}</strong>
+                      {typeof tab.dirtyCount === "number" &&
+                        tab.dirtyCount > 0 && (
+                          <span
+                            className="repo-tab-dirty"
+                            aria-label={`${tab.dirtyCount} cambios`}
+                          >
+                            {tab.dirtyCount}
+                          </span>
+                        )}
+                    </button>
+                    {onCloseTab && (
+                      <button
+                        type="button"
+                        className="repo-tab-close"
+                        disabled={locked}
+                        aria-label={`Cerrar ${tab.name}`}
+                        title={`Cerrar ${tab.name} (⌘W / Ctrl+W)`}
+                        onClick={() => {
+                          if (!locked) onCloseTab(tab.id);
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div
+                className="repo-tab active"
+                role="tab"
+                aria-selected="true"
+                title={repo?.path ?? "Sin repositorio abierto"}
               >
-                <path
-                  fill="currentColor"
-                  d="M1.75 2.5A1.75 1.75 0 0 1 3.5.75h3.1c.46 0 .9.18 1.24.51l.65.65c.1.1.24.16.38.16h3.63a1.75 1.75 0 0 1 1.75 1.75v7.93a1.75 1.75 0 0 1-1.75 1.75h-9a1.75 1.75 0 0 1-1.75-1.75V2.5Zm1.75-.25a.25.25 0 0 0-.25.25v9.25c0 .14.11.25.25.25h9a.25.25 0 0 0 .25-.25V3.82a.25.25 0 0 0-.25-.25H8.87a1.75 1.75 0 0 1-1.24-.51l-.65-.65a.25.25 0 0 0-.18-.07H3.5Z"
-                />
-              </svg>
-              <strong className="truncate">
-                {repo?.name ?? "Sin repositorio"}
-              </strong>
-            </div>
+                <svg
+                  className="repo-tab-icon"
+                  viewBox="0 0 16 16"
+                  width="13"
+                  height="13"
+                  aria-hidden="true"
+                >
+                  <path
+                    fill="currentColor"
+                    d="M1.75 2.5A1.75 1.75 0 0 1 3.5.75h3.1c.46 0 .9.18 1.24.51l.65.65c.1.1.24.16.38.16h3.63a1.75 1.75 0 0 1 1.75 1.75v7.93a1.75 1.75 0 0 1-1.75 1.75h-9a1.75 1.75 0 0 1-1.75-1.75V2.5Zm1.75-.25a.25.25 0 0 0-.25.25v9.25c0 .14.11.25.25.25h9a.25.25 0 0 0 .25-.25V3.82a.25.25 0 0 0-.25-.25H8.87a1.75 1.75 0 0 1-1.24-.51l-.65-.65a.25.25 0 0 0-.18-.07H3.5Z"
+                  />
+                </svg>
+                <strong className="truncate">
+                  {repo?.name ?? "Sin repositorio"}
+                </strong>
+              </div>
+            )}
           </div>
           <button
             type="button"

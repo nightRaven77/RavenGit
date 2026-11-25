@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { ExclamationTriangleIcon } from "@radix-ui/react-icons";
 import DiffViewer from "./DiffViewer";
 import type { MutationResult } from "./types";
 import { emitOperation, nextOperationId } from "./operations";
@@ -36,6 +37,9 @@ export default function AmendDialog({
   const flight = useRef(false),
     request = useRef(0);
   const [message, setMessage] = useState("");
+  const [initialPublishedRefs, setInitialPublishedRefs] = useState<
+    string[] | null
+  >(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(true),
@@ -48,13 +52,17 @@ export default function AmendDialog({
     setLoading(true);
     setError("");
     setPlan(null);
+    setInitialPublishedRefs(null);
     setConfirmed(false);
     try {
       const initial = await invoke<Plan>("preview_amend", {
         id: repoId,
         message: null,
       });
-      if (sequence === request.current) setMessage(initial.message);
+      if (sequence === request.current) {
+        setMessage(initial.message);
+        setInitialPublishedRefs(initial.publishedRefs ?? []);
+      }
     } catch (error) {
       if (sequence === request.current) setError(messageOf(error));
     } finally {
@@ -155,6 +163,9 @@ export default function AmendDialog({
       onLock(false);
     }
   }
+  const publishedRefs = plan
+    ? plan.publishedRefs
+    : (initialPublishedRefs ?? []);
   return (
     <dialog
       ref={dialog}
@@ -181,6 +192,20 @@ export default function AmendDialog({
         colaboradores. No se ejecuta Fetch ni Push y no se habilita publicación
         forzada.
       </div>
+      {publishedRefs.length > 0 && (
+        <section
+          className="banner error amend-published-warning"
+          aria-label="Advertencia de commit publicado"
+        >
+          <ExclamationTriangleIcon aria-hidden="true" />
+          <span>
+            <strong>Commit presente en referencias remotas.</strong> El commit
+            aparece en referencias remotas locales:{" "}
+            <code>{publishedRefs.join(", ")}</code>. Reemplazarlo reescribirá
+            historia compartida. No se consultó la red.
+          </span>
+        </section>
+      )}
       {loading && <p role="status">Leyendo último commit…</p>}
       {error && (
         <div className="banner error" role="alert">
@@ -238,12 +263,13 @@ export default function AmendDialog({
               <pre className="amend-message">{plan.originalMessage}</pre>
               <h3>Mensaje nuevo</h3>
               <pre className="amend-message">{plan.message}</pre>
-              <p>
-                {plan.publishedRefs.length
-                  ? `El commit aparece en referencias remotas locales: ${plan.publishedRefs.join(", ")}.`
-                  : "No se detectó el commit en referencias remotas locales. Esto no demuestra que no haya sido publicado."}{" "}
-                No se consultó la red.
-              </p>
+              {plan.publishedRefs.length === 0 && (
+                <p>
+                  No se detectó el commit en referencias remotas locales. Esto
+                  no demuestra que no haya sido publicado. No se consultó la
+                  red.
+                </p>
+              )}
               <details>
                 <summary>Contenido del commit original</summary>
                 <DiffViewer

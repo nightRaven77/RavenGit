@@ -31,6 +31,20 @@ export interface CommitDiff {
   parent: string | null;
   parentCount: number;
 }
+export interface CommitFile {
+  path: string;
+  oldPath: string | null;
+  status: string;
+  additions: number | null;
+  deletions: number | null;
+  binary: boolean;
+}
+export interface CommitFiles {
+  hash: string;
+  parent: string | null;
+  parentCount: number;
+  files: CommitFile[];
+}
 export type ChangeArea = "staged" | "unstaged";
 export interface ChangeEntry {
   path: string;

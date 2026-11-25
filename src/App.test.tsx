@@ -375,6 +375,8 @@ beforeEach(() => {
     )
       return structuredClone(repositoryLibrary);
     if (command === "save_history_preferences") return null;
+    if (command === "read_commit_files")
+      return { hash, parent: null, parentCount: 0, files: [] };
     if (command === "read_commit_diff")
       return { hash, text: "diff fixture", parent: null, parentCount: 0 };
     if (command === "read_changes")
@@ -1064,13 +1066,16 @@ it("tras mover la carpeta activa a Papelera limpia la selección y conserva el a
   ).toHaveLength(1);
 });
 
-it("permite abrir el repositorio activo en editor, terminal y explorador desde la barra lateral", async () => {
+it("permite abrir el repositorio activo en editor, terminal y explorador desde el encabezado", async () => {
   await opened();
-  await userEvent.click(
-    await screen.findByRole("button", {
+  const header = document.querySelector("header.command-bar")!;
+  const editorButton = await within(header as HTMLElement).findByRole(
+    "button",
+    {
       name: "Abrir en editor: Antigravity IDE",
-    }),
+    },
   );
+  await userEvent.click(editorButton);
   expect(api).toHaveBeenCalledWith("open_in_external", {
     id: repo.id,
     kind: "editor",
@@ -1079,7 +1084,9 @@ it("permite abrir el repositorio activo en editor, terminal y explorador desde l
   expect(await screen.findByText("Abierto en Antigravity IDE")).toBeTruthy();
 
   await userEvent.click(
-    screen.getByRole("button", { name: "Abrir en terminal: Terminal" }),
+    within(header as HTMLElement).getByRole("button", {
+      name: "Abrir en terminal: Terminal",
+    }),
   );
   expect(api).toHaveBeenCalledWith("open_in_external", {
     id: repo.id,
@@ -1088,7 +1095,9 @@ it("permite abrir el repositorio activo en editor, terminal y explorador desde l
   });
 
   await userEvent.click(
-    screen.getByRole("button", { name: "Abrir en explorador de archivos" }),
+    within(header as HTMLElement).getByRole("button", {
+      name: "Abrir en explorador de archivos",
+    }),
   );
   expect(api).toHaveBeenCalledWith("open_in_external", {
     id: repo.id,
@@ -1097,9 +1106,12 @@ it("permite abrir el repositorio activo en editor, terminal y explorador desde l
   });
 });
 
-it("aplica y persiste cambios de tema y paleta del grafo desde Apariencia", async () => {
+it("aplica y persiste cambios de tema y paleta del grafo desde Apariencia en el encabezado y Herramientas", async () => {
   render(<App />);
-  await userEvent.click(screen.getByRole("button", { name: "Apariencia" }));
+  const header = document.querySelector("header.command-bar")!;
+  await userEvent.click(
+    within(header as HTMLElement).getByRole("button", { name: "Apariencia" }),
+  );
   await screen.findByRole("heading", { name: "Apariencia y colores" });
 
   await userEvent.click(
@@ -1122,4 +1134,129 @@ it("aplica y persiste cambios de tema y paleta del grafo desde Apariencia", asyn
       },
     },
   });
+
+  await userEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+  await userEvent.click(
+    screen.getByText("Herramientas", { selector: "summary" }),
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Apariencia y colores…" }),
+  );
+  await screen.findByRole("heading", { name: "Apariencia y colores" });
+});
+
+it("lista archivos del commit, solicita diff por archivo individual y abre menús contextuales y Paleta", async () => {
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") {
+      return {
+        ...structuredClone(repo),
+        refs: [{ name: "refs/heads/main", hash, kind: "branch" }],
+      };
+    }
+    if (command === "read_commit_files") {
+      return {
+        hash,
+        parent: null,
+        parentCount: 0,
+        files: [
+          {
+            path: "src/nuevo.ts",
+            oldPath: null,
+            status: "A",
+            additions: 12,
+            deletions: 0,
+            binary: false,
+          },
+        ],
+      };
+    }
+    if (command === "read_commit_diff") {
+      const payload = args as { path?: string };
+      return {
+        hash,
+        text: payload.path
+          ? "@@ -0,0 +1 @@\n+export const ok = true;\n"
+          : "diff completo",
+        parent: null,
+        parentCount: 0,
+      };
+    }
+    return fallback(command, args);
+  });
+
+  await opened();
+  const fileBtn = await screen.findByRole("button", {
+    name: /src\/nuevo\.ts/,
+  });
+  await userEvent.click(fileBtn);
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("read_commit_diff", {
+      id: repo.id,
+      hash,
+      parentIndex: 0,
+      path: "src/nuevo.ts",
+    }),
+  );
+  expect(
+    await screen.findByText(
+      (_, node) =>
+        node?.tagName === "SPAN" &&
+        node.classList.contains("diff-line") &&
+        Boolean(node.textContent?.includes("export const ok = true;")),
+    ),
+  ).toBeTruthy();
+
+  // Menú contextual en fila del grafo
+  const row = screen.getByRole("button", { name: /Base\. Fixture\./ });
+  fireEvent.contextMenu(row, { clientX: 50, clientY: 60 });
+  const menu = await screen.findByRole("menu", {
+    name: /Acciones del commit/,
+  });
+  expect(
+    within(menu).getByRole("menuitem", { name: "Copiar hash completo" }),
+  ).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  expect(screen.queryByRole("menu")).toBeNull();
+
+  // Menú contextual en referencia del sidebar
+  const sidebarSections = document.querySelector(
+    ".sidebar-sections",
+  ) as HTMLElement;
+  const branchBtn = within(sidebarSections).getByRole("button", {
+    name: /^main/,
+  });
+  fireEvent.contextMenu(branchBtn, { clientX: 40, clientY: 120 });
+  const refMenu = await screen.findByRole("menu", { name: "Acciones de main" });
+  expect(
+    within(refMenu).getByRole("menuitem", {
+      name: "Filtrar historial por main",
+    }),
+  ).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+
+  // Paleta de comandos vía Ctrl+K y atajos globales Ctrl+1 / Ctrl+2 / Ctrl+,
+  fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+  const palette = await screen.findByRole("dialog", {
+    name: "Paleta de comandos",
+  });
+  expect(palette).toBeTruthy();
+  await userEvent.click(
+    within(palette).getByRole("option", { name: /Ir a Cambios locales/ }),
+  );
+  expect(
+    screen
+      .getByRole("region", { name: "Cambios locales" })
+      .hasAttribute("hidden"),
+  ).toBe(false);
+
+  fireEvent.keyDown(window, { key: "2", ctrlKey: true });
+  expect(
+    screen
+      .getByRole("region", { name: "Historial del repositorio" })
+      .hasAttribute("hidden"),
+  ).toBe(false);
+
+  fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+  await screen.findByRole("heading", { name: "Apariencia y colores" });
 });

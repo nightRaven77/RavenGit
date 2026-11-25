@@ -399,3 +399,77 @@ it("bloquea cierre y doble envío durante preparación", async () => {
     api.mock.calls.filter(([command]) => command === "prepare_conflict_result"),
   ).toHaveLength(1);
 });
+
+it("resuelve bloque por bloque con Local, Entrante, Ambos y Deshacer", async () => {
+  const twoBlocks = [
+    "inicio",
+    "<<<<<<< HEAD",
+    "local uno",
+    "=======",
+    "entrante uno",
+    ">>>>>>> feat",
+    "medio",
+    "<<<<<<< HEAD",
+    "local dos",
+    "=======",
+    "entrante dos",
+    ">>>>>>> feat",
+    "",
+  ].join("\n");
+
+  api.mockImplementation(async (command) => {
+    if (command === "read_conflict") return view;
+    if (command === "preview_conflict_edit")
+      return { ...editPreview, text: twoBlocks };
+    if (command === "save_conflict_result")
+      return {
+        backup: "C:/fixture/.git/backup",
+        message: "Resolución guardada; índice aún en conflicto.",
+      };
+    throw new Error("unexpected command");
+  });
+
+  const user = userEvent.setup();
+  mount();
+  await user.click(
+    await screen.findByRole("button", { name: "Editar resultado…" }),
+  );
+  expect(await screen.findByText("2 bloques en conflicto")).toBeTruthy();
+
+  await user.click(
+    screen.getByRole("button", { name: "Usar ambos en bloque 1" }),
+  );
+  expect(screen.getByText("1 bloque en conflicto")).toBeTruthy();
+
+  await user.click(
+    screen.getByRole("button", { name: "Deshacer último bloque" }),
+  );
+  expect(screen.getByText("2 bloques en conflicto")).toBeTruthy();
+
+  await user.click(
+    screen.getByRole("button", { name: "Usar ambos en bloque 1" }),
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Usar entrante en bloque 1" }),
+  );
+  expect(
+    screen.getByText("Sin marcadores de conflicto en el borrador"),
+  ).toBeTruthy();
+
+  const textarea = screen.getByLabelText(
+    "Resultado de la resolución",
+  ) as HTMLTextAreaElement;
+  expect(textarea.value).toBe(
+    "inicio\nlocal uno\nentrante uno\nmedio\nentrante dos\n",
+  );
+
+  await user.click(screen.getByRole("checkbox"));
+  await user.click(
+    screen.getByRole("button", { name: "Guardar resolución con respaldo" }),
+  );
+  expect(api).toHaveBeenCalledWith("save_conflict_result", {
+    id: "repo",
+    token: "edit-plan",
+    result: "inicio\nlocal uno\nentrante uno\nmedio\nentrante dos\n",
+  });
+});

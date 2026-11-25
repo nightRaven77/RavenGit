@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emitOperation, nextOperationId } from "./operations";
+import {
+  hasConflictMarkers,
+  parseConflictBlocks,
+  resolveConflictBlock,
+  type ConflictChoice,
+} from "./conflictBlocks";
 
 export interface ConflictView {
   path: string;
@@ -60,10 +66,37 @@ export default function ConflictDialog({
   const [stage, setStage] = useState<StagePreview | null>(null);
   const [stageConfirmed, setStageConfirmed] = useState(false);
   const [prepared, setPrepared] = useState<Prepared | null>(null);
+  const [blockUndoStack, setBlockUndoStack] = useState<string[]>([]);
+  const conflictBlocks = useMemo(
+    () => (draft === null ? [] : parseConflictBlocks(draft)),
+    [draft],
+  );
+  const leftoverMarkers = useMemo(
+    () =>
+      draft !== null &&
+      conflictBlocks.length === 0 &&
+      hasConflictMarkers(draft),
+    [draft, conflictBlocks.length],
+  );
   const flight = useRef(false);
   const lock = useRef(onLock);
   lock.current = onLock;
   const dirty = draft !== null && draft !== original && !saved;
+  function applyBlockChoice(blockIndex: number, choice: ConflictChoice) {
+    if (draft === null) return;
+    const next = resolveConflictBlock(draft, blockIndex, choice);
+    if (next === draft) return;
+    setBlockUndoStack((stack) => [...stack, draft]);
+    setDraft(next);
+    setConfirmed(false);
+  }
+  function undoBlockChoice() {
+    if (!blockUndoStack.length) return;
+    const previous = blockUndoStack[blockUndoStack.length - 1];
+    setBlockUndoStack((stack) => stack.slice(0, -1));
+    setDraft(previous);
+    setConfirmed(false);
+  }
   function close() {
     if (flight.current) return;
     if (dirty) {
@@ -94,6 +127,7 @@ export default function ConflictDialog({
     setStageConfirmed(false);
     setPrepared(null);
     setConfirmed(false);
+    setBlockUndoStack([]);
     invoke<ConflictView>("read_conflict", { id: repoId, token, path })
       .then((result) => {
         if (!cancelled) setView(result);
@@ -432,6 +466,7 @@ export default function ConflictDialog({
                         key={version.stage}
                         disabled={busy}
                         onClick={() => {
+                          setBlockUndoStack([]);
                           setDraft(version.text);
                           setConfirmed(false);
                         }}
@@ -445,6 +480,94 @@ export default function ConflictDialog({
                       </button>
                     ))}
                 </div>
+                <section
+                  className="conflict-blocks"
+                  aria-label="Bloques en conflicto"
+                >
+                  <div className="conflict-blocks-header">
+                    <strong>
+                      {conflictBlocks.length > 0
+                        ? `${conflictBlocks.length} ${conflictBlocks.length === 1 ? "bloque en conflicto" : "bloques en conflicto"}`
+                        : leftoverMarkers
+                          ? "Marcadores incompletos detectados en el texto"
+                          : "Sin marcadores de conflicto en el borrador"}
+                    </strong>
+                    {blockUndoStack.length > 0 && (
+                      <button
+                        type="button"
+                        className="button"
+                        disabled={busy}
+                        onClick={undoBlockChoice}
+                      >
+                        Deshacer último bloque
+                      </button>
+                    )}
+                  </div>
+                  {conflictBlocks.map((block) => (
+                    <article
+                      key={`${block.index}-${block.startLine}`}
+                      className="conflict-block-card"
+                    >
+                      <header>
+                        <span>
+                          Bloque {block.index + 1} · líneas {block.startLine}–
+                          {block.endLine}
+                        </span>
+                        <div className="conflict-block-actions">
+                          <button
+                            type="button"
+                            className="button"
+                            disabled={busy}
+                            aria-label={`Usar local en bloque ${block.index + 1}`}
+                            onClick={() =>
+                              applyBlockChoice(block.index, "local")
+                            }
+                          >
+                            Local
+                          </button>
+                          <button
+                            type="button"
+                            className="button"
+                            disabled={busy}
+                            aria-label={`Usar entrante en bloque ${block.index + 1}`}
+                            onClick={() =>
+                              applyBlockChoice(block.index, "incoming")
+                            }
+                          >
+                            Entrante
+                          </button>
+                          <button
+                            type="button"
+                            className="button"
+                            disabled={busy}
+                            aria-label={`Usar ambos en bloque ${block.index + 1}`}
+                            onClick={() =>
+                              applyBlockChoice(block.index, "both")
+                            }
+                          >
+                            Ambos
+                          </button>
+                        </div>
+                      </header>
+                      <div className="conflict-block-grid">
+                        <div>
+                          <small>Local ({block.localLabel})</small>
+                          <pre>{block.localText || "(Vacío)"}</pre>
+                        </div>
+                        {block.baseText !== null && (
+                          <div>
+                            <small>Base ({block.baseLabel})</small>
+                            <pre>{block.baseText || "(Vacío)"}</pre>
+                          </div>
+                        )}
+                        <div>
+                          <small>Entrante ({block.incomingLabel})</small>
+                          <pre>{block.incomingText || "(Vacío)"}</pre>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </section>
                 <label htmlFor="conflict-result">
                   Resultado de la resolución
                 </label>

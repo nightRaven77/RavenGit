@@ -375,12 +375,24 @@ fn hunks(text: &str) -> (String, Vec<Hunk>) {
     }
     (header, result)
 }
+#[cfg(test)]
 pub fn file_diff(
     repo: &Repository,
     token: &str,
     path: &str,
     area: Area,
     trusted: bool,
+) -> Result<FileDiff> {
+    file_diff_with_options(repo, token, path, area, trusted, false, 3)
+}
+pub fn file_diff_with_options(
+    repo: &Repository,
+    token: &str,
+    path: &str,
+    area: Area,
+    trusted: bool,
+    ignore_whitespace: bool,
+    context_lines: usize,
 ) -> Result<FileDiff> {
     let state = checked(repo, token, trusted, false)?;
     let current = entry(&state, path, area)?;
@@ -416,6 +428,7 @@ pub fn file_diff(
             }
         }
     } else {
+        let unified = format!("--unified={}", context_lines.min(50));
         let mut args = vec![
             "diff",
             "--no-ext-diff",
@@ -425,8 +438,11 @@ pub fn file_diff(
             "--no-relative",
             "--src-prefix=a/",
             "--dst-prefix=b/",
-            "--unified=3",
+            &unified,
         ];
+        if ignore_whitespace {
+            args.push("-w");
+        }
         if matches!(area, Area::Staged) {
             args.push("--cached");
         }
@@ -446,6 +462,8 @@ pub fn file_diff(
         || content.contains("GIT binary patch")
     {
         Some("Cambios binarios, de tipo o de permisos se preparan completos.")
+    } else if ignore_whitespace {
+        Some("Desactiva «Ignorar espacios» para preparar bloques o líneas parciales.")
     } else if blocks.is_empty() {
         Some("No hay bloques de texto aplicables.")
     } else if !fs::symlink_metadata(&full).is_ok_and(|m| m.is_file() && !m.file_type().is_symlink())
@@ -468,6 +486,117 @@ pub fn file_diff(
         partial_allowed: reason.is_none(),
         partial_reason: reason.map(String::from),
     })
+}
+fn parse_hunk_header(header_line: &str) -> Result<(u64, u64, &str)> {
+    let rest = header_line
+        .strip_prefix("@@ -")
+        .ok_or_else(|| failure("INVALID_HUNK", "Cabecera de bloque inválida."))?;
+    let (old_spec, after_plus) = rest
+        .split_once(" +")
+        .ok_or_else(|| failure("INVALID_HUNK", "Cabecera de bloque inválida."))?;
+    let suffix_pos = after_plus
+        .find(" @@")
+        .ok_or_else(|| failure("INVALID_HUNK", "Cabecera de bloque inválida."))?;
+    let new_spec = &after_plus[..suffix_pos];
+    let suffix = &after_plus[suffix_pos..];
+    let old_start = old_spec
+        .split(',')
+        .next()
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| failure("INVALID_HUNK", "Cabecera de bloque inválida."))?;
+    let new_start = new_spec
+        .split(',')
+        .next()
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| failure("INVALID_HUNK", "Cabecera de bloque inválida."))?;
+    Ok((old_start, new_start, suffix))
+}
+fn build_partial_hunk_patch(
+    header: &str,
+    hunk: &Hunk,
+    reverse_semantics: bool,
+    selected_lines: &[usize],
+) -> Result<Vec<u8>> {
+    if selected_lines.is_empty() {
+        return Err(failure(
+            "INVALID_SELECTION",
+            "Selecciona al menos una línea modificada del bloque.",
+        ));
+    }
+    let mut lines = hunk.text.split_inclusive('\n');
+    let header_line = lines
+        .next()
+        .ok_or_else(|| failure("STALE_HUNK", "El bloque ya no existe. Actualiza el diff."))?;
+    let (old_start, new_start, suffix) = parse_hunk_header(header_line)?;
+    let body: Vec<&str> = lines.collect();
+    let mut selected = HashSet::with_capacity(selected_lines.len());
+    for &idx in selected_lines {
+        let Some(line) = body.get(idx) else {
+            return Err(failure(
+                "INVALID_SELECTION",
+                "La selección de líneas ya no corresponde al bloque actual. Actualiza el diff.",
+            ));
+        };
+        if !line.starts_with('+') && !line.starts_with('-') {
+            return Err(failure(
+                "INVALID_SELECTION",
+                "Selecciona únicamente líneas agregadas o eliminadas.",
+            ));
+        }
+        selected.insert(idx);
+    }
+
+    let mut body_out = String::with_capacity(hunk.text.len());
+    let mut old_count = 0u64;
+    let mut new_count = 0u64;
+    let mut prev_emitted = false;
+    for (idx, line) in body.iter().enumerate() {
+        if line.starts_with(' ') {
+            body_out.push_str(line);
+            old_count += 1;
+            new_count += 1;
+            prev_emitted = true;
+        } else if let Some(rest) = line.strip_prefix('+') {
+            if selected.contains(&idx) {
+                body_out.push_str(line);
+                new_count += 1;
+                prev_emitted = true;
+            } else if reverse_semantics {
+                body_out.push(' ');
+                body_out.push_str(rest);
+                old_count += 1;
+                new_count += 1;
+                prev_emitted = true;
+            } else {
+                prev_emitted = false;
+            }
+        } else if let Some(rest) = line.strip_prefix('-') {
+            if selected.contains(&idx) {
+                body_out.push_str(line);
+                old_count += 1;
+                prev_emitted = true;
+            } else if !reverse_semantics {
+                body_out.push(' ');
+                body_out.push_str(rest);
+                old_count += 1;
+                new_count += 1;
+                prev_emitted = true;
+            } else {
+                prev_emitted = false;
+            }
+        } else if line.starts_with('\\') {
+            if prev_emitted {
+                body_out.push_str(line);
+            }
+        } else {
+            return Err(failure("INVALID_HUNK", "Formato de bloque inesperado."));
+        }
+    }
+    let suffix_nl = if suffix.ends_with('\n') { "" } else { "\n" };
+    Ok(format!(
+        "{header}@@ -{old_start},{old_count} +{new_start},{new_count}{suffix}{suffix_nl}{body_out}"
+    )
+    .into_bytes())
 }
 
 pub(crate) struct IndexTransaction {
@@ -612,6 +741,7 @@ fn write_git_timeout(
 fn outcome(repo: &Repository, trusted: bool, hash: Option<String>) -> MutationResult {
     match read(repo,trusted){Ok(changes)=>MutationResult{commit_hash:hash,changes:Some(changes),warning:None},Err(_)=>MutationResult{commit_hash:hash,changes:None,warning:Some("La operación terminó, pero no se pudo actualizar la vista. Actualiza antes de continuar.".into())}}
 }
+#[cfg(test)]
 pub fn stage(
     repo: &Repository,
     token: &str,
@@ -621,10 +751,40 @@ pub fn stage(
     preview_token: Option<&str>,
     trusted: bool,
 ) -> Result<MutationResult> {
+    stage_with_options(
+        repo,
+        token,
+        path,
+        area,
+        hunk_index,
+        preview_token,
+        None,
+        3,
+        trusted,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub fn stage_with_options(
+    repo: &Repository,
+    token: &str,
+    path: &str,
+    area: Area,
+    hunk_index: Option<usize>,
+    preview_token: Option<&str>,
+    line_indices: Option<&[usize]>,
+    context_lines: usize,
+    trusted: bool,
+) -> Result<MutationResult> {
     if !trusted {
         return Err(failure(
             "TRUST_REQUIRED",
             "Autoriza este repositorio antes de modificar el index o crear commits.",
+        ));
+    }
+    if line_indices.is_some() && hunk_index.is_none() {
+        return Err(failure(
+            "INVALID_SELECTION",
+            "La selección por líneas requiere un bloque válido.",
         ));
     }
     let transaction = IndexTransaction::start(repo)?;
@@ -638,7 +798,7 @@ pub fn stage(
         ));
     }
     if let Some(hunk_index) = hunk_index {
-        let view = file_diff(repo, token, path, area, trusted)?;
+        let view = file_diff_with_options(repo, token, path, area, trusted, false, context_lines)?;
         if preview_token != Some(view.preview_token.as_str()) {
             return Err(failure(
                 "STALE_PREVIEW",
@@ -656,7 +816,11 @@ pub fn stage(
             .get(hunk_index)
             .ok_or_else(|| failure("STALE_HUNK", "El bloque ya no existe. Actualiza el diff."))?;
         let (header, _) = hunks(&view.text);
-        let patch = format!("{header}{}", hunk.text).into_bytes();
+        let patch = if let Some(lines) = line_indices {
+            build_partial_hunk_patch(&header, hunk, matches!(area, Area::Staged), lines)?
+        } else {
+            format!("{header}{}", hunk.text).into_bytes()
+        };
         let mut args = vec!["apply", "--cached", "--recount", "--whitespace=nowarn"];
         if matches!(area, Area::Staged) {
             args.push("--reverse");
@@ -686,6 +850,143 @@ pub fn stage(
     }
     checked(repo, token, trusted, true)?;
     transaction.install()?;
+    Ok(outcome(repo, trusted, None))
+}
+fn run_worktree_apply(repo: &Repository, args: &[&str], patch: Vec<u8>) -> Result<()> {
+    let mut command = crate::process::git(&repo.path);
+    command
+        .args(args)
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
+        .env("GIT_EDITOR", "");
+    let output =
+        crate::process::execute(command, Some(patch), Duration::from_secs(60)).map_err(|e| {
+            match e {
+                crate::process::Error::Start => failure(
+                    "GIT_UNAVAILABLE",
+                    "No se pudo iniciar Git de forma controlada. Comprueba su instalación.",
+                ),
+                crate::process::Error::Input | crate::process::Error::Timeout => failure(
+                    "WRITE_UNCERTAIN",
+                    "Git no terminó de aplicar el descarte parcial. Comprueba tu archivo antes de repetir.",
+                ),
+            }
+        })?;
+    if output.success {
+        Ok(())
+    } else {
+        Err(failure(
+            "WRITE_FAILED",
+            "Git rechazó el descarte parcial de líneas. Actualiza los cambios antes de repetir.",
+        ))
+    }
+}
+#[allow(clippy::too_many_arguments)]
+pub fn discard_lines(
+    repo: &Repository,
+    token: &str,
+    path: &str,
+    hunk_index: usize,
+    preview_token: &str,
+    line_indices: &[usize],
+    context_lines: usize,
+    trusted: bool,
+) -> Result<MutationResult> {
+    if !trusted {
+        return Err(failure(
+            "TRUST_REQUIRED",
+            "Autoriza este repositorio antes de modificar el árbol de trabajo.",
+        ));
+    }
+    if metadata(repo, "index.lock")?.exists() {
+        return Err(failure(
+            "INDEX_LOCKED",
+            "El index está ocupado por otro proceso. No se elimina ningún lock existente.",
+        ));
+    }
+    let state = checked(repo, token, trusted, true)?;
+    let current = entry(&state, path, Area::Unstaged)?;
+    if current.untracked || current.conflict || current.submodule {
+        return Err(failure(
+            "UNSUPPORTED_TYPE",
+            "Este archivo no admite descarte parcial por líneas.",
+        ));
+    }
+    let full = validated_path(repo, path)?;
+    let meta = fs::symlink_metadata(&full)
+        .map_err(|_| failure("FILE_CHANGED", "El archivo ya no está disponible."))?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return Err(failure(
+            "UNSUPPORTED_TYPE",
+            "Sólo los archivos regulares admiten descarte parcial por líneas.",
+        ));
+    }
+    if meta.len() > 64 * 1024 * 1024 {
+        return Err(failure(
+            "FILE_LIMIT",
+            "El archivo supera el límite de 64 MiB.",
+        ));
+    }
+    let view = file_diff_with_options(
+        repo,
+        token,
+        path,
+        Area::Unstaged,
+        trusted,
+        false,
+        context_lines,
+    )?;
+    if preview_token != view.preview_token {
+        return Err(failure(
+            "STALE_PREVIEW",
+            "El diff cambió desde la vista previa. Actualiza antes de descartar líneas.",
+        ));
+    }
+    if !view.partial_allowed {
+        return Err(failure(
+            "PARTIAL_UNAVAILABLE",
+            "Este archivo sólo admite restauración completa.",
+        ));
+    }
+    let hunk = view
+        .hunks
+        .get(hunk_index)
+        .ok_or_else(|| failure("STALE_HUNK", "El bloque ya no existe. Actualiza el diff."))?;
+    let (header, _) = hunks(&view.text);
+    let patch = build_partial_hunk_patch(&header, hunk, true, line_indices)?;
+
+    // Verificar aplicación en seco antes de tocar archivo o escribir respaldo.
+    run_worktree_apply(
+        repo,
+        &[
+            "apply",
+            "--reverse",
+            "--recount",
+            "--whitespace=nowarn",
+            "--check",
+            "-",
+        ],
+        patch.clone(),
+    )?;
+
+    let original_bytes = fs::read(&full)
+        .map_err(|_| failure("FILE_READ", "No se pudo leer el archivo original."))?;
+    checked(repo, token, trusted, true)?;
+    crate::worktree_restore::record_backup(repo, path, &original_bytes, b"")?;
+
+    run_worktree_apply(
+        repo,
+        &[
+            "apply",
+            "--reverse",
+            "--recount",
+            "--whitespace=nowarn",
+            "-",
+        ],
+        patch,
+    )?;
     Ok(outcome(repo, trusted, None))
 }
 pub fn stage_files(
@@ -1505,5 +1806,210 @@ mod tests {
         );
         fs::remove_dir(&link).unwrap();
         fs::remove_dir_all(&outside).unwrap();
+    }
+    #[test]
+    fn line_level_staging_unstaging_discarding_and_whitespace_mode() {
+        let f = Fixture::new();
+        f.file("codigo.txt", "uno\ndos\ntres\ncuatro\n");
+        f.git(&["add", "codigo.txt"]);
+        f.git(&["commit", "-m", "base"]);
+
+        // Cambiar dos líneas y añadir otra dentro del mismo hunk.
+        let modified = "uno modificado\ndos\ntres reemplazo\ncuatro\ncinco nuevo\n";
+        f.file("codigo.txt", modified);
+
+        // Con `-w` se muestra el diff pero se deshabilita preparación parcial.
+        f.file("espacios.txt", "a\nb\n");
+        f.git(&["add", "espacios.txt"]);
+        f.git(&["commit", "-m", "espacios base"]);
+        f.file("espacios.txt", "a   \nb\n");
+        let state = f.state();
+        let ws = file_diff_with_options(
+            &f.0,
+            &state.token,
+            "espacios.txt",
+            Area::Unstaged,
+            true,
+            true,
+            3,
+        )
+        .unwrap();
+        assert!(!ws.partial_allowed);
+        assert!(ws.hunks.is_empty());
+
+        // Inspeccionar hunk de codigo.txt y elegir sólo algunas líneas.
+        let view = file_diff_with_options(
+            &f.0,
+            &state.token,
+            "codigo.txt",
+            Area::Unstaged,
+            true,
+            false,
+            3,
+        )
+        .unwrap();
+        assert!(view.partial_allowed);
+        assert_eq!(view.hunks.len(), 1);
+        let body: Vec<&str> = view.hunks[0].text.split_inclusive('\n').skip(1).collect();
+        let idx_del_uno = body.iter().position(|l| *l == "-uno\n").unwrap();
+        let idx_add_uno = body.iter().position(|l| *l == "+uno modificado\n").unwrap();
+        let idx_add_cinco = body.iter().position(|l| *l == "+cinco nuevo\n").unwrap();
+        let idx_ctx_dos = body.iter().position(|l| *l == " dos\n").unwrap();
+
+        // Rechaza selección vacía, línea de contexto, fuera de rango y preview_token obsoleto.
+        assert_eq!(
+            stage_with_options(
+                &f.0,
+                &state.token,
+                "codigo.txt",
+                Area::Unstaged,
+                Some(0),
+                Some(&view.preview_token),
+                Some(&[]),
+                3,
+                true
+            )
+            .unwrap_err()
+            .code,
+            "INVALID_SELECTION"
+        );
+        assert_eq!(
+            stage_with_options(
+                &f.0,
+                &state.token,
+                "codigo.txt",
+                Area::Unstaged,
+                Some(0),
+                Some(&view.preview_token),
+                Some(&[idx_ctx_dos]),
+                3,
+                true
+            )
+            .unwrap_err()
+            .code,
+            "INVALID_SELECTION"
+        );
+        assert_eq!(
+            stage_with_options(
+                &f.0,
+                &state.token,
+                "codigo.txt",
+                Area::Unstaged,
+                Some(0),
+                Some("stale"),
+                Some(&[idx_add_uno]),
+                3,
+                true
+            )
+            .unwrap_err()
+            .code,
+            "STALE_PREVIEW"
+        );
+
+        // Preparar únicamente el cambio de la línea 1 ("-uno" y "+uno modificado") + "+cinco nuevo".
+        let after_stage = stage_with_options(
+            &f.0,
+            &state.token,
+            "codigo.txt",
+            Area::Unstaged,
+            Some(0),
+            Some(&view.preview_token),
+            Some(&[idx_del_uno, idx_add_uno, idx_add_cinco]),
+            3,
+            true,
+        )
+        .unwrap()
+        .changes
+        .unwrap();
+        assert_eq!(
+            f.git(&["show", ":codigo.txt"]),
+            "uno modificado\ndos\ntres\ncuatro\ncinco nuevo\n"
+        );
+        // El árbol de trabajo se conserva íntegro.
+        assert_eq!(
+            fs::read_to_string(f.0.path.join("codigo.txt")).unwrap(),
+            modified
+        );
+
+        // Quitar parcialmente "+cinco nuevo" de preparados.
+        let staged_view = file_diff_with_options(
+            &f.0,
+            &after_stage.token,
+            "codigo.txt",
+            Area::Staged,
+            true,
+            false,
+            3,
+        )
+        .unwrap();
+        let staged_body: Vec<&str> = staged_view.hunks[0]
+            .text
+            .split_inclusive('\n')
+            .skip(1)
+            .collect();
+        let staged_add_cinco = staged_body
+            .iter()
+            .position(|l| *l == "+cinco nuevo\n")
+            .unwrap();
+        let after_unstage = stage_with_options(
+            &f.0,
+            &after_stage.token,
+            "codigo.txt",
+            Area::Staged,
+            Some(0),
+            Some(&staged_view.preview_token),
+            Some(&[staged_add_cinco]),
+            3,
+            true,
+        )
+        .unwrap()
+        .changes
+        .unwrap();
+        assert_eq!(
+            f.git(&["show", ":codigo.txt"]),
+            "uno modificado\ndos\ntres\ncuatro\n"
+        );
+
+        // Descartar en árbol de trabajo únicamente "+cinco nuevo", dejando intacto "tres reemplazo".
+        let unstaged_view = file_diff_with_options(
+            &f.0,
+            &after_unstage.token,
+            "codigo.txt",
+            Area::Unstaged,
+            true,
+            false,
+            3,
+        )
+        .unwrap();
+        let unstaged_body: Vec<&str> = unstaged_view.hunks[0]
+            .text
+            .split_inclusive('\n')
+            .skip(1)
+            .collect();
+        let unstaged_add_cinco = unstaged_body
+            .iter()
+            .position(|l| *l == "+cinco nuevo\n")
+            .unwrap();
+        discard_lines(
+            &f.0,
+            &after_unstage.token,
+            "codigo.txt",
+            0,
+            &unstaged_view.preview_token,
+            &[unstaged_add_cinco],
+            3,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(f.0.path.join("codigo.txt")).unwrap(),
+            "uno modificado\ndos\ntres reemplazo\ncuatro\n"
+        );
+        // El índice permanece sin cambios y se escribió un respaldo en ravengit-restore/.
+        assert_eq!(
+            f.git(&["show", ":codigo.txt"]),
+            "uno modificado\ndos\ntres\ncuatro\n"
+        );
+        assert!(f.0.path.join(".git/ravengit-restore").exists());
     }
 }

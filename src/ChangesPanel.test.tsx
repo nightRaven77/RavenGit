@@ -692,4 +692,120 @@ describe("Cambios y commits", () => {
     const prepared = screen.getByRole("region", { name: "Preparados" });
     expect(within(prepared).getByText(entry.path)).toBeTruthy();
   });
+
+  it("permite alternar -w, seleccionar líneas con Shift+Click, preparar y descartar por rango", async () => {
+    const multiHunk: FileDiff = {
+      previewToken: "multi-token",
+      token: base.token,
+      path: entry.path,
+      area: "unstaged",
+      text: "@@ -1,3 +1,3 @@\n contexto\n-uno\n+uno nuevo\n+dos nuevo\n",
+      hunks: [
+        {
+          index: 0,
+          header: "@@ -1,3 +1,3 @@",
+          text: "@@ -1,3 +1,3 @@\n contexto\n-uno\n+uno nuevo\n+dos nuevo\n",
+        },
+      ],
+      partialAllowed: true,
+      partialReason: null,
+    };
+    const partialChanges: ChangesState = {
+      ...base,
+      token: "state-partial",
+      entries: [{ ...entry, indexStatus: "M", worktreeStatus: "M" }],
+    };
+    api.mockImplementation(async (command, args) => {
+      if (command === "read_changes") return base;
+      if (command === "read_file_diff") {
+        const payload = args as { ignoreWhitespace?: boolean; token?: string };
+        if (payload.ignoreWhitespace) {
+          return {
+            ...multiHunk,
+            hunks: [],
+            partialAllowed: false,
+            partialReason:
+              "Desactiva «Ignorar espacios» para preparar bloques o líneas parciales.",
+          };
+        }
+        return {
+          ...multiHunk,
+          token: payload.token ?? base.token,
+        };
+      }
+      if (command === "change_file")
+        return { changes: partialChanges, commitHash: null, warning: null };
+      if (command === "discard_file_lines")
+        return { changes: partialChanges, commitHash: null, warning: null };
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const user = userEvent.setup();
+    mount();
+
+    const wsToggle = await screen.findByRole("button", {
+      name: "Ignorar espacios",
+    });
+    await user.click(wsToggle);
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("read_file_diff", {
+        id: "repo-1",
+        token: base.token,
+        path: entry.path,
+        area: "unstaged",
+        ignoreWhitespace: true,
+      }),
+    );
+    expect(screen.getByText(/Desactiva «Ignorar espacios»/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Ignorar espacios" }));
+
+    const lineDel = await screen.findByRole("button", {
+      name: /Seleccionar línea -2:/,
+    });
+    const lineAdd2 = screen.getByRole("button", {
+      name: /Seleccionar línea \+4:/,
+    });
+
+    await user.click(lineDel);
+    await user.keyboard("{Shift>}");
+    await user.click(lineAdd2);
+    await user.keyboard("{/Shift}");
+
+    await user.click(screen.getByRole("button", { name: "Preparar 3 líneas" }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("change_file", {
+        id: "repo-1",
+        token: base.token,
+        path: entry.path,
+        area: "unstaged",
+        hunkIndex: 0,
+        previewToken: "multi-token",
+        lineIndices: [1, 2, 3],
+      }),
+    );
+
+    const freshLine = await screen.findByRole("button", {
+      name: /Seleccionar línea \+4:/,
+    });
+    await user.click(freshLine);
+    await user.click(
+      screen.getByRole("button", { name: "Descartar 1 línea…" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Confirmar descarte" }),
+    );
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("discard_file_lines", {
+        id: "repo-1",
+        token: "state-partial",
+        path: entry.path,
+        hunkIndex: 0,
+        previewToken: "multi-token",
+        lineIndices: [3],
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Rehacer cambios" }),
+    ).toBeTruthy();
+  });
 });

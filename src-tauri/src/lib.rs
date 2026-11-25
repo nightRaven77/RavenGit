@@ -29,7 +29,7 @@ mod tag_push;
 mod tags;
 mod trust;
 mod worktree_restore;
-use git::{CommitDiff, GitError, HistoryPage, Repository, Snapshot};
+use git::{CommitDiff, CommitFiles, GitError, HistoryPage, Repository, Snapshot};
 use std::{
     path::Path,
     sync::{
@@ -520,16 +520,43 @@ async fn read_history(
     .map_err(|_| GitError::new("WORKER", "No se pudo leer el historial."))?
 }
 #[tauri::command]
-async fn read_commit_diff(
+async fn read_commit_files(
     id: String,
     hash: String,
     parent_index: usize,
     state: State<'_, AppState>,
+) -> git::Result<CommitFiles> {
+    let repo = selected(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || git::commit_files(&repo, &hash, parent_index))
+        .await
+        .map_err(|_| GitError::new("WORKER", "No se pudo leer la lista de archivos del commit."))?
+}
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+async fn read_commit_diff(
+    id: String,
+    hash: String,
+    parent_index: usize,
+    path: Option<String>,
+    old_path: Option<String>,
+    ignore_whitespace: Option<bool>,
+    context_lines: Option<usize>,
+    state: State<'_, AppState>,
 ) -> git::Result<CommitDiff> {
     let repo = selected(&state, &id)?;
-    tauri::async_runtime::spawn_blocking(move || git::diff(&repo, &hash, parent_index))
-        .await
-        .map_err(|_| GitError::new("WORKER", "No se pudo leer el diff."))?
+    tauri::async_runtime::spawn_blocking(move || {
+        git::diff_with_options(
+            &repo,
+            &hash,
+            parent_index,
+            path.as_deref(),
+            old_path.as_deref(),
+            ignore_whitespace.unwrap_or(false),
+            context_lines.unwrap_or(3),
+        )
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo leer el diff."))?
 }
 fn trusted(state: &AppState, id: &str) -> git::Result<bool> {
     Ok(state
@@ -638,12 +665,22 @@ async fn read_file_diff(
     token: String,
     path: String,
     area: changes::Area,
+    ignore_whitespace: Option<bool>,
+    context_lines: Option<usize>,
     state: State<'_, AppState>,
 ) -> git::Result<changes::FileDiff> {
     let repo = selected(&state, &id)?;
     let allowed = trusted(&state, &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        changes::file_diff(&repo, &token, &path, area, allowed)
+        changes::file_diff_with_options(
+            &repo,
+            &token,
+            &path,
+            area,
+            allowed,
+            ignore_whitespace.unwrap_or(false),
+            context_lines.unwrap_or(3),
+        )
     })
     .await
     .map_err(|_| GitError::new("WORKER", "No se pudo leer el archivo."))?
@@ -821,6 +858,7 @@ async fn prepare_conflict_result(
     })
     .await
 }
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 async fn change_file(
     id: String,
@@ -829,6 +867,8 @@ async fn change_file(
     area: changes::Area,
     hunk_index: Option<usize>,
     preview_token: Option<String>,
+    line_indices: Option<Vec<usize>>,
+    context_lines: Option<usize>,
     state: State<'_, AppState>,
 ) -> git::Result<changes::MutationResult> {
     let repo = selected(&state, &id)?;
@@ -838,13 +878,53 @@ async fn change_file(
         let _guard = writes
             .try_lock()
             .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
-        changes::stage(
+        changes::stage_with_options(
             &repo,
             &token,
             &path,
             area,
             hunk_index,
             preview_token.as_deref(),
+            line_indices.as_deref(),
+            context_lines.unwrap_or(3),
+            allowed,
+        )
+    })
+    .await
+    .map_err(|_| {
+        GitError::new(
+            "WORKER",
+            "La operación se interrumpió. Actualiza antes de repetir.",
+        )
+    })?
+}
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+async fn discard_file_lines(
+    id: String,
+    token: String,
+    path: String,
+    hunk_index: usize,
+    preview_token: String,
+    line_indices: Vec<usize>,
+    context_lines: Option<usize>,
+    state: State<'_, AppState>,
+) -> git::Result<changes::MutationResult> {
+    let repo = selected(&state, &id)?;
+    let allowed = trusted(&state, &id)?;
+    let writes = state.writes.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = writes
+            .try_lock()
+            .map_err(|_| GitError::new("BUSY", "Otra operación local sigue en curso."))?;
+        changes::discard_lines(
+            &repo,
+            &token,
+            &path,
+            hunk_index,
+            &preview_token,
+            &line_indices,
+            context_lines.unwrap_or(3),
             allowed,
         )
     })
@@ -2126,6 +2206,7 @@ pub fn run() {
             relocate_repository,
             refresh_repository,
             read_history,
+            read_commit_files,
             read_commit_diff,
             read_changes,
             read_branches,
@@ -2160,6 +2241,7 @@ pub fn run() {
             prepare_conflict_result,
             change_file,
             change_files,
+            discard_file_lines,
             check_worktree_restore,
             preview_worktree_restore,
             confirm_worktree_restore,

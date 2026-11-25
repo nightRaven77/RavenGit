@@ -13,7 +13,14 @@ import {
 } from "@radix-ui/react-icons";
 import { layoutGraph, graphPixelWidth } from "./graph";
 import GraphCell from "./GraphCell";
-import type { CommitDiff, HistoryPage, Snapshot } from "./types";
+import type {
+  CommitDiff,
+  CommitFile,
+  CommitFiles,
+  GitRef,
+  HistoryPage,
+  Snapshot,
+} from "./types";
 import "./themes.css";
 import "./App.css";
 import "./workspace.css";
@@ -44,13 +51,15 @@ import OperationNotice, { type OperationResult } from "./OperationNotice";
 import PullPanel from "./PullPanel";
 import CommandBar from "./CommandBar";
 import BranchesPanel from "./BranchesPanel";
-import DiffViewer from "./DiffViewer";
+import DiffViewer, { DiffModeControl } from "./DiffViewer";
 import StashDialog from "./StashDialog";
 import ConflictRestoreDialog from "./ConflictRestoreDialog";
 import ReplayDialog, { type ReplayTarget } from "./ReplayDialog";
 import TagDialog from "./TagDialog";
 import TagPublishDialog from "./TagPublishDialog";
 import ActivityDialog from "./ActivityDialog";
+import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
+import CommandPalette, { type PaletteCommand } from "./CommandPalette";
 import {
   operationEvent,
   type OperationKey,
@@ -164,7 +173,20 @@ function App() {
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [parentIndex, setParentIndex] = useState(0);
+  const [commitFiles, setCommitFiles] = useState<CommitFile[] | null>(null);
+  const [filesBusy, setFilesBusy] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<CommitFile | null>(null);
+  const [commitIgnoreWhitespace, setCommitIgnoreWhitespace] = useState(false);
+  const [commitContextLines, setCommitContextLines] = useState(3);
   const [diff, setDiff] = useState<CommitDiff | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [branchPreselect, setBranchPreselect] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    label: string;
+    items: ContextMenuItem[];
+  } | null>(null);
   const [busy, setBusy] = useState(false),
     [loadingMore, setLoadingMore] = useState(false),
     [diffBusy, setDiffBusy] = useState(false);
@@ -181,6 +203,7 @@ function App() {
   const [showHash, setShowHash] = useState(false);
   const [showDate, setShowDate] = useState(true);
   const request = useRef(0),
+    filesRequest = useRef(0),
     diffRequest = useRef(0);
   const scroll = useRef<HTMLDivElement>(null);
   const restoreSelectionPosition = useRef(false);
@@ -357,6 +380,7 @@ function App() {
   function select(hash: string) {
     setSelected(hash);
     setParentIndex(0);
+    setSelectedFile(null);
   }
   function currentPreferences(): HistoryPreferences {
     return {
@@ -459,6 +483,10 @@ function App() {
       restoreSelectionPosition.current = !!saved?.selectedCommit;
       setTagTarget(null);
       setTagPublication(undefined);
+      setSelectedFile(null);
+      setCommitFiles(null);
+      setBranchPreselect(null);
+      setContextMenu(null);
       setRepo(next);
       setHistoryScope(restoredScope);
       setInspectorOpen(saved?.inspectorOpen ?? true);
@@ -599,6 +627,45 @@ function App() {
     }
   }
   useEffect(() => {
+    const token = ++filesRequest.current;
+    setCommitFiles(null);
+    if (!repo || !selected || view !== "history" || !inspectorOpen) {
+      setFilesBusy(false);
+      return;
+    }
+    setFilesBusy(true);
+    invoke<CommitFiles>("read_commit_files", {
+      id: repo.id,
+      hash: selected,
+      parentIndex,
+    })
+      .then((value) => {
+        if (token !== filesRequest.current) return;
+        setCommitFiles(value.files);
+        setSelectedFile((current) =>
+          current
+            ? (value.files.find((item) => item.path === current.path) ?? null)
+            : null,
+        );
+      })
+      .catch(() => {
+        if (token === filesRequest.current) setCommitFiles(null);
+      })
+      .finally(() => {
+        if (token === filesRequest.current) setFilesBusy(false);
+      });
+    return () => {
+      filesRequest.current++;
+    };
+  }, [
+    repo?.id,
+    repo?.page.generation,
+    selected,
+    parentIndex,
+    view,
+    inspectorOpen,
+  ]);
+  useEffect(() => {
     const token = ++diffRequest.current;
     setDiff(null);
     setDiffError("");
@@ -607,11 +674,18 @@ function App() {
       return;
     }
     setDiffBusy(true);
-    invoke<CommitDiff>("read_commit_diff", {
+    const payload: Record<string, unknown> = {
       id: repo.id,
       hash: selected,
       parentIndex,
-    })
+    };
+    if (selectedFile) {
+      payload.path = selectedFile.path;
+      if (selectedFile.oldPath) payload.oldPath = selectedFile.oldPath;
+    }
+    if (commitIgnoreWhitespace) payload.ignoreWhitespace = true;
+    if (commitContextLines !== 3) payload.contextLines = commitContextLines;
+    invoke<CommitDiff>("read_commit_diff", payload)
       .then((value) => {
         if (token === diffRequest.current) setDiff(value);
       })
@@ -629,19 +703,372 @@ function App() {
     repo?.page.generation,
     selected,
     parentIndex,
+    selectedFile?.path,
+    selectedFile?.oldPath,
+    commitIgnoreWhitespace,
+    commitContextLines,
     view,
     inspectorOpen,
   ]);
   useEffect(() => {
     function key(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "o") {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.altKey) return;
+      const lower = e.key.toLowerCase();
+      const hasModalDialog = !!document.querySelector("dialog[open]");
+      const target = e.target as HTMLElement | null;
+      const inEditable =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+
+      if (lower === "k") {
+        if (hasModalDialog && !paletteOpen) return;
+        e.preventDefault();
+        setContextMenu(null);
+        if (!writing) setPaletteOpen((open) => !open);
+        return;
+      }
+      if (hasModalDialog || paletteOpen) return;
+
+      if (lower === "o") {
         e.preventDefault();
         if (!busy && !loadingMore && !writing) void choose();
+      } else if (e.key === ",") {
+        e.preventDefault();
+        if (!writing) setAppearanceOpen(true);
+      } else if (lower === "r") {
+        if (!repo) return;
+        e.preventDefault();
+        if (!busy && !loadingMore && !writing) void refresh();
+      } else if (lower === "f") {
+        if (!repo) return;
+        e.preventDefault();
+        setView("history");
+        requestAnimationFrame(() => searchInput.current?.focus());
+      } else if (
+        !inEditable &&
+        (e.key === "1" || e.key === "2" || e.key === "3")
+      ) {
+        if (e.key === "1" && repo && !writing) {
+          e.preventDefault();
+          setView("changes");
+        } else if (e.key === "2" && !writing) {
+          e.preventDefault();
+          setView("history");
+        } else if (e.key === "3" && repo && !writing) {
+          e.preventDefault();
+          goSync(lastSyncView);
+        }
       }
     }
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   });
+  function copyText(value: string, label: string) {
+    if (!navigator.clipboard?.writeText) {
+      setNotice(`${label}: ${value}`);
+      return;
+    }
+    void navigator.clipboard
+      .writeText(value)
+      .then(() => setNotice(`${label}: ${value}`))
+      .catch(() => setError("No se pudo copiar al portapapeles."));
+  }
+  function openCommitContextMenu(
+    commit: Snapshot["page"]["commits"][number],
+    x: number,
+    y: number,
+  ) {
+    setContextMenu({
+      x,
+      y,
+      label: `Acciones del commit ${short(commit.hash)}`,
+      items: [
+        {
+          id: "inspect",
+          label: "Abrir detalle en inspector",
+          onSelect: () => {
+            setView("history");
+            setInspectorOpen(true);
+            select(commit.hash);
+          },
+        },
+        {
+          id: "tag",
+          label: "Etiquetar commit…",
+          disabled: writing,
+          onSelect: () => setTagTarget(commit.hash),
+        },
+        {
+          id: "cherry-pick",
+          label: "Cherry-pick…",
+          disabled: writing,
+          onSelect: () =>
+            setReplay({ kind: "cherryPick", commit: commit.hash }),
+        },
+        {
+          id: "revert",
+          label: "Revertir commit…",
+          disabled: writing,
+          onSelect: () => setReplay({ kind: "revert", commit: commit.hash }),
+        },
+        {
+          id: "parent",
+          label: "Ir al padre 1",
+          separatorBefore: true,
+          disabled: commit.parents.length === 0,
+          onSelect: () => {
+            if (commit.parents[0]) jump(commit.parents[0]);
+          },
+        },
+        {
+          id: "copy-hash",
+          label: "Copiar hash completo",
+          separatorBefore: true,
+          onSelect: () => copyText(commit.hash, "Hash copiado"),
+        },
+        {
+          id: "copy-short",
+          label: `Copiar hash corto (${short(commit.hash)})`,
+          onSelect: () => copyText(short(commit.hash), "Hash corto copiado"),
+        },
+        {
+          id: "branches",
+          label: "Gestionar ramas…",
+          separatorBefore: true,
+          disabled: writing,
+          onSelect: () => setView("branches"),
+        },
+      ],
+    });
+  }
+  function openRefContextMenu(refItem: GitRef, x: number, y: number) {
+    const label = refName(refItem.name);
+    const items: ContextMenuItem[] = [
+      {
+        id: "locate",
+        label: "Localizar en historial",
+        onSelect: () => jump(refItem.hash),
+      },
+    ];
+    if (refItem.kind === "branch" || refItem.kind === "remote") {
+      items.push({
+        id: "filter",
+        label: `Filtrar historial por ${label}`,
+        disabled: busy || loadingMore || writing,
+        onSelect: () => void refresh(refItem.name, true),
+      });
+    }
+    if (refItem.kind === "branch") {
+      items.push({
+        id: "manage",
+        label: "Gestionar en Ramas…",
+        disabled: writing,
+        onSelect: () => {
+          setBranchPreselect(label);
+          setView("branches");
+        },
+      });
+    }
+    items.push({
+      id: "copy-ref",
+      label: "Copiar nombre de referencia",
+      separatorBefore: true,
+      onSelect: () => copyText(label, "Referencia copiada"),
+    });
+    setContextMenu({
+      x,
+      y,
+      label: `Acciones de ${label}`,
+      items,
+    });
+  }
+  const launchExternal = (kind: "editor" | "terminal" | "explorer") => {
+    if (!repo) return;
+    const appId =
+      kind === "editor"
+        ? (externalApps?.preferences.preferredEditorId ??
+          externalApps?.editors[0]?.id ??
+          null)
+        : kind === "terminal"
+          ? (externalApps?.preferences.preferredTerminalId ??
+            externalApps?.terminals[0]?.id ??
+            null)
+          : null;
+    void invoke<{ message: string }>("open_in_external", {
+      id: repo.id,
+      kind,
+      appId,
+    })
+      .then((res) => setNotice(res.message))
+      .catch((reason) => setError(errorText(reason)));
+  };
+  const paletteCommands = useMemo<PaletteCommand[]>(
+    () => [
+      {
+        id: "view-changes",
+        category: "Navegación",
+        label: "Ir a Cambios locales",
+        shortcut: "⌘1",
+        disabled: !repo || writing,
+        onSelect: () => setView("changes"),
+      },
+      {
+        id: "view-history",
+        category: "Navegación",
+        label: "Ir a Historial y grafo",
+        shortcut: "⌘2",
+        disabled: writing,
+        onSelect: () => setView("history"),
+      },
+      {
+        id: "view-branches",
+        category: "Navegación",
+        label: "Ir a Ramas, Merge y Rebase",
+        disabled: !repo || writing,
+        onSelect: () => setView("branches"),
+      },
+      {
+        id: "view-remotes",
+        category: "Navegación",
+        label: "Ir a Remotos y Fetch",
+        shortcut: "⌘3",
+        disabled: !repo || writing,
+        onSelect: () => goSync("remotes"),
+      },
+      {
+        id: "view-pull",
+        category: "Navegación",
+        label: "Ir a Pull",
+        disabled: !repo || writing,
+        onSelect: () => goSync("pull"),
+      },
+      {
+        id: "view-push",
+        category: "Navegación",
+        label: "Ir a Publicar (Push)",
+        disabled: !repo || writing,
+        onSelect: () => goSync("push"),
+      },
+      {
+        id: "toggle-inspector",
+        category: "Navegación",
+        label: inspectorOpen
+          ? "Ocultar detalle del commit"
+          : "Mostrar detalle del commit",
+        disabled: view !== "history",
+        onSelect: () => setInspectorOpen((open) => !open),
+      },
+      {
+        id: "search-history",
+        category: "Historial",
+        label: "Buscar en commits cargados",
+        shortcut: "⌘F",
+        disabled: !repo,
+        onSelect: () => {
+          setView("history");
+          requestAnimationFrame(() => searchInput.current?.focus());
+        },
+      },
+      {
+        id: "refresh-repo",
+        category: "Git",
+        label: "Actualizar historial y referencias",
+        shortcut: "⌘R",
+        disabled: !repo || busy || loadingMore || writing,
+        onSelect: () => void refresh(),
+      },
+      {
+        id: "stash",
+        category: "Git",
+        label: "Abrir Stash",
+        disabled: !repo || writing,
+        onSelect: () => setStashOpen(true),
+      },
+      {
+        id: "tag-head",
+        category: "Git",
+        label: "Etiquetar commit seleccionado o HEAD",
+        disabled: !repo || !(selected ?? repo.head) || writing,
+        onSelect: () => {
+          const target = selected ?? repo?.head;
+          if (target) setTagTarget(target);
+        },
+      },
+      {
+        id: "replay",
+        category: "Git",
+        label: "Operaciones de commit (Cherry-pick / Revert)",
+        disabled: !repo || writing,
+        onSelect: () => setReplay(null),
+      },
+      {
+        id: "open-editor",
+        category: "Abrir en",
+        label: "Abrir repositorio en editor",
+        disabled: !repo || writing,
+        onSelect: () => launchExternal("editor"),
+      },
+      {
+        id: "open-terminal",
+        category: "Abrir en",
+        label: "Abrir repositorio en terminal",
+        disabled: !repo || writing,
+        onSelect: () => launchExternal("terminal"),
+      },
+      {
+        id: "open-explorer",
+        category: "Abrir en",
+        label: "Abrir repositorio en explorador de archivos",
+        disabled: !repo || writing,
+        onSelect: () => launchExternal("explorer"),
+      },
+      {
+        id: "open-repo",
+        category: "Aplicación",
+        label: "Abrir repositorio local…",
+        shortcut: "⌘O",
+        disabled: busy || loadingMore || writing,
+        onSelect: () => void choose(),
+      },
+      {
+        id: "library",
+        category: "Aplicación",
+        label: "Biblioteca de repositorios…",
+        disabled: busy || loadingMore || writing,
+        onSelect: () => setLibraryOpen(true),
+      },
+      {
+        id: "appearance",
+        category: "Aplicación",
+        label: "Apariencia y colores…",
+        shortcut: "⌘,",
+        disabled: writing,
+        onSelect: () => setAppearanceOpen(true),
+      },
+      {
+        id: "activity",
+        category: "Aplicación",
+        label: "Actividad y diagnóstico…",
+        disabled: writing,
+        onSelect: () => setActivityOpen(true),
+      },
+    ],
+    [
+      repo,
+      writing,
+      busy,
+      loadingMore,
+      inspectorOpen,
+      view,
+      lastSyncView,
+      selected,
+      externalApps,
+    ],
+  );
   function jump(hash: string) {
     const index = commits.findIndex((c) => c.hash === hash);
     if (index < 0) {
@@ -678,6 +1105,10 @@ function App() {
           } as React.CSSProperties
         }
         onClick={() => select(c.hash)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          openCommitContextMenu(c, event.clientX, event.clientY);
+        }}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
@@ -788,7 +1219,12 @@ function App() {
               setRepo(null);
               setPreferencesRepo(null);
               setSelected(null);
+              setSelectedFile(null);
+              setCommitFiles(null);
               setDiff(null);
+              setBranchPreselect(null);
+              setContextMenu(null);
+              setPaletteOpen(false);
               setView("history");
               setStashOpen(false);
               setReplay(undefined);
@@ -816,6 +1252,21 @@ function App() {
           graphPalette={graphPalette}
           onChange={changeAppearance}
           onClose={() => setAppearanceOpen(false)}
+        />
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          commands={paletteCommands}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          label={contextMenu.label}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
         />
       )}
       {repo && tagTarget && (
@@ -902,6 +1353,25 @@ function App() {
             setView("history");
             requestAnimationFrame(() => searchInput.current?.focus());
           }}
+          onLibrary={() => setLibraryOpen(true)}
+          onAppearance={() => setAppearanceOpen(true)}
+          onCommandPalette={() => setPaletteOpen(true)}
+          themeSwatches={THEMES.find(
+            (item) => item.id === theme,
+          )?.swatches.slice(1, 4)}
+          externalSlot={
+            repo ? (
+              <OpenExternalMenu
+                repoId={repo.id}
+                disabled={busy || loadingMore || writing}
+                apps={externalApps}
+                onReloadApps={reloadExternalApps}
+                onSavePreferences={saveExternalPreferences}
+                onNotice={setNotice}
+                onError={setError}
+              />
+            ) : null
+          }
         />
         {syncing && (
           <nav className="sync-navigation" aria-label="Sincronización">
@@ -995,17 +1465,6 @@ function App() {
             {repo.path}
           </div>
         )}
-        {repo && (
-          <OpenExternalMenu
-            repoId={repo.id}
-            disabled={busy || loadingMore || writing}
-            apps={externalApps}
-            onReloadApps={reloadExternalApps}
-            onSavePreferences={saveExternalPreferences}
-            onNotice={setNotice}
-            onError={setError}
-          />
-        )}
         <nav className="repo-navigation" aria-label="Vistas del repositorio">
           <button
             disabled={!repo || writing}
@@ -1090,6 +1549,13 @@ function App() {
             >
               Actividad y diagnóstico…
             </button>
+            <button
+              className="nav-button"
+              disabled={writing}
+              onClick={() => setAppearanceOpen(true)}
+            >
+              Apariencia y colores…
+            </button>
           </nav>
         </details>
         <div className="sidebar-sections">
@@ -1110,6 +1576,10 @@ function App() {
                     disabled={writing}
                     key={r.name}
                     onClick={() => jump(r.hash)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      openRefContextMenu(r, event.clientX, event.clientY);
+                    }}
                     title={`Localizar ${refName(r.name)} en el historial; no cambia la rama activa`}
                   >
                     <span className={`branch-dot ${r.kind}`} />
@@ -1127,35 +1597,6 @@ function App() {
             </details>
           ))}
         </div>
-        <button
-          type="button"
-          className="appearance-trigger"
-          onClick={() => setAppearanceOpen(true)}
-        >
-          <span className="appearance-trigger-label">
-            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M8 1.5a6.5 6.5 0 1 0 0 13 1.4 1.4 0 0 0 1.3-1.9c-.2-.5-.1-1 .3-1.3.4-.3.9-.3 1.4-.3H12a2.5 2.5 0 0 0 2.5-2.5C14.5 4.4 11.6 1.5 8 1.5Zm-3 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm2-3a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm3.5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"
-              />
-            </svg>
-            <span>Apariencia</span>
-          </span>
-          <span className="appearance-swatches" aria-hidden="true">
-            {(
-              THEMES.find((item) => item.id === theme)?.swatches.slice(
-                1,
-                4,
-              ) ?? ["#101620", "#52b7ff", "#ff667d"]
-            ).map((hex) => (
-              <span
-                key={hex}
-                className="appearance-swatch-dot"
-                style={{ backgroundColor: hex }}
-              />
-            ))}
-          </span>
-        </button>
         <div className="sidebar-foot">
           <LockClosedIcon />
           <p>Control local. Conexiones sólo cuando las solicitas.</p>
@@ -1207,6 +1648,7 @@ function App() {
           key={`branches-${repo.id}`}
           active={view === "branches"}
           repoId={repo.id}
+          initialBranch={branchPreselect}
           onLock={setWriting}
           onUpdated={refresh}
         />
@@ -1458,6 +1900,14 @@ function App() {
                         aria-pressed={selected === commit.hash}
                         title={`${commit.subject}\n${commit.author}\n${commit.hash}`}
                         onClick={() => select(commit.hash)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          openCommitContextMenu(
+                            commit,
+                            event.clientX,
+                            event.clientY,
+                          );
+                        }}
                         onKeyDown={(event) => {
                           if (
                             !["ArrowDown", "ArrowUp", "Home", "End"].includes(
@@ -1678,14 +2128,110 @@ function App() {
                 ))}
               </nav>
             )}
+            {(filesBusy || (commitFiles && commitFiles.length > 0)) && (
+              <section
+                className="commit-files"
+                aria-label="Archivos del commit"
+                aria-busy={filesBusy}
+              >
+                <div className="commit-files-header">
+                  <span>
+                    Archivos modificados ({commitFiles?.length ?? "…"})
+                  </span>
+                  {commitFiles && commitFiles.length > 0 && (
+                    <span className="commit-files-totals">
+                      <span className="stat-add">
+                        +
+                        {commitFiles.reduce(
+                          (acc, item) => acc + (item.additions ?? 0),
+                          0,
+                        )}
+                      </span>{" "}
+                      <span className="stat-del">
+                        −
+                        {commitFiles.reduce(
+                          (acc, item) => acc + (item.deletions ?? 0),
+                          0,
+                        )}
+                      </span>
+                    </span>
+                  )}
+                  {selectedFile && (
+                    <button
+                      type="button"
+                      className="button commit-files-reset"
+                      onClick={() => setSelectedFile(null)}
+                    >
+                      Ver todos
+                    </button>
+                  )}
+                </div>
+                {commitFiles && commitFiles.length > 0 && (
+                  <ul className="commit-files-list">
+                    {commitFiles.map((file) => {
+                      const activeFile = selectedFile?.path === file.path;
+                      return (
+                        <li key={`${file.status}:${file.path}`}>
+                          <button
+                            type="button"
+                            className={`commit-file-row${activeFile ? " selected" : ""}`}
+                            aria-pressed={activeFile}
+                            onClick={() =>
+                              setSelectedFile((current) =>
+                                current?.path === file.path ? null : file,
+                              )
+                            }
+                            title={
+                              file.oldPath
+                                ? `${file.oldPath} → ${file.path}`
+                                : file.path
+                            }
+                          >
+                            <span
+                              className={`commit-file-status status-${file.status}`}
+                            >
+                              {file.status}
+                            </span>
+                            <span className="truncate">
+                              {file.oldPath
+                                ? `${file.oldPath} → ${file.path}`
+                                : file.path}
+                            </span>
+                            <span className="commit-file-stats">
+                              {file.binary ? (
+                                "bin"
+                              ) : (
+                                <>
+                                  <span className="stat-add">
+                                    +{file.additions ?? 0}
+                                  </span>
+                                  <span className="stat-del">
+                                    −{file.deletions ?? 0}
+                                  </span>
+                                </>
+                              )}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            )}
             <div className="diff-toolbar">
-              <span>Diff del commit</span>
+              <span>
+                {selectedFile ? selectedFile.path : "Diff del commit"}
+              </span>
               {active.parents.length > 1 ? (
                 <label>
                   Contra padre{" "}
                   <select
                     value={parentIndex}
-                    onChange={(e) => setParentIndex(Number(e.target.value))}
+                    onChange={(e) => {
+                      setParentIndex(Number(e.target.value));
+                      setSelectedFile(null);
+                    }}
                   >
                     {active.parents.map((p, i) => (
                       <option key={p} value={i}>
@@ -1709,15 +2255,43 @@ function App() {
                   <div className="skeleton-row" />
                 </div>
               ) : diffError ? (
-                <div className="banner error" role="alert">
-                  {diffError}
-                </div>
+                <>
+                  <div className="banner error" role="alert">
+                    {diffError}
+                  </div>
+                  {!selectedFile && commitFiles && commitFiles.length > 0 && (
+                    <p className="partial-note">
+                      Selecciona un archivo individual arriba para inspeccionar
+                      su diff sin superar el límite de 2 MiB.
+                    </p>
+                  )}
+                </>
               ) : diff?.text ? (
-                <DiffViewer text={diff.text} />
+                <DiffViewer
+                  text={diff.text}
+                  filePath={selectedFile?.path}
+                  ignoreWhitespace={commitIgnoreWhitespace}
+                  onIgnoreWhitespaceChange={setCommitIgnoreWhitespace}
+                  contextLines={commitContextLines}
+                  onContextLinesChange={setCommitContextLines}
+                />
               ) : (
-                <div className="diff-empty">
-                  Sin diferencias de contenido contra este padre.
-                </div>
+                <>
+                  {(commitIgnoreWhitespace || commitContextLines !== 3) && (
+                    <DiffModeControl
+                      mode="unified"
+                      onChange={() => {}}
+                      available={false}
+                      ignoreWhitespace={commitIgnoreWhitespace}
+                      onIgnoreWhitespaceChange={setCommitIgnoreWhitespace}
+                      contextLines={commitContextLines}
+                      onContextLinesChange={setCommitContextLines}
+                    />
+                  )}
+                  <div className="diff-empty">
+                    Sin diferencias de contenido contra este padre.
+                  </div>
+                </>
               )}
             </div>
           </>

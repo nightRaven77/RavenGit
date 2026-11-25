@@ -17,6 +17,7 @@ import { emitOperation, nextOperationId } from "./operations";
 type Props = {
   active: boolean;
   repoId: string;
+  initialBranch?: string | null;
   onLock: (value: boolean) => void;
   onUpdated: () => Promise<boolean>;
 };
@@ -28,6 +29,7 @@ const message = (error: unknown) =>
 export default function BranchesPanel({
   active,
   repoId,
+  initialBranch,
   onLock,
   onUpdated,
 }: Props) {
@@ -71,6 +73,15 @@ export default function BranchesPanel({
       if (sequence === request.current) setLoading(false);
     }
   }
+  useEffect(() => {
+    if (
+      active &&
+      initialBranch &&
+      state?.branches.some((item) => item.name === initialBranch)
+    ) {
+      setSelected(initialBranch);
+    }
+  }, [active, initialBranch, state?.branches]);
   useEffect(() => {
     if (active) {
       setError("");

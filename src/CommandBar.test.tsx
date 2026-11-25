@@ -9,7 +9,7 @@ it("usa el icono local sin duplicar el nombre accesible de la marca", () => {
   const icon = document.querySelector<HTMLImageElement>(".brand-icon")!;
   expect(icon.getAttribute("src")).toBe("/ravengit.svg");
   expect(icon.alt).toBe("");
-  expect(icon.width).toBe(32);
+  expect(icon.width).toBe(20);
   expect(
     screen.getByText("RavenGit", { selector: ".command-brand strong" }),
   ).toBeTruthy();
@@ -90,4 +90,40 @@ it("permite cerrar la ayuda con Escape sin perder el foco", async () => {
   await userEvent.keyboard("{Escape}");
   expect(screen.queryByRole("tooltip")).toBeNull();
   expect(document.activeElement).toBe(button);
+});
+
+it("muestra la pestaña activa, utilidades del encabezado y el slot externo", async () => {
+  const onLibrary = vi.fn();
+  const onAppearance = vi.fn();
+  render(
+    <CommandBar
+      repo={repository}
+      locked={false}
+      onOpen={vi.fn()}
+      onRefresh={vi.fn()}
+      onChanges={vi.fn()}
+      onFetch={vi.fn()}
+      onPush={vi.fn()}
+      onPull={vi.fn()}
+      onBranches={vi.fn()}
+      onSearch={vi.fn()}
+      onStash={vi.fn()}
+      onLibrary={onLibrary}
+      onAppearance={onAppearance}
+      themeSwatches={["#101620", "#52b7ff", "#ff667d"]}
+      externalSlot={<span>Acciones externas</span>}
+    />,
+  );
+
+  const tab = screen.getByRole("tab", { name: "RavenGit" });
+  expect(tab.classList.contains("active")).toBe(true);
+  expect(screen.getByText("Acciones externas")).toBeTruthy();
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Biblioteca de repositorios" }),
+  );
+  expect(onLibrary).toHaveBeenCalledOnce();
+
+  await userEvent.click(screen.getByRole("button", { name: "Apariencia" }));
+  expect(onAppearance).toHaveBeenCalledOnce();
 });

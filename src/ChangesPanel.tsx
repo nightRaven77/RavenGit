@@ -72,6 +72,17 @@ export default function ChangesPanel({
   );
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [contextLines, setContextLines] = useState(3);
+  const [lineSelection, setLineSelection] = useState<{
+    hunkIndex: number;
+    lines: number[];
+    anchor: number | null;
+  } | null>(null);
+  const [confirmDiscardLines, setConfirmDiscardLines] = useState<{
+    hunkIndex: number;
+    lines: number[];
+  } | null>(null);
   const splitAvailable = useMemo(
     () => !!diff && splitDiff(diff.text) !== null,
     [diff],
@@ -174,6 +185,18 @@ export default function ChangesPanel({
     };
   }, [repoId, active, refreshKey]);
   useEffect(() => {
+    setLineSelection(null);
+    setConfirmDiscardLines(null);
+  }, [
+    repoId,
+    selected?.path,
+    selected?.area,
+    state?.token,
+    ignoreWhitespace,
+    contextLines,
+    effectiveDiffMode,
+  ]);
+  useEffect(() => {
     const token = ++diffRequest.current;
     setDiff(null);
     setDiffError("");
@@ -182,12 +205,15 @@ export default function ChangesPanel({
       return;
     }
     setDiffLoading(true);
-    invoke<FileDiff>("read_file_diff", {
+    const payload: Record<string, unknown> = {
       id: repoId,
       token: state.token,
       path: selected.path,
       area: selected.area,
-    })
+    };
+    if (ignoreWhitespace) payload.ignoreWhitespace = true;
+    if (contextLines !== 3) payload.contextLines = contextLines;
+    invoke<FileDiff>("read_file_diff", payload)
       .then((next) => {
         if (token === diffRequest.current) setDiff(next);
       })
@@ -200,7 +226,16 @@ export default function ChangesPanel({
     return () => {
       diffRequest.current++;
     };
-  }, [repoId, active, loading, state?.token, selected?.path, selected?.area]);
+  }, [
+    repoId,
+    active,
+    loading,
+    state?.token,
+    selected?.path,
+    selected?.area,
+    ignoreWhitespace,
+    contextLines,
+  ]);
   async function execute(
     action: () => Promise<void>,
     failure?: Omit<OperationReport, "status" | "message">,
@@ -281,7 +316,48 @@ export default function ChangesPanel({
       },
     );
   }
-  async function apply(hunkIndex: number | null) {
+  function handleLineClick(
+    hunkIndex: number,
+    bodyLineIndex: number,
+    shiftKey: boolean,
+  ) {
+    const hunk = diff?.hunks.find((item) => item.index === hunkIndex);
+    if (!hunk) return;
+    setConfirmDiscardLines(null);
+    const body = hunk.text.split("\n").slice(1);
+    const isModifiedLine = (idx: number) =>
+      body[idx]?.startsWith("+") || body[idx]?.startsWith("-");
+    if (!isModifiedLine(bodyLineIndex)) return;
+
+    setLineSelection((current) => {
+      if (current && current.hunkIndex === hunkIndex) {
+        const nextSet = new Set(current.lines);
+        if (shiftKey && current.anchor !== null) {
+          const lo = Math.min(current.anchor, bodyLineIndex);
+          const hi = Math.max(current.anchor, bodyLineIndex);
+          for (let i = lo; i <= hi; i++) {
+            if (isModifiedLine(i)) nextSet.add(i);
+          }
+          return {
+            hunkIndex,
+            lines: [...nextSet].sort((a, b) => a - b),
+            anchor: bodyLineIndex,
+          };
+        }
+        if (nextSet.has(bodyLineIndex)) nextSet.delete(bodyLineIndex);
+        else nextSet.add(bodyLineIndex);
+        return nextSet.size > 0
+          ? {
+              hunkIndex,
+              lines: [...nextSet].sort((a, b) => a - b),
+              anchor: bodyLineIndex,
+            }
+          : null;
+      }
+      return { hunkIndex, lines: [bodyLineIndex], anchor: bodyLineIndex };
+    });
+  }
+  async function apply(hunkIndex: number | null, lines?: number[]) {
     if (!state || !selected || !canWrite) return;
     const token = state.token,
       selection = selected;
@@ -291,26 +367,38 @@ export default function ChangesPanel({
       selection.area === "unstaged"
         ? "Preparando cambios"
         : "Quitando de preparados";
+    const destination =
+      hunkIndex === null
+        ? "Archivo"
+        : lines && lines.length > 0
+          ? `${lines.length} ${lines.length === 1 ? "línea" : "líneas"}`
+          : "Bloque";
     emitOperation({
       id,
       repoId,
       operation,
       status: "progress",
       title,
-      destination: hunkIndex === null ? "Archivo" : "Bloque",
+      destination,
       message: "Aplicando la revisión al índice…",
     });
     await execute(
       async () => {
-        const result = await invoke<MutationResult>("change_file", {
+        const payload: Record<string, unknown> = {
           id: repoId,
           token,
           path: selection.path,
           area: selection.area,
           hunkIndex,
           previewToken: hunkIndex === null ? null : diff?.previewToken,
-        });
+        };
+        if (lines && lines.length > 0) payload.lineIndices = lines;
+        if (contextLines !== 3 && hunkIndex !== null)
+          payload.contextLines = contextLines;
+        const result = await invoke<MutationResult>("change_file", payload);
         accept(result.changes);
+        setLineSelection(null);
+        setConfirmDiscardLines(null);
         const text =
           result.warning ??
           (selection.area === "unstaged"
@@ -326,7 +414,7 @@ export default function ChangesPanel({
             selection.area === "unstaged"
               ? "Cambios preparados"
               : "Cambios retirados de preparados",
-          destination: hunkIndex === null ? "Archivo" : "Bloque",
+          destination,
           message: text,
           warning: result.warning ?? undefined,
         });
@@ -336,7 +424,65 @@ export default function ChangesPanel({
         repoId,
         operation,
         title: "No se modificó el índice",
-        destination: hunkIndex === null ? "Archivo" : "Bloque",
+        destination,
+      },
+    );
+  }
+  async function discardSelectedLines(hunkIndex: number, lines: number[]) {
+    if (!state || !selected || !diff || !canWrite || !lines.length) return;
+    const token = state.token,
+      selection = selected;
+    const id = nextOperationId();
+    const destination = `${lines.length} ${lines.length === 1 ? "línea" : "líneas"}`;
+    emitOperation({
+      id,
+      repoId,
+      operation: "unstage",
+      status: "progress",
+      title: "Descartando líneas seleccionadas",
+      destination,
+      message: "Guardando respaldo y revirtiendo líneas del árbol de trabajo…",
+    });
+    await execute(
+      async () => {
+        const payload: Record<string, unknown> = {
+          id: repoId,
+          token,
+          path: selection.path,
+          hunkIndex,
+          previewToken: diff.previewToken,
+          lineIndices: lines,
+        };
+        if (contextLines !== 3) payload.contextLines = contextLines;
+        const result = await invoke<MutationResult>(
+          "discard_file_lines",
+          payload,
+        );
+        accept(result.changes);
+        setLastRestored(selection.path);
+        setLineSelection(null);
+        setConfirmDiscardLines(null);
+        const text =
+          result.warning ??
+          `Se descartaron ${destination} con copia de seguridad previa.`;
+        setNotice(text);
+        emitOperation({
+          id,
+          repoId,
+          operation: "unstage",
+          status: result.warning ? "warning" : "confirmed",
+          title: "Líneas descartadas con respaldo",
+          destination,
+          message: text,
+          warning: result.warning ?? undefined,
+        });
+      },
+      {
+        id,
+        repoId,
+        operation: "unstage",
+        title: "No se descartaron líneas",
+        destination,
       },
     );
   }
@@ -953,38 +1099,156 @@ export default function ChangesPanel({
                     mode={effectiveDiffMode}
                     onChange={setDiffMode}
                     available={splitAvailable}
+                    ignoreWhitespace={ignoreWhitespace}
+                    onIgnoreWhitespaceChange={
+                      selectedEntry?.untracked ? undefined : setIgnoreWhitespace
+                    }
+                    contextLines={contextLines}
+                    onContextLinesChange={
+                      selectedEntry?.untracked ? undefined : setContextLines
+                    }
                   />
                   {diff.partialReason && (
                     <p className="partial-note">{diff.partialReason}</p>
                   )}
                   {diff.partialAllowed ? (
-                    diff.hunks.map((hunk) => (
-                      <section
-                        className="diff-hunk"
-                        key={hunk.index}
-                        aria-label={`Bloque ${hunk.index + 1}`}
-                      >
-                        <div className="hunk-action">
-                          <span>Bloque {hunk.index + 1}</span>
-                          <button
-                            className="button"
-                            disabled={!canWrite}
-                            onClick={() => apply(hunk.index)}
-                          >
-                            {selected.area === "staged"
-                              ? "Quitar bloque de preparados"
-                              : "Preparar bloque"}
-                          </button>
-                        </div>
-                        <DiffContent
-                          text={hunk.text}
-                          mode={effectiveDiffMode}
-                        />
-                      </section>
-                    ))
+                    diff.hunks.map((hunk) => {
+                      const selectedInHunk =
+                        lineSelection?.hunkIndex === hunk.index
+                          ? lineSelection.lines
+                          : [];
+                      const selectedSet = selectedInHunk.length
+                        ? new Set(selectedInHunk)
+                        : undefined;
+                      const confirmingDiscard =
+                        confirmDiscardLines?.hunkIndex === hunk.index;
+                      const lineNoun =
+                        selectedInHunk.length === 1 ? "línea" : "líneas";
+                      return (
+                        <section
+                          className="diff-hunk"
+                          key={hunk.index}
+                          aria-label={`Bloque ${hunk.index + 1}`}
+                        >
+                          <div className="hunk-action">
+                            <span>
+                              Bloque {hunk.index + 1}
+                              {selectedInHunk.length > 0 &&
+                                ` · ${selectedInHunk.length} ${lineNoun} selec.`}
+                            </span>
+                            <div className="hunk-buttons">
+                              {selectedInHunk.length > 0 && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="button"
+                                    disabled={!canWrite}
+                                    onClick={() =>
+                                      void apply(hunk.index, selectedInHunk)
+                                    }
+                                  >
+                                    {selected.area === "staged"
+                                      ? `Quitar ${selectedInHunk.length} ${lineNoun}`
+                                      : `Preparar ${selectedInHunk.length} ${lineNoun}`}
+                                  </button>
+                                  {selected.area === "unstaged" &&
+                                    !selectedEntry?.untracked && (
+                                      <button
+                                        type="button"
+                                        className="button"
+                                        disabled={!canWrite}
+                                        onClick={() =>
+                                          setConfirmDiscardLines({
+                                            hunkIndex: hunk.index,
+                                            lines: selectedInHunk,
+                                          })
+                                        }
+                                      >
+                                        Descartar {selectedInHunk.length}{" "}
+                                        {lineNoun}…
+                                      </button>
+                                    )}
+                                  <button
+                                    type="button"
+                                    className="button"
+                                    disabled={writing}
+                                    onClick={() => {
+                                      setLineSelection(null);
+                                      setConfirmDiscardLines(null);
+                                    }}
+                                  >
+                                    Limpiar selección
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                className="button"
+                                disabled={!canWrite}
+                                onClick={() => void apply(hunk.index)}
+                              >
+                                {selected.area === "staged"
+                                  ? "Quitar bloque de preparados"
+                                  : "Preparar bloque"}
+                              </button>
+                            </div>
+                          </div>
+                          {confirmingDiscard && confirmDiscardLines && (
+                            <div
+                              className="banner warning hunk-discard-confirm"
+                              role="region"
+                              aria-label="Confirmar descarte de líneas"
+                            >
+                              <span>
+                                Se guardará una copia de seguridad antes de
+                                descartar {confirmDiscardLines.lines.length}{" "}
+                                {confirmDiscardLines.lines.length === 1
+                                  ? "línea"
+                                  : "líneas"}{" "}
+                                del árbol de trabajo.
+                              </span>
+                              <div className="hunk-buttons">
+                                <button
+                                  type="button"
+                                  className="button primary"
+                                  disabled={!canWrite}
+                                  onClick={() =>
+                                    void discardSelectedLines(
+                                      hunk.index,
+                                      confirmDiscardLines.lines,
+                                    )
+                                  }
+                                >
+                                  Confirmar descarte
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button"
+                                  disabled={writing}
+                                  onClick={() => setConfirmDiscardLines(null)}
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          <DiffContent
+                            text={hunk.text}
+                            mode={effectiveDiffMode}
+                            filePath={selected.path}
+                            selectable={effectiveDiffMode === "unified"}
+                            selectedLines={selectedSet}
+                            onLineClick={(bodyIdx, shiftKey) =>
+                              handleLineClick(hunk.index, bodyIdx, shiftKey)
+                            }
+                          />
+                        </section>
+                      );
+                    })
                   ) : (
                     <DiffContent
                       mode={effectiveDiffMode}
+                      filePath={selected.path}
                       text={diff.text || "Sin diferencias de contenido."}
                     />
                   )}
@@ -1015,7 +1279,7 @@ export default function ChangesPanel({
             setNotice(
               restoreTarget.isRedo
                 ? "Cambios rehechos exitosamente desde el respaldo."
-                : "Archivo restaurado con éxito. Se guardó una copia de seguridad para rehacer."
+                : "Archivo restaurado con éxito. Se guardó una copia de seguridad para rehacer.",
             );
             setLastRestored(restoreTarget.isRedo ? null : restoreTarget.path);
             await reload();

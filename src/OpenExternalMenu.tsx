@@ -169,13 +169,12 @@ export default function OpenExternalMenu({
   return (
     <div
       ref={containerRef}
-      className="external-open"
-      role="region"
+      className="external-toolbar"
+      role="group"
       aria-label="Abrir repositorio en aplicación externa"
     >
-      <div className="section-label">ABRIR EN</div>
-      <div className="external-actions">
-        <div className="external-row">
+      <div className="external-item">
+        <div className="external-split">
           <button
             type="button"
             className="external-btn"
@@ -196,7 +195,7 @@ export default function OpenExternalMenu({
             }}
           >
             <CodeIcon aria-hidden="true" />
-            <span className="truncate">
+            <span className="truncate external-editor-label">
               {activeEditor ? activeEditor.name : "Elegir editor…"}
             </span>
           </button>
@@ -216,7 +215,11 @@ export default function OpenExternalMenu({
           </button>
         </div>
         {openMenu === "editor" && (
-          <div className="external-menu" role="menu" aria-label="Editores">
+          <div
+            className="external-menu external-dropdown"
+            role="menu"
+            aria-label="Editores"
+          >
             {editors.length > 0 ? (
               editors.map((item) => (
                 <button
@@ -250,8 +253,10 @@ export default function OpenExternalMenu({
             </button>
           </div>
         )}
+      </div>
 
-        <div className="external-row">
+      <div className="external-item">
+        <div className="external-split">
           <button
             type="button"
             className="external-btn"
@@ -269,7 +274,7 @@ export default function OpenExternalMenu({
             onClick={() => void launch("terminal", activeTerminal?.id)}
           >
             <DesktopIcon aria-hidden="true" />
-            <span className="truncate">
+            <span className="truncate external-compact-label">
               {activeTerminal ? activeTerminal.name : "Terminal"}
             </span>
           </button>
@@ -291,7 +296,11 @@ export default function OpenExternalMenu({
           )}
         </div>
         {openMenu === "terminal" && (
-          <div className="external-menu" role="menu" aria-label="Terminales">
+          <div
+            className="external-menu external-dropdown"
+            role="menu"
+            aria-label="Terminales"
+          >
             {terminals.map((item) => (
               <button
                 key={item.id}
@@ -310,20 +319,22 @@ export default function OpenExternalMenu({
             ))}
           </div>
         )}
+      </div>
 
-        <div className="external-row">
-          <button
-            type="button"
-            className="external-btn"
-            disabled={busy}
-            aria-label="Abrir en explorador de archivos"
-            title={`Abrir carpeta del repositorio en ${explorerName}`}
-            onClick={() => void launch("explorer")}
-          >
-            <FileIcon aria-hidden="true" />
-            <span className="truncate">{explorerName}</span>
-          </button>
-        </div>
+      <div className="external-item">
+        <button
+          type="button"
+          className="external-btn external-btn-single"
+          disabled={busy}
+          aria-label="Abrir en explorador de archivos"
+          title={`Abrir carpeta del repositorio en ${explorerName}`}
+          onClick={() => void launch("explorer")}
+        >
+          <FileIcon aria-hidden="true" />
+          <span className="truncate external-compact-label">
+            {explorerName}
+          </span>
+        </button>
       </div>
     </div>
   );

@@ -11,10 +11,28 @@ import {
   MagnifyingGlassIcon,
   LockClosedIcon,
 } from "@radix-ui/react-icons";
-import { layoutGraph, graphPixelWidth, type GraphRow } from "./graph";
+import { layoutGraph, graphPixelWidth } from "./graph";
+import GraphCell from "./GraphCell";
 import type { CommitDiff, HistoryPage, Snapshot } from "./types";
+import "./themes.css";
 import "./App.css";
 import "./workspace.css";
+import {
+  DEFAULT_APP_SETTINGS,
+  THEMES,
+  applyAppearance,
+  isGraphPaletteId,
+  isThemeId,
+  loadCachedAppearance,
+  resolveGraphColors,
+  type AppSettings,
+  type ExternalAppsState,
+  type ExternalPreferences,
+  type GraphPaletteId,
+  type ThemeId,
+} from "./themes";
+import OpenExternalMenu from "./OpenExternalMenu";
+import AppearanceDialog from "./AppearanceDialog";
 import AuthorAvatar from "./AuthorAvatar";
 import LibraryDialog from "./LibraryDialog";
 import InitializeDialog from "./InitializeDialog";
@@ -50,14 +68,6 @@ function formatCommitDate(value: string) {
       });
 }
 const rowHeight = 42;
-const colors = [
-  "#52b7ff",
-  "#62d6a7",
-  "#ff667d",
-  "#d8b46a",
-  "#b1a2f5",
-  "#7bcaca",
-];
 const short = (s: string) => s.slice(0, 8);
 const refName = (s: string) => s.replace(/^refs\/(heads|remotes|tags)\//, "");
 function errorText(error: unknown): string {
@@ -65,42 +75,59 @@ function errorText(error: unknown): string {
     return String(error.message);
   return "No se pudo completar la lectura. Vuelve a intentarlo.";
 }
-function GraphCell({ row, width }: { row: GraphRow; width: number }) {
-  const x = (lane: number) => 18 + lane * 20;
+function RefBadgeIcon({
+  kind,
+}: {
+  kind: "branch" | "remote" | "tag" | "other";
+}) {
+  if (kind === "remote") {
+    return (
+      <svg viewBox="0 0 12 12" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M3.6 9.5h5a2.1 2.1 0 0 0 .3-4.18A2.8 2.8 0 0 0 3.5 4.7a2.3 2.3 0 0 0 .1 4.8Z"
+        />
+      </svg>
+    );
+  }
+  if (kind === "tag") {
+    return (
+      <svg viewBox="0 0 12 12" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M1.8 2.3A.8.8 0 0 1 2.6 1.5h3.1l4.4 4.4a.8.8 0 0 1 0 1.1L7 10.1a.8.8 0 0 1-1.1 0L1.5 5.7V2.6a.8.8 0 0 1 .3-.3Zm2 1.8a.9.9 0 1 0 0-1.8.9.9 0 0 0 0 1.8Z"
+        />
+      </svg>
+    );
+  }
   return (
-    <svg width={width} height={rowHeight} aria-hidden="true">
-      {row.segments.map((s, i) => {
-        const start = s.kind === "parent" ? 21 : 0,
-          end = s.kind === "incoming" ? 21 : 42;
-        const d =
-          s.from === s.to
-            ? `M ${x(s.from)} ${start} V ${end}`
-            : `M ${x(s.from)} ${start} C ${x(s.from)} ${(start + end) / 2}, ${x(s.to)} ${(start + end) / 2}, ${x(s.to)} ${end}`;
-        return (
-          <path
-            key={i}
-            d={d}
-            fill="none"
-            stroke={
-              colors[(s.kind === "incoming" ? s.to : s.from) % colors.length]
-            }
-            strokeWidth="2"
-            opacity={s.kind === "through" ? 0.55 : 1}
-          />
-        );
-      })}
-      <circle
-        cx={x(row.lane)}
-        cy="21"
-        r="5"
-        fill="#0b0f17"
-        stroke={colors[row.lane % colors.length]}
-        strokeWidth="2.5"
+    <svg viewBox="0 0 12 12" aria-hidden="true">
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        d="M3.5 2.5v7M8.5 3.5c0 2.5-5 1.8-5 4.2"
       />
+      <circle cx="3.5" cy="2.4" r="1.2" fill="currentColor" />
+      <circle cx="8.5" cy="2.8" r="1.2" fill="currentColor" />
+      <circle cx="3.5" cy="9.6" r="1.2" fill="currentColor" />
     </svg>
   );
 }
 function App() {
+  const [theme, setTheme] = useState<ThemeId>(
+    () => loadCachedAppearance().theme,
+  );
+  const [graphPalette, setGraphPalette] = useState<GraphPaletteId>(
+    () => loadCachedAppearance().graphPalette,
+  );
+  const [externalPreferences, setExternalPreferences] =
+    useState<ExternalPreferences>(DEFAULT_APP_SETTINGS.external);
+  const [externalApps, setExternalApps] = useState<ExternalAppsState | null>(
+    null,
+  );
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [repo, setRepo] = useState<Snapshot | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [preferencesRepo, setPreferencesRepo] = useState<string | null>(null);
@@ -162,6 +189,71 @@ function App() {
   const commits = repo?.page.commits ?? [];
   const rows = useMemo(() => layoutGraph(commits), [commits]);
   const graphWidth = useMemo(() => graphPixelWidth(rows), [rows]);
+  const graphColors = useMemo(
+    () => resolveGraphColors(graphPalette, theme),
+    [graphPalette, theme],
+  );
+  useEffect(() => {
+    applyAppearance(theme, graphPalette);
+  }, [theme, graphPalette]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let active = true;
+    void invoke<AppSettings>("read_app_settings")
+      .then((loaded) => {
+        if (!active || !loaded) return;
+        if (isThemeId(loaded.theme)) setTheme(loaded.theme);
+        if (isGraphPaletteId(loaded.graphPalette))
+          setGraphPalette(loaded.graphPalette);
+        if (loaded.external) setExternalPreferences(loaded.external);
+      })
+      .catch(() => {});
+    void invoke<ExternalAppsState>("read_external_apps")
+      .then((detected) => {
+        if (active && detected) setExternalApps(detected);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+  async function reloadExternalApps() {
+    if (!isTauri()) return;
+    const detected = await invoke<ExternalAppsState>("read_external_apps");
+    if (detected) setExternalApps(detected);
+  }
+  async function persistSettings(next: AppSettings) {
+    if (!isTauri()) return;
+    await invoke<AppSettings>("save_app_settings", { settings: next });
+  }
+  function changeAppearance(nextTheme: ThemeId, nextPalette: GraphPaletteId) {
+    setTheme(nextTheme);
+    setGraphPalette(nextPalette);
+    applyAppearance(nextTheme, nextPalette);
+    void persistSettings({
+      version: 1,
+      theme: nextTheme,
+      graphPalette: nextPalette,
+      external: externalPreferences,
+    }).catch((reason) =>
+      setNotice(
+        `No se pudo guardar la apariencia en disco: ${errorText(reason)}`,
+      ),
+    );
+  }
+  async function saveExternalPreferences(nextExternal: ExternalPreferences) {
+    setExternalPreferences(nextExternal);
+    setExternalApps((current) =>
+      current ? { ...current, preferences: nextExternal } : current,
+    );
+    await persistSettings({
+      version: 1,
+      theme,
+      graphPalette,
+      external: nextExternal,
+    });
+    await reloadExternalApps();
+  }
   const historyColumns = `${graphWidth}px minmax(240px,1fr) ${authorWidth}px${showDate ? " 90px" : ""}${showHash ? " 80px" : ""}`;
   const historyMinWidth =
     graphWidth + 240 + authorWidth + (showDate ? 90 : 0) + (showHash ? 80 : 0);
@@ -565,16 +657,26 @@ function App() {
   }
   const commitRow = (index: number, style?: React.CSSProperties) => {
     const c = commits[index];
+    const row = rows[index];
+    const rowColor =
+      graphColors[row.color % graphColors.length] ??
+      graphColors[0] ??
+      "#52b7ff";
+    const isHead = c.hash === repo?.head;
     const refs = repo?.refs.filter((r) => r.hash === c.hash) ?? [];
+    const hasRefs = refs.length > 0;
     return (
       <button
         key={c.hash}
         type="button"
         className={`commit-row ${selected === c.hash ? "selected" : ""}`}
-        style={{
-          ...style,
-          gridTemplateColumns: historyColumns,
-        }}
+        style={
+          {
+            ...style,
+            gridTemplateColumns: historyColumns,
+            "--row-lane-color": rowColor,
+          } as React.CSSProperties
+        }
         onClick={() => select(c.hash)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -593,15 +695,68 @@ function App() {
         aria-pressed={selected === c.hash}
         aria-label={`${c.subject}. ${c.author}. Commit ${short(c.hash)}. ${c.parents.length} padres.`}
       >
-        <GraphCell row={rows[index]} width={graphWidth} />
+        <GraphCell
+          row={row}
+          width={graphWidth}
+          colors={graphColors}
+          isHead={isHead}
+          hasRefs={hasRefs}
+        />
         <span className="commit-subject">
           <span className="inline-refs">
-            {c.hash === repo?.head && <span className="ref head">HEAD</span>}
-            {refs.map((r) => (
-              <span className={`ref ${r.kind}`} key={r.name} title={r.name}>
-                {refName(r.name)}
+            {isHead && (
+              <span className="ref head">
+                <svg viewBox="0 0 12 12" aria-hidden="true">
+                  <circle cx="6" cy="6" r="3.2" fill="currentColor" />
+                </svg>
+                HEAD
               </span>
-            ))}
+            )}
+            {refs.map((r) => {
+              const shortRef = refName(r.name);
+              const isCurrentBranch =
+                r.kind === "branch" && shortRef === repo?.branch;
+              const syncedRemote =
+                r.kind === "branch" &&
+                refs.some(
+                  (other) =>
+                    other.kind === "remote" &&
+                    refName(other.name).endsWith(`/${shortRef}`),
+                );
+              return (
+                <span
+                  className={`ref ${r.kind}${isCurrentBranch ? " ref-current" : ""}`}
+                  style={
+                    r.kind === "branch"
+                      ? ({ "--pill-color": rowColor } as React.CSSProperties)
+                      : undefined
+                  }
+                  key={r.name}
+                  title={
+                    syncedRemote
+                      ? `${r.name} (sincronizada con remoto)`
+                      : r.name
+                  }
+                >
+                  <RefBadgeIcon kind={r.kind} />
+                  <span>{shortRef}</span>
+                  {syncedRemote && (
+                    <span
+                      className="ref-sync-badge"
+                      aria-hidden="true"
+                      title="Sincronizada con remoto"
+                    >
+                      <svg viewBox="0 0 12 12" aria-hidden="true">
+                        <path
+                          fill="currentColor"
+                          d="M4.6 8.9 2.1 6.4l.9-.9 1.6 1.6L9 2.7l.9.9-5.3 5.3Z"
+                        />
+                      </svg>
+                    </span>
+                  )}
+                </span>
+              );
+            })}
           </span>
           <span className="truncate">{c.subject || "(sin mensaje)"}</span>
         </span>
@@ -654,6 +809,14 @@ function App() {
       )}
       {activityOpen && (
         <ActivityDialog onClose={() => setActivityOpen(false)} />
+      )}
+      {appearanceOpen && (
+        <AppearanceDialog
+          theme={theme}
+          graphPalette={graphPalette}
+          onChange={changeAppearance}
+          onClose={() => setAppearanceOpen(false)}
+        />
       )}
       {repo && tagTarget && (
         <TagDialog
@@ -832,6 +995,17 @@ function App() {
             {repo.path}
           </div>
         )}
+        {repo && (
+          <OpenExternalMenu
+            repoId={repo.id}
+            disabled={busy || loadingMore || writing}
+            apps={externalApps}
+            onReloadApps={reloadExternalApps}
+            onSavePreferences={saveExternalPreferences}
+            onNotice={setNotice}
+            onError={setError}
+          />
+        )}
         <nav className="repo-navigation" aria-label="Vistas del repositorio">
           <button
             disabled={!repo || writing}
@@ -953,6 +1127,35 @@ function App() {
             </details>
           ))}
         </div>
+        <button
+          type="button"
+          className="appearance-trigger"
+          onClick={() => setAppearanceOpen(true)}
+        >
+          <span className="appearance-trigger-label">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M8 1.5a6.5 6.5 0 1 0 0 13 1.4 1.4 0 0 0 1.3-1.9c-.2-.5-.1-1 .3-1.3.4-.3.9-.3 1.4-.3H12a2.5 2.5 0 0 0 2.5-2.5C14.5 4.4 11.6 1.5 8 1.5Zm-3 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm2-3a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm3.5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"
+              />
+            </svg>
+            <span>Apariencia</span>
+          </span>
+          <span className="appearance-swatches" aria-hidden="true">
+            {(
+              THEMES.find((item) => item.id === theme)?.swatches.slice(
+                1,
+                4,
+              ) ?? ["#101620", "#52b7ff", "#ff667d"]
+            ).map((hex) => (
+              <span
+                key={hex}
+                className="appearance-swatch-dot"
+                style={{ backgroundColor: hex }}
+              />
+            ))}
+          </span>
+        </button>
         <div className="sidebar-foot">
           <LockClosedIcon />
           <p>Control local. Conexiones sólo cuando las solicitas.</p>

@@ -1,6 +1,6 @@
 ﻿# RavenGit
 
-[![Versión](https://img.shields.io/badge/Versión-1.0.5-blue.svg)](CHANGELOG.md)
+[![Versión](https://img.shields.io/badge/Versión-1.0.6-blue.svg)](CHANGELOG.md)
 [![Licencia](https://img.shields.io/badge/Licencia-MIT-green.svg)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-orange.svg)](https://v2.tauri.app)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev)

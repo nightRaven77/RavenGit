@@ -11,6 +11,7 @@ Este directorio reúne documentación de producto, arquitectura, distribución y
 - [Historial visual](producto/05_Historial_visual.md): grafo, navegación y filtros.
 - [Espacio local](producto/06_Espacio_local.md): biblioteca, colecciones y preferencias locales.
 - [Identidad visual](producto/07_Identidad_visual.md): icono e identidad de RavenGit.
+- [Plan maestro de mejoras](producto/08_Plan_maestro_de_mejoras.md): hoja de ruta técnica en cinco fases aprobada para la evolución del producto.
 
 ## Entregas y publicación
 

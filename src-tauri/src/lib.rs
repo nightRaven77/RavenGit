@@ -8,6 +8,7 @@ mod conflict_edit;
 mod conflict_restore;
 mod conflict_stage;
 mod conflicts;
+mod external;
 mod git;
 mod initialize;
 mod library;
@@ -21,6 +22,7 @@ mod remotes;
 mod replay;
 mod repository_delete;
 mod repository_paths;
+mod settings;
 mod ssh;
 mod stash;
 mod tag_push;
@@ -41,6 +43,7 @@ struct AppState {
     repository: Arc<Mutex<Option<Repository>>>,
     activity_lock: Arc<Mutex<()>>,
     library_lock: Arc<Mutex<()>>,
+    settings_lock: Arc<Mutex<()>>,
     next: AtomicU64,
     writes: Arc<Mutex<()>>,
     trusted: Arc<Mutex<Option<String>>>,
@@ -2016,12 +2019,96 @@ async fn integrate_pull(
         )
     })?
 }
+#[tauri::command]
+async fn read_app_settings(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> git::Result<settings::AppSettings> {
+    let directory = library_directory(&app)?;
+    let lock = state.settings_lock.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = lock
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo leer la configuración."))?;
+        settings::read(&directory)
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo leer la configuración."))?
+}
+#[tauri::command]
+async fn save_app_settings(
+    settings: settings::AppSettings,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> git::Result<settings::AppSettings> {
+    let directory = library_directory(&app)?;
+    let lock = state.settings_lock.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = lock
+            .lock()
+            .map_err(|_| GitError::new("STATE", "No se pudo guardar la configuración."))?;
+        settings::save(&directory, &settings)
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo guardar la configuración."))?
+}
+#[tauri::command]
+async fn read_external_apps(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> git::Result<external::ExternalAppsState> {
+    let directory = library_directory(&app)?;
+    let lock = state.settings_lock.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = {
+            let _guard = lock
+                .lock()
+                .map_err(|_| GitError::new("STATE", "No se pudo leer la configuración."))?;
+            settings::read(&directory)?
+        };
+        Ok(external::detect_apps(&current.external))
+    })
+    .await
+    .map_err(|_| {
+        GitError::new(
+            "WORKER",
+            "No se pudieron detectar las aplicaciones externas.",
+        )
+    })?
+}
+#[tauri::command]
+async fn open_in_external(
+    id: String,
+    kind: external::ExternalKind,
+    app_id: Option<String>,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> git::Result<external::OpenExternalOutcome> {
+    let repo = selected(&state, &id)?;
+    let directory = library_directory(&app)?;
+    let lock = state.settings_lock.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = {
+            let _guard = lock
+                .lock()
+                .map_err(|_| GitError::new("STATE", "No se pudo leer la configuración."))?;
+            settings::read(&directory)?
+        };
+        external::open_in(&repo, kind, app_id.as_deref(), &current.external)
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo abrir la aplicación externa."))?
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            read_app_settings,
+            save_app_settings,
+            read_external_apps,
+            open_in_external,
             read_activity,
             record_activity,
             clear_activity,

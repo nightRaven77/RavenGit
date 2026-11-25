@@ -279,6 +279,13 @@ it("la búsqueda respeta la ventana virtual con diez mil coincidencias y no mues
   expect(document.querySelector(".history-table-header")).not.toBeNull();
 });
 beforeEach(() => {
+  try {
+    window.localStorage?.clear?.();
+  } catch {
+    // Node/jsdom without localStorage backing file.
+  }
+  delete document.documentElement.dataset.theme;
+  delete document.documentElement.dataset.graphPalette;
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
   };
@@ -289,7 +296,76 @@ beforeEach(() => {
   dialog.mockResolvedValue("/fixture/repo");
   api.mockReset();
   Element.prototype.scrollTo = vi.fn();
-  api.mockImplementation(async (command) => {
+  api.mockImplementation(async (command, args) => {
+    if (command === "read_app_settings")
+      return {
+        version: 1,
+        theme: "obsidian",
+        graphPalette: "kraken",
+        external: {
+          preferredEditorId: "antigravity",
+          preferredTerminalId: "terminal",
+          customEditorPath: null,
+          customEditorName: null,
+        },
+      };
+    if (command === "save_app_settings")
+      return (args as { settings: unknown }).settings;
+    if (command === "read_external_apps")
+      return {
+        editors: [
+          {
+            id: "antigravity",
+            name: "Antigravity IDE",
+            kind: "editor",
+            command: "/Applications/Antigravity.app",
+            custom: false,
+          },
+          {
+            id: "vscode",
+            name: "Visual Studio Code",
+            kind: "editor",
+            command: "/Applications/Visual Studio Code.app",
+            custom: false,
+          },
+        ],
+        terminals: [
+          {
+            id: "terminal",
+            name: "Terminal",
+            kind: "terminal",
+            command: "Terminal",
+            custom: false,
+          },
+        ],
+        explorer: {
+          id: "finder",
+          name: "Finder",
+          kind: "explorer",
+          command: "open",
+          custom: false,
+        },
+        preferences: {
+          preferredEditorId: "antigravity",
+          preferredTerminalId: "terminal",
+          customEditorPath: null,
+          customEditorName: null,
+        },
+      };
+    if (command === "open_in_external") {
+      const payload = args as { kind: string; appId?: string | null };
+      return {
+        appId: payload.appId ?? payload.kind,
+        appName:
+          payload.kind === "explorer"
+            ? "Finder"
+            : payload.kind === "terminal"
+              ? "Terminal"
+              : "Antigravity IDE",
+        kind: payload.kind,
+        message: `Abierto en ${payload.kind === "explorer" ? "Finder" : payload.kind === "terminal" ? "Terminal" : "Antigravity IDE"}`,
+      };
+    }
     if (command === "get_default_repository_directory")
       return "/fixture/default";
     if (command === "open_repository") return structuredClone(repo);
@@ -986,4 +1062,64 @@ it("tras mover la carpeta activa a Papelera limpia la selección y conserva el a
   expect(
     api.mock.calls.filter(([command]) => command === "trash_repository"),
   ).toHaveLength(1);
+});
+
+it("permite abrir el repositorio activo en editor, terminal y explorador desde la barra lateral", async () => {
+  await opened();
+  await userEvent.click(
+    await screen.findByRole("button", {
+      name: "Abrir en editor: Antigravity IDE",
+    }),
+  );
+  expect(api).toHaveBeenCalledWith("open_in_external", {
+    id: repo.id,
+    kind: "editor",
+    appId: "antigravity",
+  });
+  expect(await screen.findByText("Abierto en Antigravity IDE")).toBeTruthy();
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Abrir en terminal: Terminal" }),
+  );
+  expect(api).toHaveBeenCalledWith("open_in_external", {
+    id: repo.id,
+    kind: "terminal",
+    appId: "terminal",
+  });
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Abrir en explorador de archivos" }),
+  );
+  expect(api).toHaveBeenCalledWith("open_in_external", {
+    id: repo.id,
+    kind: "explorer",
+    appId: null,
+  });
+});
+
+it("aplica y persiste cambios de tema y paleta del grafo desde Apariencia", async () => {
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Apariencia" }));
+  await screen.findByRole("heading", { name: "Apariencia y colores" });
+
+  await userEvent.click(
+    screen.getByRole("button", { name: /Abismo Esmeralda/ }),
+  );
+  expect(document.documentElement.dataset.theme).toBe("emerald-abyss");
+
+  await userEvent.click(screen.getByRole("button", { name: /Neón Eléctrico/ }));
+  expect(document.documentElement.dataset.graphPalette).toBe("neon");
+  expect(api).toHaveBeenCalledWith("save_app_settings", {
+    settings: {
+      version: 1,
+      theme: "emerald-abyss",
+      graphPalette: "neon",
+      external: {
+        preferredEditorId: "antigravity",
+        preferredTerminalId: "terminal",
+        customEditorPath: null,
+        customEditorName: null,
+      },
+    },
+  });
 });

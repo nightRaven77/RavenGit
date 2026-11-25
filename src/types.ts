@@ -19,6 +19,7 @@ export interface Snapshot {
   id: string;
   path: string;
   name: string;
+  trusted?: boolean;
   head: string | null;
   branch: string | null;
   shallow: boolean;

@@ -575,6 +575,7 @@ async fn open_repository(
     tauri::async_runtime::spawn_blocking(move || {
         let (repo, mut snapshot) = git::open(Path::new(&path), id)?;
         let allowed = trust::contains(&trust_directory(&app)?, &repo.path)?;
+        snapshot.trusted = allowed;
         let existing = {
             let guard = sessions
                 .lock()
@@ -850,9 +851,14 @@ async fn refresh_repository(
     state: State<'_, AppState>,
 ) -> git::Result<Snapshot> {
     let repo = selected(&state, &id)?;
-    tauri::async_runtime::spawn_blocking(move || git::snapshot_scoped(&repo, scope.as_deref()))
-        .await
-        .map_err(|_| GitError::new("WORKER", "No se pudo actualizar."))?
+    let allowed = trusted(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut snapshot = git::snapshot_scoped(&repo, scope.as_deref())?;
+        snapshot.trusted = allowed;
+        Ok(snapshot)
+    })
+    .await
+    .map_err(|_| GitError::new("WORKER", "No se pudo actualizar."))?
 }
 #[tauri::command]
 async fn read_history(

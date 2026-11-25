@@ -529,9 +529,11 @@
   padding: 0;
   color: var(--text-primary);
   background: var(--bg-elevated);
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  box-shadow: var(--shadow-dialog);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  box-shadow:
+    var(--shadow-dialog),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .sidebar-create {
   width: 100%;
@@ -540,9 +542,12 @@
 .library-dialog[open] {
   display: flex;
   flex-direction: column;
+  animation: dialog-enter 140ms ease-out;
 }
 .library-dialog::backdrop {
   background: var(--bg-backdrop);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 .library-heading {
   display: flex;

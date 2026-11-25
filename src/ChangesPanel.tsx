@@ -33,6 +33,7 @@ interface Props {
   onLock: (locked: boolean) => void;
   onCommitted: () => Promise<boolean>;
   onBranches?: () => void;
+  onTrustChange?: (trusted: boolean) => void;
 }
 interface Selection {
   path: string;
@@ -57,6 +58,7 @@ export default function ChangesPanel({
   onLock,
   onCommitted,
   onBranches,
+  onTrustChange,
 }: Props) {
   const [state, setState] = useState<ChangesState | null>(null);
   const [amendOpen, setAmendOpen] = useState(false);
@@ -267,6 +269,7 @@ export default function ChangesPanel({
         accept(
           await invoke<ChangesState>("authorize_repository", { id: repoId }),
         );
+        onTrustChange?.(true);
         emitOperation({
           id,
           repoId,
@@ -296,6 +299,7 @@ export default function ChangesPanel({
             id: repoId,
           }),
         );
+        onTrustChange?.(false);
         emitOperation({
           id,
           repoId,

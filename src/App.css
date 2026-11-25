@@ -2,6 +2,23 @@
 @source "./";
 @source "../index.html";
 
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .operation-dialog[open],
+  .library-dialog[open] {
+    animation: none;
+  }
+}
+
 .operation-dialog {
   width: min(900px, 94vw);
   max-height: 90vh;
@@ -9,13 +26,49 @@
   margin: auto;
   background: var(--bg-elevated);
   color: var(--text-primary);
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  padding: 20px;
-  box-shadow: var(--shadow-dialog);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow:
+    var(--shadow-dialog),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.operation-dialog[open] {
+  animation: dialog-enter 140ms ease-out;
 }
 .operation-dialog::backdrop {
   background: var(--bg-backdrop);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.modal-close:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+.modal-close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.modal-close:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .conflict-dialog {
   width: min(1400px, 94vw);
@@ -69,9 +122,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 12px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--border-default);
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 .commit-actions {
   display: flex;
@@ -81,8 +134,11 @@
   gap: 6px;
 }
 .operation-dialog h2 {
-  font-size: 18px;
-  font-weight: 600;
+  margin: 0;
+  font-size: 16.5px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
 }
 .operation-dialog p,
 .operation-dialog label,
@@ -98,10 +154,16 @@
   width: 100%;
   background: var(--bg-canvas);
   color: var(--text-primary);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  padding: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  padding: 8px 10px;
   margin-top: 5px;
+}
+.operation-dialog input:not([type="checkbox"]):focus-visible,
+.operation-dialog select:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 0;
 }
 .operation-dialog code {
   overflow-wrap: anywhere;
@@ -2540,12 +2602,17 @@ p {
   width: min(760px, 94vw);
   max-height: 86vh;
 }
+.worktree-dialog p,
+.worktree-dialog label,
+.worktree-dialog section {
+  margin: 0;
+}
 .worktree-dialog > header {
   position: sticky;
   top: -24px;
   z-index: 2;
   margin: -24px -24px 0;
-  padding: 20px 24px 14px;
+  padding: 20px 24px 16px;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
@@ -2725,4 +2792,142 @@ p {
 .button.accent-outline {
   border-color: var(--accent);
   color: var(--accent-text);
+}
+
+.trust-dialog {
+  width: min(540px, 92vw);
+}
+.trust-dialog p,
+.trust-dialog section {
+  margin: 0;
+}
+.trust-dialog-head {
+  align-items: flex-start !important;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+}
+.trust-dialog-title-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.trust-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  color: var(--accent-text);
+  flex-shrink: 0;
+}
+.trust-dialog-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.trust-dialog-eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+.trust-dialog-sub {
+  margin-top: 4px !important;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.trust-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 18px;
+}
+.trust-path-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+}
+.trust-path-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.trust-dialog-path {
+  display: block;
+  color: var(--text-primary);
+  font-family:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.trust-checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trust-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.trust-checklist li svg {
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  color: var(--accent-text);
+  flex-shrink: 0;
+}
+.trust-privacy-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.trust-privacy-note svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.trust-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 16px;
+}
+.status-trust-btn {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--warning-border);
+  background: transparent;
+  color: var(--warning-text);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.status-trust-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
 }

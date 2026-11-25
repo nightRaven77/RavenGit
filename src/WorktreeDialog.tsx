@@ -313,7 +313,7 @@ export default function WorktreeDialog({
   return (
     <dialog
       ref={dialogRef}
-      className="modal-dialog worktree-dialog"
+      className="operation-dialog worktree-dialog"
       aria-labelledby="worktree-dialog-title"
       onCancel={(event) => {
         event.preventDefault();
@@ -354,7 +354,7 @@ export default function WorktreeDialog({
                   onClose();
                 }}
               >
-                Ir a Cambios para autorizar
+                Autorizar repositorio…
               </button>
             )}
           </div>

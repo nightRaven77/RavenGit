@@ -1791,3 +1791,123 @@ it("lista worktrees en el sidebar y permite abrir un worktree enlazado en nueva 
     "feat/worktree",
   );
 });
+
+it("solicita autorización al abrir un repositorio no autorizado, recuerda solo lectura en la sesión y permite autorizar desde la barra de estado", async () => {
+  const fallback = api.getMockImplementation()!;
+  let repoTrusted = false;
+  const untrustedRepo = {
+    ...repo,
+    id: "repo-untrusted",
+    path: "/fixture/untrusted",
+    name: "Repo Nuevo",
+    trusted: false,
+  };
+  const otherRepo = {
+    ...repo,
+    id: "repo-trusted",
+    path: "/fixture/trusted",
+    name: "Repo Confiable",
+    trusted: true,
+  };
+
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") {
+      const p = (args as { path: string }).path;
+      return structuredClone(p === otherRepo.path ? otherRepo : untrustedRepo);
+    }
+    if (command === "authorize_repository") {
+      repoTrusted = true;
+      return {
+        token: "auth",
+        entries: [],
+        head: hash,
+        branch: "main",
+        author: null,
+        operation: null,
+        trusted: true,
+      };
+    }
+    if (command === "read_worktree_summary") {
+      const id = (args as { id: string }).id;
+      if (id === untrustedRepo.id && repoTrusted) {
+        return {
+          trusted: true,
+          staged: 1,
+          unstaged: 0,
+          untracked: 0,
+          conflicts: 0,
+          total: 1,
+          operation: null,
+        };
+      }
+      return {
+        trusted: id === otherRepo.id,
+        staged: 0,
+        unstaged: 0,
+        untracked: 0,
+        conflicts: 0,
+        total: 0,
+        operation: null,
+      };
+    }
+    return fallback(command, args);
+  });
+
+  dialog.mockResolvedValueOnce(untrustedRepo.path);
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+
+  // Aparece el modal automático mostrando nombre y ruta del repositorio
+  const trustModal = await screen.findByRole("dialog");
+  expect(
+    within(trustModal).getByText("¿Autorizar operaciones en Repo Nuevo?"),
+  ).toBeTruthy();
+  expect(within(trustModal).getByText("/fixture/untrusted")).toBeTruthy();
+
+  // Continuar en solo lectura no autoriza y muestra el botón en la barra de estado
+  await userEvent.click(
+    screen.getByRole("button", { name: "Continuar en solo lectura" }),
+  );
+  expect(api).not.toHaveBeenCalledWith("authorize_repository", {
+    id: untrustedRepo.id,
+  });
+  expect(
+    await screen.findByRole("button", {
+      name: "Solo lectura · Autorizar…",
+    }),
+  ).toBeTruthy();
+
+  // Abrir otra pestaña confiable y volver a Repo Nuevo no vuelve a abrir el modal automáticamente
+  dialog.mockResolvedValueOnce(otherRepo.path);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /Repo Confiable/ });
+  await userEvent.click(screen.getByRole("tab", { name: /Repo Nuevo/ }));
+  expect(
+    screen.queryByText("¿Autorizar operaciones en Repo Nuevo?"),
+  ).toBeNull();
+
+  // Autorizar desde la barra de estado abre el modal, autoriza y habilita la fila WIP
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Solo lectura · Autorizar…" }),
+  );
+  expect(
+    await screen.findByText("¿Autorizar operaciones en Repo Nuevo?"),
+  ).toBeTruthy();
+  await userEvent.click(
+    screen.getByRole("button", { name: "Autorizar este repositorio" }),
+  );
+
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("authorize_repository", {
+      id: untrustedRepo.id,
+    }),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Solo lectura · Autorizar…" }),
+  ).toBeNull();
+  expect(
+    await screen.findByRole("button", {
+      name: /Cambios sin commitear \(1\)/,
+    }),
+  ).toBeTruthy();
+});

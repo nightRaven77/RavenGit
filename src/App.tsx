@@ -58,6 +58,7 @@ import CommandBar from "./CommandBar";
 import BranchesPanel from "./BranchesPanel";
 import DiffViewer, { DiffModeControl } from "./DiffViewer";
 import StashDialog from "./StashDialog";
+import TrustDialog from "./TrustDialog";
 import WorktreeDialog from "./WorktreeDialog";
 import ConflictRestoreDialog from "./ConflictRestoreDialog";
 import ReplayDialog, { type ReplayTarget } from "./ReplayDialog";
@@ -230,6 +231,10 @@ function App() {
   const [stashOpen, setStashOpen] = useState(false);
   const [worktreeOpen, setWorktreeOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
+  const [trustPromptRepoId, setTrustPromptRepoId] = useState<string | null>(
+    null,
+  );
+  const dismissedTrustIdsRef = useRef<Set<string>>(new Set());
   const [changesRevision, setChangesRevision] = useState(0);
   const [replay, setReplay] = useState<ReplayTarget | null | undefined>(
     undefined,
@@ -579,6 +584,25 @@ function App() {
       void refreshTabBackground(nextId, target.historyScope);
     }
   }
+  function updateRepoTrust(targetId: string, nextTrusted: boolean) {
+    if (nextTrusted) {
+      dismissedTrustIdsRef.current.delete(targetId);
+    }
+    setTabs((list) => {
+      const nextList = list.map((item) =>
+        item.snapshot.id === targetId
+          ? { ...item, snapshot: { ...item.snapshot, trusted: nextTrusted } }
+          : item,
+      );
+      tabsRef.current = nextList;
+      return nextList;
+    });
+    if (activeTabIdRef.current === targetId) {
+      setChangesRevision((value) => value + 1);
+    }
+    void refreshWip(targetId);
+    void refreshWorktrees(targetId);
+  }
   async function closeTab(targetId: string) {
     if (writing || busy || loadingMore) return;
     const currentTabs = tabsRef.current;
@@ -602,6 +626,8 @@ function App() {
           (item) => item.snapshot.id === activeTabIdRef.current,
         ) ?? null);
     const nextActiveId = nextActive?.snapshot.id ?? null;
+    dismissedTrustIdsRef.current.delete(targetId);
+    setTrustPromptRepoId((current) => (current === targetId ? null : current));
     tabsTouchedRef.current = true;
     tabsRef.current = remaining;
     activeTabIdRef.current = nextActiveId;
@@ -1054,6 +1080,12 @@ function App() {
       persistTabState(nextTabs, next.id);
       void refreshWip(next.id);
       void refreshWorktrees(next.id);
+      if (
+        next.trusted === false &&
+        !dismissedTrustIdsRef.current.has(next.id)
+      ) {
+        setTrustPromptRepoId(next.id);
+      }
       return true;
     } catch (e) {
       if (token === request.current) {
@@ -1708,6 +1740,15 @@ function App() {
         onSelect: () => setWorktreeOpen(true),
       },
       {
+        id: "authorize-repo",
+        category: "Git",
+        label: "Autorizar repositorio actual…",
+        disabled: !repo || repo.trusted !== false || writing,
+        onSelect: () => {
+          if (repo) setTrustPromptRepoId(repo.id);
+        },
+      },
+      {
         id: "tag-head",
         category: "Git",
         label: "Etiquetar commit seleccionado o HEAD",
@@ -2077,7 +2118,27 @@ function App() {
           onLock={setWriting}
           onUpdated={() => refresh()}
           onOpenInTab={(targetPath) => openRepositoryPath(targetPath)}
-          onAuthorize={() => setView("changes")}
+          onAuthorize={() => setTrustPromptRepoId(repo.id)}
+        />
+      )}
+      {repo && trustPromptRepoId === repo.id && (
+        <TrustDialog
+          key={`trust:${repo.id}`}
+          repoId={repo.id}
+          repoName={repo.name}
+          repoPath={repo.path}
+          onAuthorized={() => {
+            updateRepoTrust(repo.id, true);
+            setTrustPromptRepoId(null);
+            setNotice(
+              "Repositorio autorizado. Operaciones locales habilitadas.",
+            );
+          }}
+          onReadOnly={() => {
+            dismissedTrustIdsRef.current.add(repo.id);
+            setTrustPromptRepoId(null);
+          }}
+          onLock={setWriting}
         />
       )}
       {repo && replay !== undefined && (
@@ -2524,6 +2585,7 @@ function App() {
           onLock={setWriting}
           onCommitted={refresh}
           onBranches={() => setView("branches")}
+          onTrustChange={(allowed) => updateRepoTrust(repo.id, allowed)}
         />
       )}
       {repo && (
@@ -3334,6 +3396,16 @@ function App() {
             : repo
               ? "Repositorio local conectado"
               : "Listo para abrir un repositorio"}
+          {repo && repo.trusted === false && (
+            <button
+              type="button"
+              className="status-trust-btn"
+              disabled={writing || busy}
+              onClick={() => setTrustPromptRepoId(repo.id)}
+            >
+              Solo lectura · Autorizar…
+            </button>
+          )}
         </span>
         <span>
           {writing

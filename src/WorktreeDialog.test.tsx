@@ -335,7 +335,7 @@ it("mantiene modo de solo lectura cuando el repositorio no está autorizado", as
   ).toBe(true);
 
   await userEvent.click(
-    screen.getByRole("button", { name: "Ir a Cambios para autorizar" }),
+    screen.getByRole("button", { name: "Autorizar repositorio…" }),
   );
   expect(onAuthorize).toHaveBeenCalled();
   expect(onClose).toHaveBeenCalled();

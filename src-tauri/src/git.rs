@@ -89,6 +89,7 @@ pub struct Snapshot {
     pub id: String,
     pub path: String,
     pub name: String,
+    pub trusted: bool,
     pub head: Option<String>,
     pub branch: Option<String>,
     pub shallow: bool,
@@ -211,6 +212,7 @@ pub fn snapshot_scoped(repo: &Repository, scope: Option<&str>) -> Result<Snapsho
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned(),
+        trusted: false,
         head,
         branch,
         shallow,

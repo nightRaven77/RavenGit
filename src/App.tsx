@@ -19,10 +19,15 @@ import type {
   CommitDiff,
   CommitFile,
   CommitFiles,
+  EnvironmentStatus,
   GitRef,
   HistoryPage,
+  ImageDiff,
   RepoChangedEvent,
   Snapshot,
+  UndoOutcome,
+  UndoPlan,
+  UndoState,
   WorktreeItem,
   WorktreeSummary,
   WorktreesState,
@@ -32,6 +37,7 @@ import "./App.css";
 import "./workspace.css";
 import {
   DEFAULT_APP_SETTINGS,
+  DEFAULT_SNAPSHOT_PREFERENCES,
   THEMES,
   applyAppearance,
   isGraphPaletteId,
@@ -42,6 +48,7 @@ import {
   type ExternalAppsState,
   type ExternalPreferences,
   type GraphPaletteId,
+  type SnapshotPreferences,
   type ThemeId,
 } from "./themes";
 import OpenExternalMenu from "./OpenExternalMenu";
@@ -49,9 +56,13 @@ import AppearanceDialog from "./AppearanceDialog";
 import AuthorAvatar from "./AuthorAvatar";
 import BlameDialog from "./BlameDialog";
 import CompareDialog from "./CompareDialog";
+import EnvironmentDialog from "./EnvironmentDialog";
 import FileHistoryDialog from "./FileHistoryDialog";
 import LibraryDialog from "./LibraryDialog";
 import InitializeDialog from "./InitializeDialog";
+import LfsSubmodulesDialog from "./LfsSubmodulesDialog";
+import SnapshotsDialog from "./SnapshotsDialog";
+import UndoDialog from "./UndoDialog";
 import type { RepositoryLibrary, HistoryPreferences } from "./library";
 import ChangesPanel from "./ChangesPanel";
 import RemotesPanel from "./RemotesPanel";
@@ -61,6 +72,7 @@ import PullPanel from "./PullPanel";
 import CommandBar from "./CommandBar";
 import BranchesPanel from "./BranchesPanel";
 import DiffViewer, { DiffModeControl } from "./DiffViewer";
+import ImageDiffViewer, { isImageAssetPath } from "./ImageDiffViewer";
 import StashDialog from "./StashDialog";
 import TrustDialog from "./TrustDialog";
 import WorktreeDialog from "./WorktreeDialog";
@@ -197,6 +209,7 @@ function App() {
   const tabsRef = useRef<TabEntry[]>([]);
   const activeTabIdRef = useRef<string | null>(null);
   const tabsTouchedRef = useRef(false);
+  const snapshotsTouchedRef = useRef(false);
   const startupRestoredRef = useRef(false);
   const lastFocusRefreshRef = useRef(0);
   tabsRef.current = tabs;
@@ -257,6 +270,18 @@ function App() {
     target: Commit;
   } | null>(null);
   const [compareAnchor, setCompareAnchor] = useState<Commit | null>(null);
+  const [envStatus, setEnvStatus] = useState<EnvironmentStatus | null>(null);
+  const [envChecking, setEnvChecking] = useState(false);
+  const [envDialogOpen, setEnvDialogOpen] = useState(false);
+  const [snapshotPrefs, setSnapshotPrefs] = useState<SnapshotPreferences>(
+    DEFAULT_SNAPSHOT_PREFERENCES,
+  );
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  const [lfsSubmodulesOpen, setLfsSubmodulesOpen] = useState(false);
+  const [undoState, setUndoState] = useState<UndoState | null>(null);
+  const [undoPlan, setUndoPlan] = useState<UndoPlan | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoError, setUndoError] = useState("");
   const [changesRevision, setChangesRevision] = useState(0);
   const [replay, setReplay] = useState<ReplayTarget | null | undefined>(
     undefined,
@@ -269,6 +294,10 @@ function App() {
   const [commitIgnoreWhitespace, setCommitIgnoreWhitespace] = useState(false);
   const [commitContextLines, setCommitContextLines] = useState(3);
   const [diff, setDiff] = useState<CommitDiff | null>(null);
+  const [commitImageDiff, setCommitImageDiff] = useState<ImageDiff | null>(
+    null,
+  );
+  const [preferTextForImage, setPreferTextForImage] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [branchPreselect, setBranchPreselect] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -295,7 +324,8 @@ function App() {
   const [showDate, setShowDate] = useState(true);
   const request = useRef(0),
     filesRequest = useRef(0),
-    diffRequest = useRef(0);
+    diffRequest = useRef(0),
+    imageDiffRequest = useRef(0);
   const mainShellRef = useRef<HTMLElement>(null);
   const splitResizeCleanup = useRef<(() => void) | null>(null);
   const scroll = useRef<HTMLDivElement>(null);
@@ -350,10 +380,15 @@ function App() {
           ? loaded.graphPalette
           : graphPalette;
         const resolvedExternal = loaded.external ?? externalPreferences;
+        const resolvedSnapshots = loaded.snapshots ?? snapshotPrefs;
         if (isThemeId(loaded.theme)) setTheme(loaded.theme);
         if (isGraphPaletteId(loaded.graphPalette))
           setGraphPalette(loaded.graphPalette);
         if (loaded.external) setExternalPreferences(loaded.external);
+        if (loaded.snapshots) {
+          snapshotsTouchedRef.current = true;
+          setSnapshotPrefs(loaded.snapshots);
+        }
         if (
           !startupRestoredRef.current &&
           Array.isArray(loaded.openTabs) &&
@@ -366,6 +401,7 @@ function App() {
             resolvedTheme,
             resolvedPalette,
             resolvedExternal,
+            resolvedSnapshots,
           );
         }
       })
@@ -394,6 +430,7 @@ function App() {
     nextExternal: ExternalPreferences,
     tabList: TabEntry[],
     currentId: string | null,
+    nextSnapshots = snapshotPrefs,
   ): AppSettings {
     const payload: AppSettings = {
       version: 1,
@@ -401,6 +438,9 @@ function App() {
       graphPalette: nextPalette,
       external: nextExternal,
     };
+    if (snapshotsTouchedRef.current) {
+      payload.snapshots = nextSnapshots;
+    }
     if (tabList.length > 0 || tabsTouchedRef.current) {
       payload.openTabs = tabList.map((item) => item.snapshot.path);
       payload.activeTab =
@@ -415,6 +455,7 @@ function App() {
     overrideTheme = theme,
     overridePalette = graphPalette,
     overrideExternal = externalPreferences,
+    overrideSnapshots = snapshotPrefs,
   ) {
     if (!isTauri()) return;
     void persistSettings(
@@ -424,6 +465,7 @@ function App() {
         overrideExternal,
         nextTabs,
         nextActiveId,
+        overrideSnapshots,
       ),
     ).catch(() => {});
   }
@@ -453,6 +495,8 @@ function App() {
     setSelectedFile(null);
     setCommitFiles(null);
     setDiff(null);
+    setCommitImageDiff(null);
+    setPreferTextForImage(false);
     setDiffError("");
     setParentIndex(0);
     setContextMenu(null);
@@ -468,6 +512,10 @@ function App() {
     setBlameTarget(null);
     setComparePair(null);
     setCompareAnchor(null);
+    setSnapshotsOpen(false);
+    setLfsSubmodulesOpen(false);
+    setUndoPlan(null);
+    setUndoError("");
   }
   function applyTabUi(tab: TabEntry | null) {
     resetTransientInspectorState();
@@ -590,6 +638,129 @@ function App() {
       // Silencioso al refrescar pestaña al cambiar el foco.
     }
   }
+  async function recheckEnvironment(autoOpenIfMissing = false) {
+    if (!isTauri()) return;
+    setEnvChecking(true);
+    try {
+      const status = await invoke<EnvironmentStatus>("check_git_environment");
+      setEnvStatus(status);
+      if (autoOpenIfMissing && !status.gitAvailable) {
+        setEnvDialogOpen(true);
+      }
+    } catch {
+      // Silencioso si el comando de entorno no está disponible en mocks antiguos.
+    } finally {
+      setEnvChecking(false);
+    }
+  }
+  useEffect(() => {
+    void recheckEnvironment(true);
+  }, []);
+  async function refreshUndoState(targetId: string) {
+    if (!isTauri()) return;
+    try {
+      const next = await invoke<UndoState>("read_undo_state", { id: targetId });
+      if (activeTabIdRef.current === targetId && next) {
+        setUndoState(next);
+      }
+    } catch {
+      // Silencioso cuando un entorno de prueba no implementa el historial de undo.
+    }
+  }
+  useEffect(() => {
+    if (!activeTabId) {
+      setUndoState(null);
+      return;
+    }
+    void refreshUndoState(activeTabId);
+  }, [activeTabId]);
+  async function openUndoPreview(direction: "undo" | "redo") {
+    if (!repo || writing || undoBusy) return;
+    setUndoBusy(true);
+    setUndoError("");
+    try {
+      const plan = await invoke<UndoPlan>("preview_undo", {
+        id: repo.id,
+        direction,
+      });
+      setUndoPlan(plan);
+    } catch (reason) {
+      const code =
+        typeof reason === "object" && reason && "code" in reason
+          ? String((reason as { code?: unknown }).code)
+          : "";
+      if (code === "NO_UNDO" || code === "NO_REDO") {
+        setNotice(errorText(reason));
+      } else {
+        setError(errorText(reason));
+      }
+    } finally {
+      setUndoBusy(false);
+    }
+  }
+  async function confirmUndoPlan() {
+    if (!repo || !undoPlan || undoBusy) return;
+    setUndoBusy(true);
+    setUndoError("");
+    setWriting(true);
+    try {
+      const outcome = await invoke<UndoOutcome>("confirm_undo", {
+        id: repo.id,
+        token: undoPlan.token,
+      });
+      setUndoState(outcome.state);
+      setUndoPlan(null);
+      setNotice(outcome.message);
+      await refresh();
+    } catch (reason) {
+      setUndoError(errorText(reason));
+    } finally {
+      setWriting(false);
+      setUndoBusy(false);
+    }
+  }
+  async function saveSnapshotPreferences(nextSnapshots: SnapshotPreferences) {
+    snapshotsTouchedRef.current = true;
+    setSnapshotPrefs(nextSnapshots);
+    await persistSettings(
+      buildSettingsPayload(
+        theme,
+        graphPalette,
+        externalPreferences,
+        tabsRef.current,
+        activeTabIdRef.current,
+        nextSnapshots,
+      ),
+    );
+  }
+  useEffect(() => {
+    if (
+      !isTauri() ||
+      !repo ||
+      !repo.trusted ||
+      !snapshotPrefs.autoEnabled ||
+      (wip?.total ?? 0) <= 0
+    ) {
+      return;
+    }
+    const intervalMs = Math.max(1, snapshotPrefs.intervalMinutes) * 60_000;
+    const targetRepoId = repo.id;
+    const timer = window.setInterval(() => {
+      if (writingRef.current || activeTabIdRef.current !== targetRepoId) return;
+      void invoke("create_snapshot", {
+        id: targetRepoId,
+        label: null,
+        trigger: "auto",
+      }).catch(() => {});
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [
+    repo?.id,
+    repo?.trusted,
+    snapshotPrefs.autoEnabled,
+    snapshotPrefs.intervalMinutes,
+    wip?.total,
+  ]);
   function activateTab(nextId: string) {
     if (nextId === activeTabIdRef.current || writing || busy || loadingMore)
       return;
@@ -685,6 +856,7 @@ function App() {
     resolvedTheme: ThemeId,
     resolvedPalette: GraphPaletteId,
     resolvedExternal: ExternalPreferences,
+    resolvedSnapshots: SnapshotPreferences,
   ) {
     const openedList: TabEntry[] = [];
     const failedPaths: string[] = [];
@@ -781,6 +953,7 @@ function App() {
       resolvedTheme,
       resolvedPalette,
       resolvedExternal,
+      resolvedSnapshots,
     );
     void refreshWip(target.snapshot.id);
     void refreshWorktrees(target.snapshot.id);
@@ -1110,6 +1283,7 @@ function App() {
       persistTabState(nextTabs, next.id);
       void refreshWip(next.id);
       void refreshWorktrees(next.id);
+      void refreshUndoState(next.id);
       if (
         next.trusted === false &&
         !dismissedTrustIdsRef.current.has(next.id)
@@ -1230,6 +1404,7 @@ function App() {
       }
       void refreshWip(targetId);
       void refreshWorktrees(targetId);
+      void refreshUndoState(targetId);
       return true;
     } catch (e) {
       if (!silent && token === request.current) setError(errorText(e));
@@ -1264,6 +1439,7 @@ function App() {
         void refreshTabBackground(payload.id, historyScopeRef.current);
         void refreshWip(payload.id);
         void refreshWorktrees(payload.id);
+        void refreshUndoState(payload.id);
       }
     })
       .then((fn) => {
@@ -1414,6 +1590,48 @@ function App() {
     inspectorOpen,
   ]);
   useEffect(() => {
+    const token = ++imageDiffRequest.current;
+    setCommitImageDiff(null);
+    setPreferTextForImage(false);
+    if (
+      !repo ||
+      !selected ||
+      !selectedFile ||
+      !isImageAssetPath(selectedFile.path) ||
+      view !== "history" ||
+      !inspectorOpen
+    ) {
+      return;
+    }
+    invoke<ImageDiff>("read_image_diff", {
+      id: repo.id,
+      source: {
+        kind: "commit",
+        hash: selected,
+        parentIndex,
+        path: selectedFile.path,
+        oldPath: selectedFile.oldPath ?? null,
+      },
+    })
+      .then((value) => {
+        if (token === imageDiffRequest.current) setCommitImageDiff(value);
+      })
+      .catch(() => {
+        if (token === imageDiffRequest.current) setCommitImageDiff(null);
+      });
+    return () => {
+      imageDiffRequest.current++;
+    };
+  }, [
+    repo?.id,
+    selected,
+    parentIndex,
+    selectedFile?.path,
+    selectedFile?.oldPath,
+    view,
+    inspectorOpen,
+  ]);
+  useEffect(() => {
     function key(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod || e.altKey) return;
@@ -1489,6 +1707,17 @@ function App() {
         } else if (e.key === "3" && repo && !writing) {
           e.preventDefault();
           goSync(lastSyncView);
+        }
+      } else if (!inEditable && repo && !writing) {
+        if (lower === "z" && !e.shiftKey) {
+          e.preventDefault();
+          void openUndoPreview("undo");
+        } else if (
+          (lower === "z" && e.shiftKey) ||
+          (lower === "y" && !e.shiftKey)
+        ) {
+          e.preventDefault();
+          void openUndoPreview("redo");
         }
       }
     }
@@ -1898,6 +2127,47 @@ function App() {
         disabled: writing,
         onSelect: () => setActivityOpen(true),
       },
+      {
+        id: "snapshots",
+        category: "Seguridad",
+        label: "Snapshots locales…",
+        disabled: !repo || writing,
+        onSelect: () => setSnapshotsOpen(true),
+      },
+      {
+        id: "lfs-submodules",
+        category: "Repositorio",
+        label: "Git LFS y Submódulos…",
+        disabled: !repo || writing,
+        onSelect: () => setLfsSubmodulesOpen(true),
+      },
+      {
+        id: "undo-op",
+        category: "Seguridad",
+        label: undoState?.nextUndo
+          ? `Deshacer última operación (${undoState.nextUndo.label})`
+          : "Deshacer última operación",
+        shortcut: "⌘Z",
+        disabled: !repo || writing || undoBusy || !undoState?.canUndo,
+        onSelect: () => void openUndoPreview("undo"),
+      },
+      {
+        id: "redo-op",
+        category: "Seguridad",
+        label: undoState?.nextRedo
+          ? `Rehacer operación (${undoState.nextRedo.label})`
+          : "Rehacer operación",
+        shortcut: "⇧⌘Z",
+        disabled: !repo || writing || undoBusy || !undoState?.canRedo,
+        onSelect: () => void openUndoPreview("redo"),
+      },
+      {
+        id: "environment",
+        category: "Aplicación",
+        label: "Entorno y motor Git…",
+        disabled: writing,
+        onSelect: () => setEnvDialogOpen(true),
+      },
     ],
     [
       repo,
@@ -1909,6 +2179,8 @@ function App() {
       lastSyncView,
       selected,
       externalApps,
+      undoState,
+      undoBusy,
     ],
   );
   function jump(hash: string) {
@@ -2247,6 +2519,65 @@ function App() {
           onAuthorize={() => setTrustPromptRepoId(repo.id)}
         />
       )}
+      {envDialogOpen && (
+        <EnvironmentDialog
+          status={envStatus}
+          checking={envChecking}
+          onRecheck={() => recheckEnvironment(false)}
+          onClose={() => setEnvDialogOpen(false)}
+        />
+      )}
+      {repo && snapshotsOpen && (
+        <SnapshotsDialog
+          key={`snapshots:${repo.id}`}
+          repoId={repo.id}
+          repoName={repo.name}
+          trusted={repo.trusted !== false}
+          preferences={snapshotPrefs}
+          onSavePreferences={saveSnapshotPreferences}
+          onAuthorize={() => {
+            setSnapshotsOpen(false);
+            setTrustPromptRepoId(repo.id);
+          }}
+          onRestored={async () => {
+            await refresh();
+          }}
+          onLock={setWriting}
+          onClose={() => setSnapshotsOpen(false)}
+        />
+      )}
+      {repo && lfsSubmodulesOpen && (
+        <LfsSubmodulesDialog
+          key={`lfs-sub:${repo.id}`}
+          repoId={repo.id}
+          repoName={repo.name}
+          trusted={repo.trusted !== false}
+          onAuthorize={() => {
+            setLfsSubmodulesOpen(false);
+            setTrustPromptRepoId(repo.id);
+          }}
+          onUpdated={async () => {
+            await refresh();
+          }}
+          onLock={setWriting}
+          onClose={() => setLfsSubmodulesOpen(false)}
+        />
+      )}
+      {repo && undoPlan && (
+        <UndoDialog
+          key={`undo:${undoPlan.token}`}
+          plan={undoPlan}
+          undoCount={undoState?.undoCount ?? 0}
+          redoCount={undoState?.redoCount ?? 0}
+          busy={undoBusy}
+          error={undoError}
+          onConfirm={confirmUndoPlan}
+          onClose={() => {
+            setUndoPlan(null);
+            setUndoError("");
+          }}
+        />
+      )}
       {repo && trustPromptRepoId === repo.id && (
         <TrustDialog
           key={`trust:${repo.id}`}
@@ -2402,6 +2733,21 @@ function App() {
           </nav>
         )}
         <div className="global-notices" aria-label="Avisos del repositorio">
+          {envStatus && !envStatus.gitAvailable && !envDialogOpen && (
+            <div className="banner warning env-missing-banner" role="status">
+              <span>
+                Git CLI no detectado en el equipo. Algunas operaciones locales y
+                remotas requieren Git base.
+              </span>
+              <button
+                type="button"
+                className="button"
+                onClick={() => setEnvDialogOpen(true)}
+              >
+                Ver guía de instalación…
+              </button>
+            </div>
+          )}
           {operationResults.length > 0 && (
             <section
               className="operation-results"
@@ -2574,6 +2920,51 @@ function App() {
               onClick={() => setAppearanceOpen(true)}
             >
               Apariencia y colores…
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing}
+              onClick={() => setSnapshotsOpen(true)}
+            >
+              Snapshots locales…
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing}
+              onClick={() => setLfsSubmodulesOpen(true)}
+            >
+              Git LFS y Submódulos…
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing || undoBusy || !undoState?.canUndo}
+              title={
+                undoState?.nextUndo
+                  ? `${undoState.nextUndo.label} (⌘Z)`
+                  : "Sin operaciones recientes para deshacer"
+              }
+              onClick={() => void openUndoPreview("undo")}
+            >
+              Deshacer operación…
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing || undoBusy || !undoState?.canRedo}
+              title={
+                undoState?.nextRedo
+                  ? `${undoState.nextRedo.label} (⇧⌘Z)`
+                  : "Sin operaciones para rehacer"
+              }
+              onClick={() => void openUndoPreview("redo")}
+            >
+              Rehacer operación…
+            </button>
+            <button
+              className="nav-button"
+              disabled={writing}
+              onClick={() => setEnvDialogOpen(true)}
+            >
+              Entorno y motor Git…
             </button>
           </nav>
         </details>
@@ -3025,8 +3416,22 @@ function App() {
           ref={scroll}
           aria-busy={busy || filtering}
           onScroll={(event) => {
+            const el = event.currentTarget;
             if (tableHeading.current)
-              tableHeading.current.style.transform = `translateX(-${event.currentTarget.scrollLeft}px)`;
+              tableHeading.current.style.transform = `translateX(-${el.scrollLeft}px)`;
+            if (
+              !query &&
+              view === "history" &&
+              repo &&
+              repo.page.nextOffset !== null &&
+              !loadingMore &&
+              !busy &&
+              el.clientHeight > 0 &&
+              el.scrollTop > 0 &&
+              el.scrollTop + el.clientHeight >= el.scrollHeight - 240
+            ) {
+              void more();
+            }
           }}
         >
           {busy && !repo ? (
@@ -3604,15 +4009,43 @@ function App() {
                     </p>
                   )}
                 </>
-              ) : diff?.text ? (
-                <DiffViewer
-                  text={diff.text}
-                  filePath={selectedFile?.path}
-                  ignoreWhitespace={commitIgnoreWhitespace}
-                  onIgnoreWhitespaceChange={setCommitIgnoreWhitespace}
-                  contextLines={commitContextLines}
-                  onContextLinesChange={setCommitContextLines}
+              ) : selectedFile &&
+                isImageAssetPath(selectedFile.path) &&
+                commitImageDiff &&
+                !preferTextForImage ? (
+                <ImageDiffViewer
+                  diff={commitImageDiff}
+                  onToggleText={
+                    commitImageDiff.mime === "image/svg+xml" && diff?.text
+                      ? () => setPreferTextForImage(true)
+                      : undefined
+                  }
+                  toggleTextLabel="Ver diff de texto"
                 />
+              ) : diff?.text ? (
+                <>
+                  {selectedFile &&
+                    isImageAssetPath(selectedFile.path) &&
+                    commitImageDiff && (
+                      <div className="image-diff-switch-row">
+                        <button
+                          type="button"
+                          className="button"
+                          onClick={() => setPreferTextForImage(false)}
+                        >
+                          Ver diff visual
+                        </button>
+                      </div>
+                    )}
+                  <DiffViewer
+                    text={diff.text}
+                    filePath={selectedFile?.path}
+                    ignoreWhitespace={commitIgnoreWhitespace}
+                    onIgnoreWhitespaceChange={setCommitIgnoreWhitespace}
+                    contextLines={commitContextLines}
+                    onContextLinesChange={setCommitContextLines}
+                  />
+                </>
               ) : (
                 <>
                   {(commitIgnoreWhitespace || commitContextLines !== 3) && (

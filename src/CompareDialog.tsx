@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import DiffViewer from "./DiffViewer";
-import type { Commit, CommitFile, RangeDiff, RangeFiles } from "./types";
+import ImageDiffViewer, { isImageAssetPath } from "./ImageDiffViewer";
+import type {
+  Commit,
+  CommitFile,
+  ImageDiff,
+  RangeDiff,
+  RangeFiles,
+} from "./types";
 
 export interface CompareDialogProps {
   repoId: string;
@@ -30,11 +37,14 @@ export default function CompareDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const filesReqRef = useRef(0);
   const diffReqRef = useRef(0);
+  const imageDiffReqRef = useRef(0);
 
   const [files, setFiles] = useState<CommitFile[] | null>(null);
   const [filesBusy, setFilesBusy] = useState(true);
   const [selectedFile, setSelectedFile] = useState<CommitFile | null>(null);
   const [diff, setDiff] = useState<RangeDiff | null>(null);
+  const [imageDiff, setImageDiff] = useState<ImageDiff | null>(null);
+  const [preferTextForImage, setPreferTextForImage] = useState(false);
   const [diffBusy, setDiffBusy] = useState(true);
   const [error, setError] = useState("");
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
@@ -100,6 +110,34 @@ export default function CompareDialog({
     ignoreWhitespace,
     contextLines,
   ]);
+
+  useEffect(() => {
+    const token = ++imageDiffReqRef.current;
+    setImageDiff(null);
+    setPreferTextForImage(false);
+    if (!selectedFile || !isImageAssetPath(selectedFile.path)) {
+      return;
+    }
+    invoke<ImageDiff>("read_image_diff", {
+      id: repoId,
+      source: {
+        kind: "range",
+        base: base.hash,
+        target: target.hash,
+        path: selectedFile.path,
+        oldPath: selectedFile.oldPath ?? null,
+      },
+    })
+      .then((res) => {
+        if (token === imageDiffReqRef.current) setImageDiff(res);
+      })
+      .catch(() => {
+        if (token === imageDiffReqRef.current) setImageDiff(null);
+      });
+    return () => {
+      imageDiffReqRef.current++;
+    };
+  }, [repoId, base.hash, target.hash, selectedFile]);
 
   const totalAdditions = (files ?? []).reduce(
     (acc, item) => acc + (item.additions ?? 0),
@@ -249,15 +287,43 @@ export default function CompareDialog({
           <div className="search-dialog-preview-body" aria-busy={diffBusy}>
             {diffBusy ? (
               <p className="search-dialog-empty">Calculando diff del rango…</p>
-            ) : diff?.text ? (
-              <DiffViewer
-                text={diff.text}
-                filePath={selectedFile?.path}
-                ignoreWhitespace={ignoreWhitespace}
-                onIgnoreWhitespaceChange={setIgnoreWhitespace}
-                contextLines={contextLines}
-                onContextLinesChange={setContextLines}
+            ) : selectedFile &&
+              isImageAssetPath(selectedFile.path) &&
+              imageDiff &&
+              !preferTextForImage ? (
+              <ImageDiffViewer
+                diff={imageDiff}
+                onToggleText={
+                  imageDiff.mime === "image/svg+xml" && diff?.text
+                    ? () => setPreferTextForImage(true)
+                    : undefined
+                }
+                toggleTextLabel="Ver diff de texto"
               />
+            ) : diff?.text ? (
+              <>
+                {selectedFile &&
+                  isImageAssetPath(selectedFile.path) &&
+                  imageDiff && (
+                    <div className="image-diff-switch-row">
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() => setPreferTextForImage(false)}
+                      >
+                        Ver diff visual
+                      </button>
+                    </div>
+                  )}
+                <DiffViewer
+                  text={diff.text}
+                  filePath={selectedFile?.path}
+                  ignoreWhitespace={ignoreWhitespace}
+                  onIgnoreWhitespaceChange={setIgnoreWhitespace}
+                  contextLines={contextLines}
+                  onContextLinesChange={setContextLines}
+                />
+              </>
             ) : (
               <p className="search-dialog-empty">
                 Sin diferencias de contenido entre ambos commits.

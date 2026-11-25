@@ -415,6 +415,55 @@ beforeEach(() => {
         trusted: false,
       };
     if (command === "read_remotes") return structuredClone(remotes);
+    if (command === "check_git_environment")
+      return {
+        os: "macos",
+        gitAvailable: true,
+        gitVersion: "git version 2.47.0",
+        lfsAvailable: false,
+        lfsVersion: null,
+        gixEnabled: true,
+      };
+    if (command === "read_undo_state")
+      return {
+        canUndo: false,
+        canRedo: false,
+        undoCount: 0,
+        redoCount: 0,
+        nextUndo: null,
+        nextRedo: null,
+        recentUndo: [],
+      };
+    if (command === "read_snapshots")
+      return {
+        snapshots: [],
+        totalBytes: 0,
+        count: 0,
+      };
+    if (command === "read_lfs_status")
+      return {
+        installed: false,
+        version: null,
+        configured: false,
+        trackedPatterns: [],
+        files: [],
+        locks: [],
+        cacheBytes: 0,
+        trusted: true,
+      };
+    if (command === "read_submodules")
+      return {
+        submodules: [],
+        trusted: true,
+      };
+    if (command === "read_image_diff")
+      return {
+        path: "asset.png",
+        oldPath: null,
+        mime: "image/png",
+        before: null,
+        after: null,
+      };
     if (command === "read_branches")
       return {
         token: "branches",
@@ -472,6 +521,15 @@ beforeEach(() => {
         operation: null,
       };
     if (command === "watch_repository") return null;
+    if (command === "check_git_environment")
+      return {
+        os: "macos",
+        gitAvailable: true,
+        gitVersion: "git version 2.45.0",
+        lfsAvailable: true,
+        lfsVersion: "git-lfs/3.5.1",
+        gixEnabled: true,
+      };
     if (command === "read_worktrees")
       return {
         trusted: true,
@@ -1437,6 +1495,55 @@ it("gestiona múltiples pestañas independientes, persiste el estado y actualiza
       return structuredClone(p === repoB.path ? repoB : repoA);
     }
     if (command === "close_repository") return;
+    if (command === "check_git_environment")
+      return {
+        os: "macos",
+        gitAvailable: true,
+        gitVersion: "git version 2.47.0",
+        lfsAvailable: false,
+        lfsVersion: null,
+        gixEnabled: true,
+      };
+    if (command === "read_undo_state")
+      return {
+        canUndo: false,
+        canRedo: false,
+        undoCount: 0,
+        redoCount: 0,
+        nextUndo: null,
+        nextRedo: null,
+        recentUndo: [],
+      };
+    if (command === "read_snapshots")
+      return {
+        snapshots: [],
+        totalBytes: 0,
+        count: 0,
+      };
+    if (command === "read_lfs_status")
+      return {
+        installed: false,
+        version: null,
+        configured: false,
+        trackedPatterns: [],
+        files: [],
+        locks: [],
+        cacheBytes: 0,
+        trusted: true,
+      };
+    if (command === "read_submodules")
+      return {
+        submodules: [],
+        trusted: true,
+      };
+    if (command === "read_image_diff")
+      return {
+        path: "asset.png",
+        oldPath: null,
+        mime: "image/png",
+        before: null,
+        after: null,
+      };
     if (command === "read_branches") {
       return {
         rebaseRecord: false,
@@ -2156,5 +2263,303 @@ it("permite comparar dos commits con Shift+Click y abrir Historial (--follow) y 
   ).toBeTruthy();
   expect(
     await within(blameModal).findByText("export const base = 1;"),
+  ).toBeTruthy();
+});
+
+it("carga historial progresivamente con scroll infinito y abre guía automática si falta Git CLI", async () => {
+  const fallback = api.getMockImplementation()!;
+  let envCheckCalls = 0;
+  const pageTwoCommit = {
+    hash: "e".repeat(40),
+    parents: [],
+    author: "Scroll Infinito",
+    date: "2026-01-01T00:00:00Z",
+    subject: "commit de pagina 2",
+  };
+  const paginatedRepo = {
+    ...repo,
+    page: {
+      ...repo.page,
+      nextOffset: 200,
+    },
+  };
+
+  api.mockImplementation(async (command, args) => {
+    if (command === "check_git_environment") {
+      envCheckCalls += 1;
+      if (envCheckCalls === 1) {
+        return {
+          os: "windows",
+          gitAvailable: false,
+          gitVersion: null,
+          lfsAvailable: false,
+          lfsVersion: null,
+          gixEnabled: true,
+        };
+      }
+      return {
+        os: "windows",
+        gitAvailable: true,
+        gitVersion: "git version 2.47.1.windows.1",
+        lfsAvailable: false,
+        lfsVersion: null,
+        gixEnabled: true,
+      };
+    }
+    if (command === "open_repository") return structuredClone(paginatedRepo);
+    if (command === "read_history") {
+      return {
+        commits: [pageTwoCommit],
+        nextOffset: null,
+        generation: paginatedRepo.page.generation,
+      };
+    }
+    return fallback(command, args);
+  });
+
+  render(<App />);
+
+  // Al iniciar sin Git CLI se abre automáticamente el diagnóstico con guía Windows
+  const envDialog = await screen.findByRole("dialog");
+  expect(
+    within(envDialog).getByRole("heading", { name: "Entorno y motor Git" }),
+  ).toBeTruthy();
+  expect(within(envDialog).getByText("Instalar Git en Windows")).toBeTruthy();
+
+  await userEvent.click(
+    within(envDialog).getByRole("button", { name: "Volver a comprobar" }),
+  );
+  expect(
+    await within(envDialog).findByText("git version 2.47.1.windows.1"),
+  ).toBeTruthy();
+  await userEvent.click(
+    within(envDialog).getByRole("button", { name: "Cerrar" }),
+  );
+
+  // Abrir repo con nextOffset y simular scroll cerca del final dispara read_history
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  const historyScroll = document.querySelector(
+    ".history-scroll",
+  ) as HTMLElement;
+  Object.defineProperty(historyScroll, "clientHeight", {
+    value: 400,
+    configurable: true,
+  });
+  Object.defineProperty(historyScroll, "scrollHeight", {
+    value: 1000,
+    configurable: true,
+  });
+  Object.defineProperty(historyScroll, "scrollTop", {
+    value: 450,
+    configurable: true,
+    writable: true,
+  });
+  fireEvent.scroll(historyScroll);
+
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("read_history", {
+      id: repo.id,
+      offset: 200,
+      generation: paginatedRepo.page.generation,
+      scope: "all",
+    }),
+  );
+  expect(await screen.findByText("commit de pagina 2")).toBeTruthy();
+});
+
+it("abre Snapshots locales y dispara vista previa de Undo con Cmd/Ctrl+Z solo fuera de inputs", async () => {
+  const undoEntry = {
+    id: "u1",
+    timestamp: 1700000000,
+    kind: "commit",
+    label: "Commit: prueba",
+    before: { branch: "main", head: "111111111111" },
+    after: { branch: "main", head: hash },
+    movesRefs: true,
+  };
+  const baseUndoState = {
+    canUndo: true,
+    canRedo: false,
+    undoCount: 1,
+    redoCount: 0,
+    nextUndo: undoEntry,
+    nextRedo: null,
+    recentUndo: [undoEntry],
+  };
+
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "read_undo_state") return baseUndoState;
+    if (command === "preview_undo") {
+      return {
+        token: "undo-preview-1",
+        direction: (args as { direction: string }).direction,
+        entry: undoEntry,
+        currentBranch: "main",
+        currentHead: hash,
+        targetBranch: "main",
+        targetHead: "111111111111",
+        requiresConfirmation: true,
+        summary: "Deshacer «Commit: prueba» conservando los cambios (--mixed).",
+        warning: null,
+      };
+    }
+    if (command === "confirm_undo") {
+      return {
+        direction: "undo",
+        message: "Operación deshecha: Commit: prueba.",
+        state: {
+          canUndo: false,
+          canRedo: true,
+          undoCount: 0,
+          redoCount: 1,
+          nextUndo: null,
+          nextRedo: undoEntry,
+          recentUndo: [],
+        },
+      };
+    }
+    return fallback(command, args);
+  });
+
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  // Ctrl/Cmd+Z dentro de un input NO debe disparar preview_undo
+  const searchBox = screen.getByPlaceholderText(/Buscar mensaje/i);
+  searchBox.focus();
+  fireEvent.keyDown(searchBox, { key: "z", ctrlKey: true });
+  expect(api).not.toHaveBeenCalledWith("preview_undo", expect.anything());
+
+  // Abrir Snapshots locales desde el sidebar
+  await userEvent.click(
+    screen.getByRole("button", { name: "Snapshots locales…" }),
+  );
+  const snapDialog = await screen.findByRole("dialog");
+  expect(
+    within(snapDialog).getByRole("heading", { name: "Snapshots locales" }),
+  ).toBeTruthy();
+  await userEvent.click(
+    within(snapDialog).getByRole("button", { name: "Cerrar" }),
+  );
+
+  // Ctrl/Cmd+Z fuera de inputs abre UndoDialog con vista previa y confirmación
+  fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("preview_undo", {
+      id: repo.id,
+      direction: "undo",
+    }),
+  );
+  const undoDialog = await screen.findByRole("dialog");
+  expect(
+    within(undoDialog).getByRole("heading", { name: "Deshacer operación" }),
+  ).toBeTruthy();
+
+  await userEvent.click(
+    within(undoDialog).getByRole("button", { name: "Confirmar deshacer" }),
+  );
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("confirm_undo", {
+      id: repo.id,
+      token: "undo-preview-1",
+    }),
+  );
+});
+
+it("muestra ImageDiffViewer al seleccionar una imagen en el inspector de commits y cambia de modo", async () => {
+  const pngBefore =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  const pngAfter =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "read_commit_files") {
+      return {
+        hash,
+        parent: null,
+        parentCount: 1,
+        files: [
+          {
+            path: "assets/logo.png",
+            oldPath: null,
+            status: "M",
+            additions: null,
+            deletions: null,
+            binary: true,
+          },
+        ],
+      };
+    }
+    if (command === "read_image_diff") {
+      return {
+        path: "assets/logo.png",
+        oldPath: null,
+        mime: "image/png",
+        before: {
+          label: "Padre 1111111",
+          dataUrl: pngBefore,
+          mime: "image/png",
+          bytes: 512,
+          isLfsPointer: false,
+          tooLarge: false,
+        },
+        after: {
+          label: `Commit ${hash.slice(0, 7)}`,
+          dataUrl: pngAfter,
+          mime: "image/png",
+          bytes: 1024,
+          isLfsPointer: false,
+          tooLarge: false,
+        },
+      };
+    }
+    return fallback(command, args);
+  });
+
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  const fileButton = await screen.findByRole("button", {
+    name: /assets\/logo\.png/i,
+  });
+  await userEvent.click(fileButton);
+
+  expect(await screen.findByAltText("Padre 1111111")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Cortina" }));
+  expect(screen.getByLabelText("Posición de cortina")).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "Onion-skin" }));
+  expect(screen.getByLabelText("Opacidad de capa nueva")).toBeTruthy();
+});
+
+it("abre Git LFS y Submódulos desde el sidebar y navega entre ambas pestañas", async () => {
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Git LFS y Submódulos…" }),
+  );
+  const dialog = await screen.findByRole("dialog");
+  expect(
+    within(dialog).getByRole("heading", { name: "Git LFS y Submódulos" }),
+  ).toBeTruthy();
+  expect(
+    await within(dialog).findByText(
+      /No se detectaron archivos o punteros Git LFS/i,
+    ),
+  ).toBeTruthy();
+
+  await userEvent.click(
+    within(dialog).getByRole("tab", { name: /Submódulos/ }),
+  );
+  expect(
+    await within(dialog).findByText(/no tiene submódulos Git configurados/i),
   ).toBeTruthy();
 });

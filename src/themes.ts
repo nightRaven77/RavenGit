@@ -41,6 +41,20 @@ export interface OpenExternalOutcome {
   message: string;
 }
 
+export interface SnapshotPreferences {
+  autoEnabled: boolean;
+  intervalMinutes: number;
+  maxSnapshots: number;
+  maxDiskMb: number;
+}
+
+export const DEFAULT_SNAPSHOT_PREFERENCES: SnapshotPreferences = {
+  autoEnabled: true,
+  intervalMinutes: 10,
+  maxSnapshots: 30,
+  maxDiskMb: 100,
+};
+
 export interface AppSettings {
   version: number;
   theme: ThemeId;
@@ -48,6 +62,7 @@ export interface AppSettings {
   external: ExternalPreferences;
   openTabs?: string[];
   activeTab?: string | null;
+  snapshots?: SnapshotPreferences;
 }
 
 export interface ThemeDefinition {
@@ -79,6 +94,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   },
   openTabs: [],
   activeTab: null,
+  snapshots: { ...DEFAULT_SNAPSHOT_PREFERENCES },
 };
 
 export const THEMES: readonly ThemeDefinition[] = [

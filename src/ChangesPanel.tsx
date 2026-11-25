@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DiffContent, DiffModeControl, type DiffMode } from "./DiffViewer";
+import ImageDiffViewer, { isImageAssetPath } from "./ImageDiffViewer";
 import { splitDiff } from "./splitDiff";
 import { invoke } from "@tauri-apps/api/core";
 import AmendDialog from "./AmendDialog";
@@ -19,6 +20,7 @@ import type {
   ChangeEntry,
   ChangesState,
   FileDiff,
+  ImageDiff,
   MutationResult,
 } from "./types";
 import {
@@ -77,6 +79,9 @@ export default function ChangesPanel({
     () => new Set(),
   );
   const [diff, setDiff] = useState<FileDiff | null>(null);
+  const [imageDiff, setImageDiff] = useState<ImageDiff | null>(null);
+  const [preferTextForImage, setPreferTextForImage] = useState(false);
+  const imageDiffRequest = useRef(0);
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
   const [contextLines, setContextLines] = useState(3);
@@ -241,6 +246,45 @@ export default function ChangesPanel({
     selected?.area,
     ignoreWhitespace,
     contextLines,
+  ]);
+  useEffect(() => {
+    const token = ++imageDiffRequest.current;
+    setImageDiff(null);
+    setPreferTextForImage(false);
+    if (
+      !active ||
+      loading ||
+      !state?.trusted ||
+      !selected ||
+      !isImageAssetPath(selected.path)
+    ) {
+      return;
+    }
+    invoke<ImageDiff>("read_image_diff", {
+      id: repoId,
+      source: {
+        kind: "worktree",
+        path: selected.path,
+        area: selected.area,
+      },
+    })
+      .then((next) => {
+        if (token === imageDiffRequest.current) setImageDiff(next);
+      })
+      .catch(() => {
+        if (token === imageDiffRequest.current) setImageDiff(null);
+      });
+    return () => {
+      imageDiffRequest.current++;
+    };
+  }, [
+    repoId,
+    active,
+    loading,
+    state?.token,
+    state?.trusted,
+    selected?.path,
+    selected?.area,
   ]);
   async function execute(
     action: () => Promise<void>,
@@ -1192,8 +1236,32 @@ export default function ChangesPanel({
                 <div className="banner error" role="alert">
                   {diffError}
                 </div>
+              ) : selected &&
+                isImageAssetPath(selected.path) &&
+                imageDiff &&
+                !preferTextForImage ? (
+                <ImageDiffViewer
+                  diff={imageDiff}
+                  onToggleText={
+                    imageDiff.mime === "image/svg+xml"
+                      ? () => setPreferTextForImage(true)
+                      : undefined
+                  }
+                  toggleTextLabel="Ver diff de texto"
+                />
               ) : diff ? (
                 <>
+                  {selected && isImageAssetPath(selected.path) && imageDiff && (
+                    <div className="image-diff-switch-row">
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() => setPreferTextForImage(false)}
+                      >
+                        Ver diff visual
+                      </button>
+                    </div>
+                  )}
                   <DiffModeControl
                     mode={effectiveDiffMode}
                     onChange={setDiffMode}

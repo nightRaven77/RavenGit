@@ -26,6 +26,7 @@ serde_json = "1"
 sha2 = "0.10"
 url = "2"
 notify = "8"
+gix = { version = "0.73", default-features = false, features = ["revision", "max-performance-safe"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

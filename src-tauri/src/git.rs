@@ -145,6 +145,9 @@ pub fn open(path: &Path, id: String) -> Result<(Repository, Snapshot)> {
     Ok((repo, snapshot))
 }
 fn generation(path: &Path) -> Result<String> {
+    if let Some(fast) = crate::gix_engine::generation(path) {
+        return Ok(fast);
+    }
     // Includes all refs (including unreachable-by-HEAD branches), tags, detached HEAD and current branch name.
     let refs = text(path, &["for-each-ref", "--format=%(objectname) %(refname)"])?;
     let head = text(path, &["rev-parse", "--verify", "HEAD"]).unwrap_or_default();
@@ -160,6 +163,9 @@ pub fn snapshot(repo: &Repository) -> Result<Snapshot> {
     snapshot_scoped(repo, None)
 }
 pub fn snapshot_scoped(repo: &Repository, scope: Option<&str>) -> Result<Snapshot> {
+    if let Some(fast) = crate::gix_engine::snapshot_scoped(repo, scope) {
+        return fast;
+    }
     let before = generation(&repo.path)?;
     let head = text(&repo.path, &["rev-parse", "--verify", "HEAD"])
         .ok()
@@ -264,6 +270,9 @@ pub fn history_scoped(
     expected: &str,
     scope: Option<&str>,
 ) -> Result<HistoryPage> {
+    if let Some(fast) = crate::gix_engine::history_scoped(repo, offset, expected, scope) {
+        return fast;
+    }
     let scope = scope.unwrap_or("all");
     if scope != "all"
         && scope != "HEAD"
@@ -386,7 +395,7 @@ pub(crate) fn validate_rel_path(path: &str) -> Result<()> {
     }
     Ok(())
 }
-fn resolve_parent(
+pub(crate) fn resolve_parent(
     repo: &Repository,
     hash: &str,
     parent_index: usize,

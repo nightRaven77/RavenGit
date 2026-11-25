@@ -358,3 +358,195 @@ export interface RangeDiff {
   target: string;
   text: string;
 }
+export interface EnvironmentStatus {
+  os: string;
+  gitAvailable: boolean;
+  gitVersion: string | null;
+  lfsAvailable: boolean;
+  lfsVersion: string | null;
+  gixEnabled: boolean;
+}
+export interface SnapshotFile {
+  path: string;
+  status: string;
+  existed: boolean;
+  sha256: string | null;
+  size: number;
+}
+export interface SnapshotSummary {
+  id: string;
+  createdAt: number;
+  label: string;
+  trigger: string;
+  branch: string | null;
+  head: string | null;
+  totalBytes: number;
+  fileCount: number;
+  files: SnapshotFile[];
+}
+export interface SnapshotList {
+  snapshots: SnapshotSummary[];
+  totalBytes: number;
+  count: number;
+}
+export interface SnapshotCaptureOutcome {
+  created: boolean;
+  deduplicated: boolean;
+  snapshot: SnapshotSummary | null;
+  list: SnapshotList;
+  message: string;
+}
+export interface SnapshotRestoreFilePreview {
+  path: string;
+  action: "restore" | "recreate" | "delete" | "unchanged" | string;
+  bytesBefore: number;
+  bytesAfter: number;
+}
+export interface SnapshotRestorePlan {
+  token: string;
+  snapshotId: string;
+  label: string;
+  createdAt: number;
+  snapshotBranch: string | null;
+  snapshotHead: string | null;
+  currentBranch: string | null;
+  currentHead: string | null;
+  branchMismatch: boolean;
+  headMismatch: boolean;
+  files: SnapshotRestoreFilePreview[];
+  summary: string;
+}
+export interface SnapshotRestoreOutcome {
+  snapshotId: string;
+  backupSnapshotId: string | null;
+  restoredFiles: number;
+  message: string;
+}
+export interface UndoRefState {
+  branch: string | null;
+  head: string | null;
+}
+export interface UndoEntry {
+  id: string;
+  timestamp: number;
+  kind: string;
+  label: string;
+  before: UndoRefState;
+  after: UndoRefState;
+  movesRefs: boolean;
+}
+export interface UndoState {
+  canUndo: boolean;
+  canRedo: boolean;
+  undoCount: number;
+  redoCount: number;
+  nextUndo: UndoEntry | null;
+  nextRedo: UndoEntry | null;
+  recentUndo: UndoEntry[];
+}
+export interface UndoPlan {
+  token: string;
+  direction: "undo" | "redo" | string;
+  entry: UndoEntry;
+  currentBranch: string | null;
+  currentHead: string | null;
+  targetBranch: string | null;
+  targetHead: string | null;
+  requiresConfirmation: boolean;
+  summary: string;
+  warning: string | null;
+}
+export interface UndoOutcome {
+  direction: string;
+  message: string;
+  state: UndoState;
+}
+export interface ImageSide {
+  label: string;
+  dataUrl: string | null;
+  mime: string;
+  bytes: number;
+  isLfsPointer: boolean;
+  tooLarge: boolean;
+}
+export interface ImageDiff {
+  path: string;
+  oldPath: string | null;
+  mime: string;
+  before: ImageSide | null;
+  after: ImageSide | null;
+}
+export type ImageDiffSource =
+  | {
+      kind: "worktree";
+      path: string;
+      area: "staged" | "unstaged";
+    }
+  | {
+      kind: "commit";
+      hash: string;
+      parentIndex: number;
+      path: string;
+      oldPath: string | null;
+    }
+  | {
+      kind: "range";
+      base: string;
+      target: string;
+      path: string;
+      oldPath: string | null;
+    };
+export interface LfsFile {
+  path: string;
+  oid: string;
+  downloaded: boolean;
+  sizeLabel: string | null;
+}
+export interface LfsLock {
+  id: string;
+  path: string;
+  owner: string;
+  lockedAt: string | null;
+}
+export interface LfsStatus {
+  installed: boolean;
+  version: string | null;
+  configured: boolean;
+  trackedPatterns: string[];
+  files: LfsFile[];
+  locks: LfsLock[];
+  cacheBytes: number;
+  trusted: boolean;
+}
+export interface LfsActionOutcome {
+  message: string;
+  status: LfsStatus;
+}
+export interface SubmoduleEntry {
+  name: string;
+  path: string;
+  url: string | null;
+  branch: string | null;
+  head: string;
+  describe: string | null;
+  status: "clean" | "uninitialized" | "modified" | "conflict" | string;
+  initialized: boolean;
+}
+export interface SubmoduleList {
+  submodules: SubmoduleEntry[];
+  trusted: boolean;
+}
+export type SubmoduleAction =
+  | {
+      kind: "initUpdate";
+      path: string | null;
+      recursive: boolean;
+    }
+  | {
+      kind: "syncUrls";
+      path: string | null;
+    };
+export interface SubmoduleOutcome {
+  message: string;
+  list: SubmoduleList;
+}

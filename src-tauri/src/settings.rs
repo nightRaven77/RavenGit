@@ -38,6 +38,26 @@ pub struct ExternalPreferences {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
+pub struct SnapshotPreferences {
+    pub auto_enabled: bool,
+    pub interval_minutes: u16,
+    pub max_snapshots: u16,
+    pub max_disk_mb: u16,
+}
+
+impl Default for SnapshotPreferences {
+    fn default() -> Self {
+        Self {
+            auto_enabled: true,
+            interval_minutes: 10,
+            max_snapshots: 30,
+            max_disk_mb: 100,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub version: u8,
     pub theme: String,
@@ -45,6 +65,7 @@ pub struct AppSettings {
     pub external: ExternalPreferences,
     pub open_tabs: Vec<String>,
     pub active_tab: Option<String>,
+    pub snapshots: SnapshotPreferences,
 }
 
 impl Default for AppSettings {
@@ -56,6 +77,7 @@ impl Default for AppSettings {
             external: ExternalPreferences::default(),
             open_tabs: Vec::new(),
             active_tab: None,
+            snapshots: SnapshotPreferences::default(),
         }
     }
 }
@@ -121,6 +143,9 @@ pub fn validate(settings: &AppSettings) -> Result<()> {
             .custom_editor_name
             .as_deref()
             .is_some_and(|name| !valid_name(name))
+        || !(1..=120).contains(&settings.snapshots.interval_minutes)
+        || !(5..=200).contains(&settings.snapshots.max_snapshots)
+        || !(10..=2048).contains(&settings.snapshots.max_disk_mb)
     {
         return Err(invalid());
     }
@@ -254,13 +279,19 @@ mod tests {
                 "/Users/erick/repo-dos".into(),
             ],
             active_tab: Some("/Users/erick/repo-dos".into()),
+            snapshots: SnapshotPreferences {
+                auto_enabled: false,
+                interval_minutes: 15,
+                max_snapshots: 50,
+                max_disk_mb: 250,
+            },
         };
         let saved = save(&fixture.0, &settings).unwrap();
         assert_eq!(saved, settings);
         let reloaded = read(&fixture.0).unwrap();
         assert_eq!(reloaded, settings);
 
-        // Legacy v1 settings without openTabs / activeTab must deserialize cleanly
+        // Legacy v1 settings without openTabs / activeTab / snapshots must deserialize cleanly
         fs::write(
             fixture.0.join(FILE_NAME),
             br#"{"version":1,"theme":"obsidian","graphPalette":"kraken","external":{}}"#,
@@ -269,6 +300,7 @@ mod tests {
         let legacy = read(&fixture.0).unwrap();
         assert!(legacy.open_tabs.is_empty());
         assert_eq!(legacy.active_tab, None);
+        assert_eq!(legacy.snapshots, SnapshotPreferences::default());
     }
 
     #[test]
@@ -331,6 +363,27 @@ mod tests {
                 external: ExternalPreferences {
                     custom_editor_name: Some("line\nbreak".into()),
                     ..ExternalPreferences::default()
+                },
+                ..AppSettings::default()
+            },
+            AppSettings {
+                snapshots: SnapshotPreferences {
+                    interval_minutes: 0,
+                    ..SnapshotPreferences::default()
+                },
+                ..AppSettings::default()
+            },
+            AppSettings {
+                snapshots: SnapshotPreferences {
+                    max_snapshots: 4,
+                    ..SnapshotPreferences::default()
+                },
+                ..AppSettings::default()
+            },
+            AppSettings {
+                snapshots: SnapshotPreferences {
+                    max_disk_mb: 5000,
+                    ..SnapshotPreferences::default()
                 },
                 ..AppSettings::default()
             },

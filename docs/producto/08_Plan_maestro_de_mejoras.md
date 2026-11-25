@@ -1,7 +1,7 @@
 # RavenGit · Plan Maestro de Mejoras
 
-Fecha: 22 de noviembre de 2026.  
-Estado: **aprobado** · **Fases 1, 2, 3 y 4 completadas** (Fase 5 pendiente).
+Fecha: 25 de noviembre de 2026.
+Estado: **aprobado** · **Fases 1, 2, 3, 4 y 5 (Core 5.1–5.4) completadas** (5.5 opcional pendiente según audiencia).
 
 Este documento reúne el plan maestro en cinco fases para la evolución de **RavenGit**, integrando ideas de referencia de **GitCraft**, **Tributary** y **GitKraken**, las metas del [Roadmap](../../ROADMAP.md) y los tres cambios prioritarios definidos para el producto (*Abrir en…*, *Grafo colorido* y *Explorador de colores y temas*).
 
@@ -126,19 +126,19 @@ flowchart LR
 > **Objetivo:** máxima velocidad en repositorios grandes, red de seguridad "imposible perder trabajo" y cierre de metas del Roadmap.
 
 ### 5.1 Motor híbrido con `gitoxide` (`gix`) + scroll infinito
-- Lecturas de grafo, historial y referencias directamente en memoria desde Rust con `gix` (sin spawnear múltiples procesos `git` para lectura), manteniendo Git CLI para escrituras, hooks y credenciales.
-- Carga infinita progresiva al desplazarse en el historial (reemplazando el botón manual *"Cargar 200 más"*).
+- Lecturas de grafo, historial y referencias directamente en memoria desde Rust con `gix` (`gix_engine.rs`) con respaldo automático a Git CLI, además de diagnóstico guiado de entorno (`env_check.rs` + `EnvironmentDialog.tsx`).
+- Carga infinita progresiva al desplazarse en el historial (conservando botón manual de apoyo *"Cargar 200 más"*).
 
 ### 5.2 Seguridad 2.0: Snapshots automáticos locales y Undo / Redo
-- **Snapshots locales automáticos:** evolución de `worktree_restore.rs` para capturar periódicamente (con retención y límite de disco configurables) el estado del árbol de trabajo sin ensuciar commits ni stashes.
-- **Undo / Redo unificado (`Cmd/Ctrl+Z`):** historial de deshacer seguro para operaciones frecuentes (checkout, stash, cherry-pick, rebase, reset, restauración), siempre con confirmación cuando implique mover referencias.
+- **Snapshots locales automáticos (`snapshots.rs` + `SnapshotsDialog.tsx`):** capturan periódicamente y de forma manual (con deduplicación, retención y límite de disco configurables) el estado del árbol de trabajo sin ensuciar commits ni stashes.
+- **Undo / Redo unificado (`undo.rs` + `UndoDialog.tsx`, `Cmd/Ctrl+Z`):** historial de deshacer seguro para operaciones frecuentes (commit, amend, checkout/switch/rename de rama, merge, rebase, cherry-pick, revert), siempre con vista previa y confirmación explícita cuando mueve referencias.
 
-### 5.3 Diff visual de imágenes y assets
-- Comparador visual para PNG, JPG, WebP, GIF y SVG con modos **Lado a lado**, **Cortina (*swipe*)**, **Onion-skin** (opacidad) y **Pixel-diff**.
+### 5.3 Diff visual de imágenes y assets (`image_diff.rs` + `ImageDiffViewer.tsx`)
+- Comparador visual compatible con CSP `data:` para PNG, JPG, WebP, GIF y SVG con modos **Lado a lado**, **Cortina (*swipe*)**, **Onion-skin** y **Pixel-diff**, integrado en Historial, Cambios y Comparación de rangos.
 
-### 5.4 Git LFS, File Locks y Submódulos
-- Detección de punteros LFS, estado de descarga/espacio y gestión de bloqueos (`lock` / `unlock`).
-- Visualización de estado y actualización controlada de submódulos Git.
+### 5.4 Git LFS, File Locks y Submódulos (`lfs.rs` + `submodules.rs` + `LfsSubmodulesDialog.tsx`)
+- Detección local de punteros LFS, patrones `.gitattributes`, tamaño de caché, pull bajo demanda y gestión explícita de bloqueos (`lock` / `unlock`).
+- Visualización de estado y sincronización/actualización controlada de submódulos Git.
 
 ### 5.5 Opcionales según audiencia
 - **Modo Simple** (inspirado en Tributary): vista simplificada (*Traer últimos → Tus cambios → Enviar*) alternable en 1 clic.

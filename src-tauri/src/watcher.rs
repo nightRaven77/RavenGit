@@ -41,7 +41,14 @@ fn is_ignored_git_subpath(rel: &Path) -> bool {
     let first_str = first.as_os_str().to_string_lossy();
     if matches!(
         first_str.as_ref(),
-        "objects" | "logs" | "ravengit-restore" | "hooks" | "info" | "rr-cache"
+        "objects"
+            | "logs"
+            | "ravengit-restore"
+            | "ravengit-snapshots"
+            | "ravengit-undo"
+            | "hooks"
+            | "info"
+            | "rr-cache"
     ) {
         return true;
     }
@@ -356,6 +363,24 @@ mod tests {
                 git_dir,
                 git_dir,
                 Path::new("/tmp/repo/.git/ravengit-restore/backup.json")
+            ),
+            None
+        );
+        assert_eq!(
+            classify_path(
+                root,
+                git_dir,
+                git_dir,
+                Path::new("/tmp/repo/.git/ravengit-snapshots/snap-1/metadata.json")
+            ),
+            None
+        );
+        assert_eq!(
+            classify_path(
+                root,
+                git_dir,
+                git_dir,
+                Path::new("/tmp/repo/.git/ravengit-undo/history.json")
             ),
             None
         );

@@ -11,6 +11,8 @@
 
 Construido sobre **Tauri 2**, **React 19** y un motor híbrido seguro en **Rust** (`gix` / *gitoxide* para lecturas locales de alta velocidad + Git CLI nativo para escrituras, hooks y remotos), RavenGit opera directamente sobre tus repositorios locales sin intermediarios ni telemetría.
 
+![Vista principal de RavenGit con grafo Tributary, avatares, columna Rama / Tag, fila WIP e inspector de commits](docs/manual/assets/01-grafo-tributary.png)
+
 ---
 
 ## Características Principales
@@ -47,10 +49,24 @@ Construido sobre **Tauri 2**, **React 19** y un motor híbrido seguro en **Rust*
 - **Stash completo:** guardado y restauración preservando capas de preparación y archivos sin seguimiento (*untracked*).
 - **Ramas agrupadas y Etiquetas:** listado por prefijos en la barra lateral, creación/cambio/renombrado con validación de colisiones y publicación selectiva de etiquetas hacia remotos autorizados.
 
-### 🔒 Privacidad Local-First, Apariencia y Entorno
-- **100% Offline-first:** cero telemetría ni conexiones remotas automáticas; las consultas de red ocurren únicamente tras autorización explícita.
+### 🔒 Privacidad Local-First, Apariencia, Modo Simple y Entorno
+- **100% Offline-first:** cero telemetría ni conexiones remotas automáticas; las consultas de red (incluidos **Pull Requests / Merge Requests opt-in** con GitHub `gh` y GitLab `glab`) ocurren únicamente tras autorización explícita.
 - **Puerta de confianza por ruta:** confirmación en modo seguro al abrir repositorios nuevos, permitiendo inspección en solo lectura antes de habilitar escrituras.
-- **Apariencia y diagnóstico:** 5 temas (incluyendo tema claro *Arctic Light* y alto contraste), paletas de grafo personalizables, preferencias persistidas por repositorio y visor **Entorno y motor Git** (`gix`, Git CLI y Git LFS).
+- **Modo Simple en 1 clic, Guía rápida y Apariencia:** alterna entre *Modo Simple* y *Modo Completo*, recorre la **Guía rápida** integrada dentro de la app, personaliza con **7 temas** (incluyendo tema claro *Arctic Light* y alto contraste) y **5 paletas de grafo**, y valida tu instalación con **Entorno y motor Git** (`gix`, Git CLI y Git LFS).
+
+---
+
+## Manual de Uso
+
+Consulta el [**Manual de uso de RavenGit**](docs/manual/README.md) para guías paso a paso orientadas al flujo diario:
+
+- [Primeros pasos en 5 minutos](docs/manual/README.md)
+- [Interfaz, grafo Tributary y navegación](docs/manual/interfaz-y-grafo.md)
+- [Cambios locales, diffs y commits](docs/manual/cambios-y-commits.md)
+- [Ramas, rebase interactivo, conflictos y etiquetas](docs/manual/ramas-y-conflictos.md)
+- [Sincronización, remotos y PRs / MRs opt-in](docs/manual/sincronizacion-y-forjas.md)
+- [Seguridad 2.0 y herramientas avanzadas](docs/manual/herramientas-y-seguridad.md)
+- [Atajos de teclado, entorno y soporte](docs/manual/atajos-y-soporte.md)
 
 ---
 

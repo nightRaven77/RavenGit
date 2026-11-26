@@ -51,6 +51,7 @@ export interface SidebarProps {
   onOpenUndo: (direction: "undo" | "redo") => void;
   onOpenEnvironment: () => void;
   onOpenShortcuts: () => void;
+  onOpenQuickGuide?: () => void;
   onJumpToHash: (hash: string) => void;
   onOpenRefContextMenu: (refItem: GitRef, x: number, y: number) => void;
   onOpenRepositoryPath: (path: string) => void;
@@ -94,6 +95,7 @@ export default function Sidebar({
   onOpenUndo,
   onOpenEnvironment,
   onOpenShortcuts,
+  onOpenQuickGuide,
   onJumpToHash,
   onOpenRefContextMenu,
   onOpenRepositoryPath,
@@ -180,6 +182,11 @@ export default function Sidebar({
           <button className="nav-button" onClick={onOpenShortcuts}>
             Atajos de teclado…
           </button>
+          {onOpenQuickGuide && (
+            <button className="nav-button" onClick={onOpenQuickGuide}>
+              Guía rápida…
+            </button>
+          )}
           {onToggleSimpleMode && (
             <button className="nav-button" onClick={onToggleSimpleMode}>
               Cambiar a Modo Completo
@@ -314,6 +321,11 @@ export default function Sidebar({
             <button className="nav-button" onClick={onOpenShortcuts}>
               Atajos de teclado…
             </button>
+            {onOpenQuickGuide && (
+              <button className="nav-button" onClick={onOpenQuickGuide}>
+                Guía rápida…
+              </button>
+            )}
           </nav>
         </details>
       )}

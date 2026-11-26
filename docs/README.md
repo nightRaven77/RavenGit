@@ -1,6 +1,16 @@
 # Documentación de RavenGit
 
-Este directorio reúne documentación de producto, arquitectura, distribución y licencias. Los documentos describen tanto decisiones vigentes como propuestas y registros históricos; consulta el estado indicado en cada documento antes de tomar una propuesta como función disponible.
+Este directorio reúne documentación de usuario, producto, arquitectura, distribución y licencias. Los documentos de producto describen tanto decisiones vigentes como propuestas y registros históricos; consulta el estado indicado en cada documento antes de tomar una propuesta como función disponible.
+
+## Manual de uso
+
+- [Manual de uso de RavenGit](manual/README.md): índice general y guía de primeros pasos en 5 minutos.
+- [Interfaz, grafo Tributary y navegación](manual/interfaz-y-grafo.md): pestañas, estilos *Tributary* y *Compacto*, filtros, 7 temas, 5 paletas y Paleta de comandos.
+- [Cambios locales, diffs y commits](manual/cambios-y-commits.md): staging granular, diff dividido y visual de imágenes, commits, `amend` y `stash`.
+- [Ramas, rebase interactivo, conflictos y etiquetas](manual/ramas-y-conflictos.md): gestión de ramas, rebase visual, editor de conflictos a 3 vías y etiquetas.
+- [Sincronización, remotos y PRs / MRs opt-in](manual/sincronizacion-y-forjas.md): `Fetch`, `Pull`, `Push`, credenciales y consulta bajo demanda con `gh` / `glab`.
+- [Seguridad 2.0 y herramientas avanzadas](manual/herramientas-y-seguridad.md): snapshots, `Undo / Redo`, búsqueda profunda, `--follow`, Blame, comparación de rango, worktrees y LFS/Submódulos.
+- [Atajos de teclado, entorno y soporte](manual/atajos-y-soporte.md): referencia de los 18 atajos (`?`), verificador de entorno y solución de problemas.
 
 ## Producto
 

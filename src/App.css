@@ -986,6 +986,13 @@ p {
 .empty-state > .button {
   margin-top: 5px;
 }
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+}
 .empty-note {
   font-size: 10px;
   color: var(--text-faint);

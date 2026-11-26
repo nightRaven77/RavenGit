@@ -2828,3 +2828,43 @@ it("consulta PRs/MRs sólo de forma explícita opt-in y muestra badge #42 en la 
   expect(prPill).toBeTruthy();
   expect(prPill?.textContent).toBe("#42");
 });
+
+it("abre la Guía rápida desde la pantalla de bienvenida y enlaza con Atajos de teclado", async () => {
+  render(<App />);
+
+  await userEvent.click(screen.getByRole("button", { name: "Guía rápida" }));
+  expect(
+    await screen.findByRole("heading", { name: "Guía rápida de RavenGit" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("region", { name: "Espacio local y autorización" }),
+  ).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "Ver atajos (?)" }));
+  expect(
+    await screen.findByRole("heading", { name: "Atajos de teclado" }),
+  ).toBeTruthy();
+  expect(
+    screen.queryByRole("heading", { name: "Guía rápida de RavenGit" }),
+  ).toBeNull();
+});
+
+it("abre la Guía rápida desde la barra superior al tener un repositorio abierto", async () => {
+  await opened();
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Guía rápida de RavenGit" }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Guía rápida de RavenGit" }),
+  ).toBeTruthy();
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Cerrar guía rápida" }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("heading", { name: "Guía rápida de RavenGit" }),
+    ).toBeNull(),
+  );
+});

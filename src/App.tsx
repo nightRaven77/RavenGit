@@ -115,6 +115,7 @@ const TagDialog = lazy(() => import("./TagDialog"));
 const TagPublishDialog = lazy(() => import("./TagPublishDialog"));
 const ActivityDialog = lazy(() => import("./ActivityDialog"));
 const ShortcutsDialog = lazy(() => import("./ShortcutsDialog"));
+const QuickGuideDialog = lazy(() => import("./QuickGuideDialog"));
 const PullRequestsDialog = lazy(() => import("./PullRequestsDialog"));
 import { buildTributaryItems } from "./historyGroups";
 import {
@@ -241,6 +242,7 @@ function App() {
   const [preferTextForImage, setPreferTextForImage] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [quickGuideOpen, setQuickGuideOpen] = useState(false);
   const [prDialogOpen, setPrDialogOpen] = useState(false);
   const [pullRequestsByRepo, setPullRequestsByRepo] = useState<
     Record<string, PullRequestItem[]>
@@ -513,6 +515,7 @@ function App() {
     setContextMenu(null);
     setPaletteOpen(false);
     setShortcutsOpen(false);
+    setQuickGuideOpen(false);
     setStashOpen(false);
     setRestoreOpen(false);
     setReplay(undefined);
@@ -2350,6 +2353,20 @@ function App() {
         onSelect: () => setShortcutsOpen(true),
       },
       {
+        id: "quick-guide",
+        category: "Aplicación",
+        label: "Guía rápida de RavenGit…",
+        keywords: [
+          "manual",
+          "ayuda",
+          "tutorial",
+          "tour",
+          "empezar",
+          "primeros pasos",
+        ],
+        onSelect: () => setQuickGuideOpen(true),
+      },
+      {
         id: "toggle-simple-mode",
         category: "Aplicación",
         label: simpleMode ? "Cambiar a Modo Completo" : "Activar Modo Simple",
@@ -2767,6 +2784,15 @@ function App() {
         {shortcutsOpen && (
           <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />
         )}
+        {quickGuideOpen && (
+          <QuickGuideDialog
+            onClose={() => setQuickGuideOpen(false)}
+            onOpenShortcuts={() => {
+              setQuickGuideOpen(false);
+              setShortcutsOpen(true);
+            }}
+          />
+        )}
         {repo && prDialogOpen && (
           <PullRequestsDialog
             key={`prs:${repo.id}`}
@@ -2825,6 +2851,7 @@ function App() {
           onLibrary={() => setLibraryOpen(true)}
           onAppearance={() => setAppearanceOpen(true)}
           onCommandPalette={() => setPaletteOpen(true)}
+          onQuickGuide={() => setQuickGuideOpen(true)}
           simpleMode={simpleMode}
           onToggleSimpleMode={toggleSimpleMode}
           themeSwatches={THEMES.find(
@@ -2956,6 +2983,7 @@ function App() {
         onOpenUndo={(direction) => void openUndoPreview(direction)}
         onOpenEnvironment={() => setEnvDialogOpen(true)}
         onOpenShortcuts={() => setShortcutsOpen(true)}
+        onOpenQuickGuide={() => setQuickGuideOpen(true)}
         onJumpToHash={jump}
         onOpenRefContextMenu={openRefContextMenu}
         onOpenRepositoryPath={(path) => void openRepositoryPath(path)}
@@ -3341,14 +3369,23 @@ function App() {
                 Explora sus ramas, sigue los merges y revisa cada cambio desde
                 un mismo lugar.
               </p>
-              <button
-                className="button primary"
-                onClick={() => void choose()}
-                disabled={busy}
-              >
-                <OpenInNewWindowIcon />
-                Abrir repositorio local
-              </button>
+              <div className="empty-state-actions">
+                <button
+                  className="button primary"
+                  onClick={() => void choose()}
+                  disabled={busy}
+                >
+                  <OpenInNewWindowIcon />
+                  Abrir repositorio local
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => setQuickGuideOpen(true)}
+                >
+                  Guía rápida
+                </button>
+              </div>
               <span className="empty-note">
                 Sin cuentas. Sin conexión. Datos reales de Git.
               </span>

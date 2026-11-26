@@ -8,6 +8,7 @@ import {
   ArchiveIcon,
   MagnifyingGlassIcon,
   PlusIcon,
+  QuestionMarkCircledIcon,
 } from "@radix-ui/react-icons";
 import type { Snapshot } from "./types";
 
@@ -35,6 +36,7 @@ type Props = {
   onLibrary?: () => void;
   onAppearance?: () => void;
   onCommandPalette?: () => void;
+  onQuickGuide?: () => void;
   simpleMode?: boolean;
   onToggleSimpleMode?: () => void;
   themeSwatches?: readonly string[];
@@ -70,6 +72,7 @@ export default function CommandBar({
   onLibrary,
   onAppearance,
   onCommandPalette,
+  onQuickGuide,
   simpleMode = false,
   onToggleSimpleMode,
   themeSwatches,
@@ -338,6 +341,7 @@ export default function CommandBar({
         {(onLibrary ||
           onAppearance ||
           onCommandPalette ||
+          onQuickGuide ||
           onToggleSimpleMode) && (
           <div className="header-utilities">
             {onToggleSimpleMode && (
@@ -433,6 +437,20 @@ export default function CommandBar({
                     d="M2.25 2.5A1.25 1.25 0 0 1 3.5 1.25H7a1.5 1.5 0 0 1 1 .38 1.5 1.5 0 0 1 1-.38h3.5a1.25 1.25 0 0 1 1.25 1.25v9.75a1.25 1.25 0 0 1-1.25 1.25H9a1.25 1.25 0 0 0-1 .5 1.25 1.25 0 0 0-1-.5H3.5a1.25 1.25 0 0 1-1.25-1.25V2.5Zm1.5 0v9.5H7c.35 0 .68.12.95.33V2.75A.5.5 0 0 0 7.45 2.5H3.75Zm5.55 9.83c.27-.21.6-.33.95-.33h2.25V2.5H9.8a.5.5 0 0 0-.5.25v9.58Z"
                   />
                 </svg>
+              </button>
+            )}
+            {onQuickGuide && (
+              <button
+                type="button"
+                className="header-icon-btn"
+                disabled={locked}
+                aria-label="Guía rápida de RavenGit"
+                title="Guía rápida de RavenGit"
+                onClick={() => {
+                  if (!locked) onQuickGuide();
+                }}
+              >
+                <QuestionMarkCircledIcon aria-hidden="true" />
               </button>
             )}
           </div>

@@ -101,8 +101,10 @@ const preferences = {
   inspectorOpen: true,
   inspectorSize: 38,
   authorWidth: 160,
+  showAuthor: true,
   showDate: true,
   showHash: false,
+  refsWidth: 176,
   scope: "all",
   query: "",
   selectedCommit: null,
@@ -2605,4 +2607,113 @@ it("renderiza el grafo estilo Tributary por defecto y permite cambiar a Compacto
   expect(api).toHaveBeenCalledWith("save_app_settings", {
     settings: expect.objectContaining({ graphStyle: "compact" }),
   });
+});
+
+it("colapsa remotos sincronizados, muestra separadores temporales y persiste showAuthor y refsWidth", async () => {
+  const olderHash = "b".repeat(40);
+  const nowIso = new Date().toISOString();
+  const olderIso = new Date(Date.now() - 20 * 86_400_000).toISOString();
+  const multiDateRepo = {
+    ...structuredClone(repo),
+    refs: [
+      { name: "refs/heads/main", hash, kind: "branch" },
+      { name: "refs/remotes/origin/main", hash, kind: "remote" },
+    ],
+    page: {
+      ...structuredClone(repo.page),
+      commits: [
+        {
+          hash,
+          parents: [olderHash],
+          author: "Fixture Author",
+          date: nowIso,
+          subject: "Base",
+        },
+        {
+          hash: olderHash,
+          parents: [],
+          author: "Second Author",
+          date: olderIso,
+          subject: "Inicial",
+        },
+      ],
+    },
+  };
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") return multiDateRepo;
+    return fallback(command, args);
+  });
+
+  await opened();
+
+  // Rama sincronizada con origin/main se colapsa en una píldora con icono dual
+  const refsCol = document.querySelector(".commit-refs-col") as HTMLElement;
+  expect(refsCol).toBeTruthy();
+  expect(refsCol.querySelector(".ref-dual-sync")).toBeTruthy();
+  expect(within(refsCol).queryByText("origin/main")).toBeNull();
+
+  // Separadores temporales visibles en Tributary
+  expect(screen.getByRole("separator", { name: "Hoy" })).toBeTruthy();
+  expect(screen.getByRole("separator", { name: "Anterior" })).toBeTruthy();
+
+  // Abrir menú Vista, ocultar Autor y redimensionar Rama / Tag
+  await userEvent.click(screen.getByText("Vista", { selector: "summary" }));
+  const authorCheckbox = screen.getByRole("checkbox", { name: "Autor" });
+  expect((authorCheckbox as HTMLInputElement).checked).toBe(true);
+  await userEvent.click(authorCheckbox);
+  expect(document.querySelector(".history-author")).toBeNull();
+
+  const refsSlider = screen.getByRole("slider", {
+    name: "Ancho de Rama / Tag",
+  });
+  fireEvent.change(refsSlider, { target: { value: "240" } });
+  const historyPanel = document.getElementById("history-content")!;
+  expect(historyPanel.style.getPropertyValue("--refs-col-width")).toBe("240px");
+
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("save_history_preferences", {
+      id: repo.id,
+      preferences: expect.objectContaining({
+        showAuthor: false,
+        refsWidth: 240,
+      }),
+    }),
+  );
+
+  // Cambiar a Compacto oculta los separadores temporales
+  const header = document.querySelector("header.command-bar")!;
+  await userEvent.click(
+    within(header as HTMLElement).getByRole("button", { name: "Apariencia" }),
+  );
+  await userEvent.click(
+    await screen.findByRole("button", { name: /Compacto \(Puntos\)/ }),
+  );
+  expect(screen.queryByRole("separator", { name: "Hoy" })).toBeNull();
+});
+
+it("abre y cierra Atajos de teclado con ? sólo fuera de campos editables", async () => {
+  await opened();
+
+  const searchBox = screen.getByRole("textbox", {
+    name: "Buscar en commits cargados",
+  });
+  searchBox.focus();
+  await userEvent.keyboard("?");
+  expect(
+    screen.queryByRole("heading", { name: "Atajos de teclado" }),
+  ).toBeNull();
+
+  searchBox.blur();
+  fireEvent.keyDown(document.body, { key: "?" });
+  expect(
+    await screen.findByRole("heading", { name: "Atajos de teclado" }),
+  ).toBeTruthy();
+
+  fireEvent.keyDown(document.body, { key: "?" });
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("heading", { name: "Atajos de teclado" }),
+    ).toBeNull(),
+  );
 });

@@ -16,8 +16,10 @@ pub struct Preferences {
     pub inspector_open: bool,
     pub inspector_size: u8,
     pub author_width: u16,
+    pub show_author: bool,
     pub show_date: bool,
     pub show_hash: bool,
+    pub refs_width: u16,
     pub scope: String,
     pub query: String,
     pub selected_commit: Option<String>,
@@ -28,8 +30,10 @@ impl Default for Preferences {
             inspector_open: true,
             inspector_size: 38,
             author_width: 160,
+            show_author: true,
             show_date: true,
             show_hash: false,
+            refs_width: 176,
             scope: "all".into(),
             query: String::new(),
             selected_commit: None,
@@ -40,6 +44,7 @@ impl Preferences {
     fn valid(&self) -> bool {
         (30..=60).contains(&self.inspector_size)
             && (120..=240).contains(&self.author_width)
+            && (120..=280).contains(&self.refs_width)
             && self.query.chars().count() <= 500
             && self.scope.len() <= 4096
             && (self.scope == "all"
@@ -1004,5 +1009,66 @@ mod tests {
             fs::read(fixture.0.join("repositories-v2.json")).unwrap(),
             before
         );
+    }
+    #[test]
+    fn restores_defaults_for_missing_show_author_and_refs_width() {
+        let fixture = Fixture::new();
+        let repo = fixture.0.join("legacy-prefs-repo");
+        let json = serde_json::json!({
+            "version": 2,
+            "collections": [],
+            "repositories": [{
+                "path": repo.to_string_lossy(),
+                "name": "legacy-prefs-repo",
+                "pinned": false,
+                "lastOpened": 1,
+                "preferences": {
+                    "inspectorOpen": true,
+                    "inspectorSize": 38,
+                    "authorWidth": 180,
+                    "showDate": true,
+                    "showHash": false,
+                    "scope": "all",
+                    "query": "",
+                    "selectedCommit": null
+                },
+                "collectionId": null
+            }]
+        });
+        fs::write(
+            fixture.0.join("repositories-v2.json"),
+            serde_json::to_vec(&json).unwrap(),
+        )
+        .unwrap();
+        let loaded = read(&fixture.0).unwrap();
+        assert!(loaded.repositories[0].preferences.show_author);
+        assert_eq!(loaded.repositories[0].preferences.refs_width, 176);
+    }
+    #[test]
+    fn persists_show_author_and_validates_refs_width_bounds() {
+        let fixture = Fixture::new();
+        let repo = fixture.0.join("prefs-bounds-repo");
+        remember(&fixture.0, &repo).unwrap();
+        let valid_prefs = Preferences {
+            show_author: false,
+            refs_width: 240,
+            ..Preferences::default()
+        };
+        preferences(&fixture.0, &repo, valid_prefs.clone()).unwrap();
+        let loaded = read(&fixture.0).unwrap();
+        assert!(!loaded.repositories[0].preferences.show_author);
+        assert_eq!(loaded.repositories[0].preferences.refs_width, 240);
+        for invalid_width in [100, 300] {
+            let err = preferences(
+                &fixture.0,
+                &repo,
+                Preferences {
+                    refs_width: invalid_width,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap_err();
+            assert_eq!(err.code, "LIBRARY_PREFERENCES");
+        }
     }
 }

@@ -97,6 +97,8 @@ const SearchDialog = lazy(() => import("./SearchDialog"));
 const TagDialog = lazy(() => import("./TagDialog"));
 const TagPublishDialog = lazy(() => import("./TagPublishDialog"));
 const ActivityDialog = lazy(() => import("./ActivityDialog"));
+const ShortcutsDialog = lazy(() => import("./ShortcutsDialog"));
+import { buildTributaryItems } from "./historyGroups";
 import {
   operationEvent,
   type OperationKey,
@@ -128,13 +130,26 @@ function formatRelativeCommitDate(value: string) {
 }
 const COMPACT_ROW_HEIGHT = 42;
 const TRIBUTARY_ROW_HEIGHT = 52;
-const TRIBUTARY_REFS_COL_WIDTH = 176;
+const DEFAULT_REFS_COL_WIDTH = 176;
+const MIN_REFS_COL_WIDTH = 120;
+const MAX_REFS_COL_WIDTH = 280;
+const TRIBUTARY_GROUP_HEIGHT = 28;
 const short = (s: string) => s.slice(0, 8);
 const refName = (s: string) => s.replace(/^refs\/(heads|remotes|tags)\//, "");
 function errorText(error: unknown): string {
   if (typeof error === "object" && error && "message" in error)
     return String(error.message);
   return "No se pudo completar la lectura. Vuelve a intentarlo.";
+}
+function LocalDeviceIcon() {
+  return (
+    <svg viewBox="0 0 12 12" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M2 2.5A1 1 0 0 1 3 1.5h6a1 1 0 0 1 1 1V7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2.5Zm1.2.2v4.1h5.6V2.7H3.2ZM1 9.2h10l-.7 1.3H1.7L1 9.2Z"
+      />
+    </svg>
+  );
 }
 function RefBadgeIcon({
   kind,
@@ -191,8 +206,10 @@ interface TabEntry {
   inspectorOpen: boolean;
   inspectorSize: number;
   authorWidth: number;
+  showAuthor: boolean;
   showDate: boolean;
   showHash: boolean;
+  refsWidth: number;
   preferencesRepo: string | null;
   branchPreselect: string | null;
   wip: WorktreeSummary | null;
@@ -210,8 +227,10 @@ function defaultTabEntry(snapshot: Snapshot): TabEntry {
     inspectorOpen: true,
     inspectorSize: 38,
     authorWidth: 160,
+    showAuthor: true,
     showDate: true,
     showHash: false,
+    refsWidth: DEFAULT_REFS_COL_WIDTH,
     preferencesRepo: null,
     branchPreselect: null,
     wip: null,
@@ -331,6 +350,7 @@ function App() {
   );
   const [preferTextForImage, setPreferTextForImage] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [branchPreselect, setBranchPreselect] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -352,14 +372,18 @@ function App() {
   const [inspectorSize, setInspectorSize] = useState(38);
   const [draggingSplit, setDraggingSplit] = useState(false);
   const [authorWidth, setAuthorWidth] = useState(160);
+  const [showAuthor, setShowAuthor] = useState(true);
   const [showHash, setShowHash] = useState(false);
   const [showDate, setShowDate] = useState(true);
+  const [refsWidth, setRefsWidth] = useState(DEFAULT_REFS_COL_WIDTH);
+  const [draggingRefsCol, setDraggingRefsCol] = useState(false);
   const request = useRef(0),
     filesRequest = useRef(0),
     diffRequest = useRef(0),
     imageDiffRequest = useRef(0);
   const mainShellRef = useRef<HTMLElement>(null);
   const splitResizeCleanup = useRef<(() => void) | null>(null);
+  const refsResizeCleanup = useRef<(() => void) | null>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const restoreSelectionPosition = useRef(false);
   const tableHeading = useRef<HTMLDivElement>(null);
@@ -385,7 +409,37 @@ function App() {
   useEffect(() => {
     applyAppearance(theme, graphPalette, graphStyle);
   }, [theme, graphPalette, graphStyle]);
-  useEffect(() => () => splitResizeCleanup.current?.(), []);
+  useEffect(
+    () => () => {
+      splitResizeCleanup.current?.();
+      refsResizeCleanup.current?.();
+    },
+    [],
+  );
+  function startRefsResize(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    refsResizeCleanup.current?.();
+    setDraggingRefsCol(true);
+    const startX = event.clientX;
+    const startWidth = refsWidth;
+    const move = (ev: PointerEvent) => {
+      const nextWidth = Math.round(startWidth + (ev.clientX - startX));
+      setRefsWidth(
+        Math.max(MIN_REFS_COL_WIDTH, Math.min(MAX_REFS_COL_WIDTH, nextWidth)),
+      );
+    };
+    const stop = () => {
+      setDraggingRefsCol(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      refsResizeCleanup.current = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    refsResizeCleanup.current = stop;
+  }
   function startInspectorResize(event: React.PointerEvent<HTMLDivElement>) {
     event.preventDefault();
     splitResizeCleanup.current?.();
@@ -536,8 +590,10 @@ function App() {
             inspectorOpen,
             inspectorSize,
             authorWidth,
+            showAuthor,
             showDate,
             showHash,
+            refsWidth,
             preferencesRepo,
             branchPreselect,
           }
@@ -554,6 +610,7 @@ function App() {
     setParentIndex(0);
     setContextMenu(null);
     setPaletteOpen(false);
+    setShortcutsOpen(false);
     setStashOpen(false);
     setRestoreOpen(false);
     setReplay(undefined);
@@ -583,8 +640,10 @@ function App() {
       setInspectorOpen(true);
       setInspectorSize(38);
       setAuthorWidth(160);
+      setShowAuthor(true);
       setShowDate(true);
       setShowHash(false);
+      setRefsWidth(DEFAULT_REFS_COL_WIDTH);
       setPreferencesRepo(null);
       setBranchPreselect(null);
       return;
@@ -598,8 +657,10 @@ function App() {
     setInspectorOpen(tab.inspectorOpen);
     setInspectorSize(tab.inspectorSize);
     setAuthorWidth(tab.authorWidth);
+    setShowAuthor(tab.showAuthor);
     setShowDate(tab.showDate);
     setShowHash(tab.showHash);
+    setRefsWidth(tab.refsWidth);
     setPreferencesRepo(tab.preferencesRepo);
     setBranchPreselect(tab.branchPreselect);
   }
@@ -960,8 +1021,10 @@ function App() {
         entry.inspectorOpen = saved?.inspectorOpen ?? true;
         entry.inspectorSize = saved?.inspectorSize ?? 38;
         entry.authorWidth = saved?.authorWidth ?? 160;
+        entry.showAuthor = saved?.showAuthor ?? true;
         entry.showDate = saved?.showDate ?? true;
         entry.showHash = saved?.showHash ?? false;
+        entry.refsWidth = saved?.refsWidth ?? DEFAULT_REFS_COL_WIDTH;
         entry.query = saved?.query ?? "";
         entry.preferencesRepo = remembered ? next.id : null;
         entry.selected =
@@ -1073,18 +1136,18 @@ function App() {
     await reloadExternalApps();
   }
   const historyColumns = isTributary
-    ? `${TRIBUTARY_REFS_COL_WIDTH}px ${graphWidth}px minmax(260px,1fr) ${authorWidth}px${showDate ? " 108px" : ""}${showHash ? " 80px" : ""}`
-    : `${graphWidth}px minmax(240px,1fr) ${authorWidth}px${showDate ? " 90px" : ""}${showHash ? " 80px" : ""}`;
+    ? `${refsWidth}px ${graphWidth}px minmax(260px,1fr)${showAuthor ? ` ${authorWidth}px` : ""}${showDate ? " 108px" : ""}${showHash ? " 80px" : ""}`
+    : `${graphWidth}px minmax(240px,1fr)${showAuthor ? ` ${authorWidth}px` : ""}${showDate ? " 90px" : ""}${showHash ? " 80px" : ""}`;
   const historyMinWidth = isTributary
-    ? TRIBUTARY_REFS_COL_WIDTH +
+    ? refsWidth +
       graphWidth +
       260 +
-      authorWidth +
+      (showAuthor ? authorWidth : 0) +
       (showDate ? 108 : 0) +
       (showHash ? 80 : 0)
     : graphWidth +
       240 +
-      authorWidth +
+      (showAuthor ? authorWidth : 0) +
       (showDate ? 90 : 0) +
       (showHash ? 80 : 0);
   const searchIndex = useMemo(
@@ -1155,17 +1218,69 @@ function App() {
         : [],
     [searchIndex, normalizedQuery],
   );
+  const tributaryLayout = useMemo(
+    () => (isTributary && !query ? buildTributaryItems(commits, rows) : null),
+    [isTributary, query, commits, rows],
+  );
+  const wipMarker = useMemo(() => {
+    if (!wip?.trusted || wip.total <= 0) return null;
+    const headIdx = Math.max(
+      0,
+      commits.findIndex((c) => c.hash === repo?.head),
+    );
+    const lane = rows[headIdx]?.lane ?? 0;
+    const x = isTributary
+      ? 26 + lane * 34
+      : graphWidth > 20
+        ? 16
+        : Math.floor(graphWidth / 2);
+    const color = isTributary
+      ? (graphColors[(rows[headIdx]?.color ?? 0) % graphColors.length] ??
+        "var(--accent-text)")
+      : "var(--accent-text)";
+    return { x, color };
+  }, [wip, commits, repo?.head, rows, isTributary, graphWidth, graphColors]);
   const virtual = useVirtualizer({
-    count: query ? visible.length : commits.length,
-    getItemKey: (index) =>
-      query ? `search-${commits[visible[index]].hash}` : commits[index].hash,
+    count: query
+      ? visible.length
+      : tributaryLayout
+        ? tributaryLayout.items.length
+        : commits.length,
+    getItemKey: (index) => {
+      if (query) return `search-${commits[visible[index]].hash}`;
+      if (tributaryLayout) {
+        const entry = tributaryLayout.items[index];
+        return entry?.kind === "group"
+          ? `group-${entry.id}`
+          : commits[entry.commitIndex].hash;
+      }
+      return commits[index].hash;
+    },
     getScrollElement: () => scroll.current,
-    estimateSize: () => (query ? 64 : activeRowHeight),
+    estimateSize: (index) => {
+      if (query) return 64;
+      if (tributaryLayout && typeof index === "number") {
+        return tributaryLayout.items[index]?.kind === "group"
+          ? TRIBUTARY_GROUP_HEIGHT
+          : TRIBUTARY_ROW_HEIGHT;
+      }
+      return activeRowHeight;
+    },
     overscan: 12,
   });
   useEffect(() => {
     virtual.measure?.();
-  }, [activeRowHeight, virtual]);
+  }, [activeRowHeight, tributaryLayout, virtual]);
+  function scrollToCommitIndex(
+    commitIndex: number,
+    align: "auto" | "center" = "auto",
+  ) {
+    const itemIndex =
+      !query && tributaryLayout
+        ? (tributaryLayout.commitToItemIndex[commitIndex] ?? commitIndex)
+        : commitIndex;
+    virtual.scrollToIndex(itemIndex, { align });
+  }
   const active =
     commits.find((c) => c.hash === selected) ??
     (externalCommit?.hash === selected ? externalCommit : null);
@@ -1185,7 +1300,7 @@ function App() {
     if (index < 0) return;
     const frame = requestAnimationFrame(() => {
       restoreSelectionPosition.current = false;
-      virtual.scrollToIndex(index, { align: "center" });
+      scrollToCommitIndex(index, "center");
     });
     return () => cancelAnimationFrame(frame);
   }, [repo?.id, view, preferencesRepo]);
@@ -1199,8 +1314,10 @@ function App() {
       inspectorOpen,
       inspectorSize,
       authorWidth,
+      showAuthor,
       showDate,
       showHash,
+      refsWidth,
       scope: historyScope,
       query,
       selectedCommit: selected || null,
@@ -1331,8 +1448,11 @@ function App() {
         inspectorOpen: saved?.inspectorOpen ?? existing?.inspectorOpen ?? true,
         inspectorSize: saved?.inspectorSize ?? existing?.inspectorSize ?? 38,
         authorWidth: saved?.authorWidth ?? existing?.authorWidth ?? 160,
+        showAuthor: saved?.showAuthor ?? existing?.showAuthor ?? true,
         showDate: saved?.showDate ?? existing?.showDate ?? true,
         showHash: saved?.showHash ?? existing?.showHash ?? false,
+        refsWidth:
+          saved?.refsWidth ?? existing?.refsWidth ?? DEFAULT_REFS_COL_WIDTH,
         query: saved?.query ?? existing?.query ?? "",
         selected: selectedHash,
         preferencesRepo: remembered ? next.id : null,
@@ -1364,8 +1484,10 @@ function App() {
       setInspectorOpen(nextEntry.inspectorOpen);
       setInspectorSize(nextEntry.inspectorSize);
       setAuthorWidth(nextEntry.authorWidth);
+      setShowAuthor(nextEntry.showAuthor);
       setShowDate(nextEntry.showDate);
       setShowHash(nextEntry.showHash);
+      setRefsWidth(nextEntry.refsWidth);
       select(selectedHash);
       setQuery(nextEntry.query);
       setPreferencesRepo(remembered ? next.id : null);
@@ -1421,8 +1543,10 @@ function App() {
     inspectorOpen,
     inspectorSize,
     authorWidth,
+    showAuthor,
     showDate,
     showHash,
+    refsWidth,
     historyScope,
     query,
     selected,
@@ -1723,9 +1847,6 @@ function App() {
   ]);
   useEffect(() => {
     function key(e: KeyboardEvent) {
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod || e.altKey) return;
-      const lower = e.key.toLowerCase();
       const hasModalDialog = !!document.querySelector("dialog[open]");
       const target = e.target as HTMLElement | null;
       const inEditable =
@@ -1734,6 +1855,29 @@ function App() {
           target.tagName === "TEXTAREA" ||
           target.tagName === "SELECT" ||
           target.isContentEditable);
+
+      if (
+        e.key === "?" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !inEditable
+      ) {
+        if (shortcutsOpen) {
+          e.preventDefault();
+          setShortcutsOpen(false);
+          return;
+        }
+        if (hasModalDialog || paletteOpen) return;
+        e.preventDefault();
+        setContextMenu(null);
+        setShortcutsOpen(true);
+        return;
+      }
+
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.altKey) return;
+      const lower = e.key.toLowerCase();
 
       if (lower === "k") {
         if (hasModalDialog && !paletteOpen) return;
@@ -2258,6 +2402,14 @@ function App() {
         disabled: writing,
         onSelect: () => setEnvDialogOpen(true),
       },
+      {
+        id: "shortcuts",
+        category: "Aplicación",
+        label: "Atajos de teclado…",
+        shortcut: "?",
+        keywords: ["keyboard", "teclas", "ayuda", "cheatsheet"],
+        onSelect: () => setShortcutsOpen(true),
+      },
     ],
     [
       repo,
@@ -2284,7 +2436,7 @@ function App() {
     setView("history");
     setQuery("");
     select(hash);
-    virtual.scrollToIndex(index, { align: "center" });
+    scrollToCommitIndex(index, "center");
   }
   function jumpToSearchedCommit(commit: Commit) {
     setView("history");
@@ -2294,7 +2446,7 @@ function App() {
     if (index >= 0) {
       setQuery("");
       select(commit.hash);
-      virtual.scrollToIndex(index, { align: "center" });
+      scrollToCommitIndex(index, "center");
     } else {
       select(commit.hash);
       setNotice(
@@ -2345,16 +2497,36 @@ function App() {
     const isHead = c.hash === repo?.head;
     const refs = repo?.refs.filter((r) => r.hash === c.hash) ?? [];
     const hasRefs = refs.length > 0;
+    const collapsedRemoteNames = new Set<string>();
+    if (isTributary) {
+      for (const r of refs) {
+        if (r.kind !== "branch") continue;
+        const shortBranch = refName(r.name);
+        for (const other of refs) {
+          if (
+            other.kind === "remote" &&
+            refName(other.name).endsWith(`/${shortBranch}`)
+          ) {
+            collapsedRemoteNames.add(other.name);
+          }
+        }
+      }
+    }
+    const displayRefs = isTributary
+      ? refs.filter((r) => !collapsedRemoteNames.has(r.name))
+      : refs;
     const renderRefBadge = (r: GitRef) => {
       const shortRef = refName(r.name);
       const isCurrentBranch = r.kind === "branch" && shortRef === repo?.branch;
-      const syncedRemote =
-        r.kind === "branch" &&
-        refs.some(
-          (other) =>
-            other.kind === "remote" &&
-            refName(other.name).endsWith(`/${shortRef}`),
-        );
+      const syncedRemotes =
+        r.kind === "branch"
+          ? refs.filter(
+              (other) =>
+                other.kind === "remote" &&
+                refName(other.name).endsWith(`/${shortRef}`),
+            )
+          : [];
+      const syncedRemote = syncedRemotes.length > 0;
       return (
         <span
           className={`ref ${r.kind}${isCurrentBranch ? " ref-current" : ""}`}
@@ -2364,7 +2536,11 @@ function App() {
               : undefined
           }
           key={r.name}
-          title={syncedRemote ? `${r.name} (sincronizada con remoto)` : r.name}
+          title={
+            syncedRemote
+              ? `${r.name} (sincronizada con ${syncedRemotes.map((rem) => refName(rem.name)).join(", ")})`
+              : r.name
+          }
         >
           {isTributary && isCurrentBranch ? (
             <svg viewBox="0 0 12 12" aria-hidden="true">
@@ -2377,6 +2553,21 @@ function App() {
             <RefBadgeIcon kind={r.kind} />
           )}
           <span>{shortRef}</span>
+          {isTributary &&
+            r.kind === "branch" &&
+            (syncedRemote ? (
+              <span
+                className="ref-dual-sync"
+                aria-label="Local y remoto sincronizados"
+              >
+                <LocalDeviceIcon />
+                <RefBadgeIcon kind="remote" />
+              </span>
+            ) : (
+              <span className="ref-local-only" aria-hidden="true">
+                <LocalDeviceIcon />
+              </span>
+            ))}
           {syncedRemote && !isTributary && (
             <span
               className="ref-sync-badge"
@@ -2394,9 +2585,11 @@ function App() {
         </span>
       );
     };
-    const visibleTributaryRefs = isTributary ? refs.slice(0, 2) : refs;
+    const visibleTributaryRefs = isTributary
+      ? displayRefs.slice(0, 2)
+      : displayRefs;
     const extraTributaryCount = isTributary
-      ? Math.max(0, refs.length - visibleTributaryRefs.length)
+      ? Math.max(0, displayRefs.length - visibleTributaryRefs.length)
       : 0;
     const showDetachedHeadPill = isHead && (!isTributary || !repo?.branch);
     return (
@@ -2440,7 +2633,7 @@ function App() {
               ),
             );
             select(commits[next].hash);
-            virtual.scrollToIndex(next, { align: "auto" });
+            scrollToCommitIndex(next, "auto");
           }
         }}
         aria-pressed={selected === c.hash}
@@ -2487,15 +2680,17 @@ function App() {
                   HEAD
                 </span>
               )}
-              {refs.map(renderRefBadge)}
+              {displayRefs.map(renderRefBadge)}
             </span>
           )}
           <span className="truncate">{c.subject || "(sin mensaje)"}</span>
         </span>
-        <span className="history-author" title={c.author}>
-          <AuthorAvatar name={c.author} />
-          <span className="truncate">{c.author || "Autor desconocido"}</span>
-        </span>
+        {showAuthor && (
+          <span className="history-author" title={c.author}>
+            <AuthorAvatar name={c.author} />
+            <span className="truncate">{c.author || "Autor desconocido"}</span>
+          </span>
+        )}
         {showDate && (
           <time
             className="history-date"
@@ -2796,6 +2991,9 @@ function App() {
             onLock={setWriting}
             onUpdated={refresh}
           />
+        )}
+        {shortcutsOpen && (
+          <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />
         )}
       </Suspense>
       <div className="app-header">
@@ -3103,6 +3301,12 @@ function App() {
             >
               Entorno y motor Git…
             </button>
+            <button
+              className="nav-button"
+              onClick={() => setShortcutsOpen(true)}
+            >
+              Atajos de teclado…
+            </button>
           </nav>
         </details>
         <div className="sidebar-sections">
@@ -3349,6 +3553,7 @@ function App() {
         hidden={!!repo && view !== "history"}
         className="history-panel"
         aria-label="Historial del repositorio"
+        style={{ "--refs-col-width": `${refsWidth}px` } as React.CSSProperties}
       >
         <div className="history-toolbar">
           <h1 className="sr-only">Historial</h1>
@@ -3451,6 +3656,14 @@ function App() {
                 <label>
                   <input
                     type="checkbox"
+                    checked={showAuthor}
+                    onChange={(e) => setShowAuthor(e.target.checked)}
+                  />
+                  Autor
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
                     checked={showDate}
                     onChange={(e) => setShowDate(e.target.checked)}
                   />
@@ -3472,10 +3685,25 @@ function App() {
                     min="120"
                     max="240"
                     step="10"
+                    disabled={!showAuthor}
                     value={authorWidth}
                     onChange={(e) => setAuthorWidth(Number(e.target.value))}
                   />
                 </label>
+                {isTributary && (
+                  <label>
+                    Ancho de Rama / Tag · {refsWidth} px
+                    <input
+                      aria-label="Ancho de Rama / Tag"
+                      type="range"
+                      min={MIN_REFS_COL_WIDTH}
+                      max={MAX_REFS_COL_WIDTH}
+                      step="8"
+                      value={refsWidth}
+                      onChange={(e) => setRefsWidth(Number(e.target.value))}
+                    />
+                  </label>
+                )}
                 <label>
                   Ancho del inspector · {inspectorSize} %
                   <input
@@ -3538,7 +3766,33 @@ function App() {
             >
               {isTributary ? (
                 <>
-                  <span className="heading-refs-col">Rama / Tag</span>
+                  <span className="heading-refs-col">
+                    Rama / Tag
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="Redimensionar columna Rama / Tag"
+                      aria-valuemin={MIN_REFS_COL_WIDTH}
+                      aria-valuemax={MAX_REFS_COL_WIDTH}
+                      aria-valuenow={refsWidth}
+                      tabIndex={0}
+                      className={`col-resizer${draggingRefsCol ? " active" : ""}`}
+                      onPointerDown={startRefsResize}
+                      onKeyDown={(e) => {
+                        if (e.key === "ArrowLeft") {
+                          e.preventDefault();
+                          setRefsWidth((w) =>
+                            Math.max(MIN_REFS_COL_WIDTH, w - 8),
+                          );
+                        } else if (e.key === "ArrowRight") {
+                          e.preventDefault();
+                          setRefsWidth((w) =>
+                            Math.min(MAX_REFS_COL_WIDTH, w + 8),
+                          );
+                        }
+                      }}
+                    />
+                  </span>
                   <span>Grafo</span>
                   <span>Mensaje</span>
                 </>
@@ -3548,7 +3802,7 @@ function App() {
                   <span>Mensaje y referencias</span>
                 </>
               )}
-              <span>Autor</span>
+              {showAuthor && <span>Autor</span>}
               {showDate && <span>Fecha</span>}
               {showHash && <span>Commit</span>}
             </div>
@@ -3708,100 +3962,81 @@ function App() {
             </div>
           ) : (
             <>
-              {wip?.trusted &&
-                wip.total > 0 &&
-                (() => {
-                  const headIdx = Math.max(
-                    0,
-                    commits.findIndex((c) => c.hash === repo?.head),
-                  );
-                  const wipLane = rows[headIdx]?.lane ?? 0;
-                  const wipX = isTributary
-                    ? 26 + wipLane * 34
-                    : graphWidth > 20
-                      ? 16
-                      : Math.floor(graphWidth / 2);
-                  const wipColor = isTributary
-                    ? (graphColors[
-                        (rows[headIdx]?.color ?? 0) % graphColors.length
-                      ] ?? "var(--accent-text)")
-                    : "var(--accent-text)";
-                  return (
-                    <button
-                      type="button"
-                      className={`wip-row${isTributary ? " tributary" : ""}`}
-                      disabled={writing}
-                      onClick={() => setView("changes")}
-                      aria-label={`Cambios sin commitear (${wip.total}) — Ir a Cambios`}
-                      style={{
-                        minWidth: historyMinWidth,
-                        ...(isTributary
-                          ? { gridTemplateColumns: historyColumns }
-                          : {}),
-                      }}
-                    >
-                      {isTributary && (
-                        <span className="wip-refs-col">
-                          <span className="wip-left-pill">WIP</span>
+              {wip?.trusted && wip.total > 0 && wipMarker && (
+                <button
+                  type="button"
+                  className={`wip-row${isTributary ? " tributary" : ""}`}
+                  disabled={writing}
+                  onClick={() => setView("changes")}
+                  aria-label={`Cambios sin commitear (${wip.total}) — Ir a Cambios`}
+                  style={{
+                    minWidth: historyMinWidth,
+                    ...(isTributary
+                      ? { gridTemplateColumns: historyColumns }
+                      : {}),
+                  }}
+                >
+                  {isTributary && (
+                    <span className="wip-refs-col">
+                      <span className="wip-left-pill">WIP</span>
+                    </span>
+                  )}
+                  <span
+                    className="wip-graph-cell"
+                    style={{ width: graphWidth }}
+                    aria-hidden="true"
+                  >
+                    <svg width={graphWidth} height={activeRowHeight}>
+                      <line
+                        x1={wipMarker.x}
+                        y1={isTributary ? 33 : 24}
+                        x2={wipMarker.x}
+                        y2={activeRowHeight}
+                        stroke={wipMarker.color}
+                        strokeWidth={isTributary ? 2.6 : 2}
+                        strokeDasharray="3 3"
+                      />
+                      <circle
+                        cx={wipMarker.x}
+                        cy={isTributary ? 22 : 18}
+                        r={isTributary ? 10 : 5.5}
+                        fill="var(--bg-canvas)"
+                        stroke={wipMarker.color}
+                        strokeWidth={isTributary ? 2.4 : 2}
+                        strokeDasharray={isTributary ? "3 2.5" : undefined}
+                      />
+                    </svg>
+                  </span>
+                  <span className="wip-main">
+                    <span className="wip-title">
+                      Cambios sin commitear (WIP)
+                    </span>
+                    <span className="wip-badges">
+                      {wip.staged > 0 && (
+                        <span className="wip-badge staged">
+                          {wip.staged} preparados
                         </span>
                       )}
-                      <span
-                        className="wip-graph-cell"
-                        style={{ width: graphWidth }}
-                        aria-hidden="true"
-                      >
-                        <svg width={graphWidth} height={activeRowHeight}>
-                          <line
-                            x1={wipX}
-                            y1={isTributary ? 33 : 24}
-                            x2={wipX}
-                            y2={activeRowHeight}
-                            stroke={wipColor}
-                            strokeWidth={isTributary ? 2.6 : 2}
-                            strokeDasharray="3 3"
-                          />
-                          <circle
-                            cx={wipX}
-                            cy={isTributary ? 22 : 18}
-                            r={isTributary ? 10 : 5.5}
-                            fill="var(--bg-canvas)"
-                            stroke={wipColor}
-                            strokeWidth={isTributary ? 2.4 : 2}
-                            strokeDasharray={isTributary ? "3 2.5" : undefined}
-                          />
-                        </svg>
-                      </span>
-                      <span className="wip-main">
-                        <span className="wip-title">
-                          Cambios sin commitear (WIP)
+                      {wip.unstaged > 0 && (
+                        <span className="wip-badge unstaged">
+                          {wip.unstaged} sin preparar
                         </span>
-                        <span className="wip-badges">
-                          {wip.staged > 0 && (
-                            <span className="wip-badge staged">
-                              {wip.staged} preparados
-                            </span>
-                          )}
-                          {wip.unstaged > 0 && (
-                            <span className="wip-badge unstaged">
-                              {wip.unstaged} sin preparar
-                            </span>
-                          )}
-                          {wip.untracked > 0 && (
-                            <span className="wip-badge untracked">
-                              {wip.untracked} nuevos
-                            </span>
-                          )}
-                          {wip.conflicts > 0 && (
-                            <span className="wip-badge conflict">
-                              {wip.conflicts} conflictos
-                            </span>
-                          )}
+                      )}
+                      {wip.untracked > 0 && (
+                        <span className="wip-badge untracked">
+                          {wip.untracked} nuevos
                         </span>
-                      </span>
-                      <span className="wip-cta">Ir a Cambios →</span>
-                    </button>
-                  );
-                })()}
+                      )}
+                      {wip.conflicts > 0 && (
+                        <span className="wip-badge conflict">
+                          {wip.conflicts} conflictos
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                  <span className="wip-cta">Ir a Cambios →</span>
+                </button>
+              )}
               <div
                 className="virtual-list"
                 style={{
@@ -3809,16 +4044,85 @@ function App() {
                   minWidth: historyMinWidth,
                 }}
               >
-                {virtual.getVirtualItems().map((item) =>
-                  commitRow(item.index, {
+                {virtual.getVirtualItems().map((item) => {
+                  const posStyle: React.CSSProperties = {
                     position: "absolute",
                     top: 0,
                     left: 0,
                     width: "100%",
                     height: item.size,
                     transform: `translateY(${item.start}px)`,
-                  }),
-                )}
+                  };
+                  if (tributaryLayout) {
+                    const entry = tributaryLayout.items[item.index];
+                    if (!entry) return null;
+                    if (entry.kind === "group") {
+                      return (
+                        <div
+                          key={entry.id}
+                          className="history-time-separator"
+                          role="separator"
+                          aria-label={entry.label}
+                          style={{
+                            ...posStyle,
+                            gridTemplateColumns: historyColumns,
+                          }}
+                        >
+                          <span
+                            className="history-time-refs-spacer"
+                            aria-hidden="true"
+                          />
+                          <span
+                            className="history-time-graph"
+                            style={{ width: graphWidth }}
+                            aria-hidden="true"
+                          >
+                            <svg
+                              width={graphWidth}
+                              height={TRIBUTARY_GROUP_HEIGHT}
+                            >
+                              {entry.isFirst && wipMarker && (
+                                <line
+                                  x1={wipMarker.x}
+                                  y1={0}
+                                  x2={wipMarker.x}
+                                  y2={TRIBUTARY_GROUP_HEIGHT}
+                                  stroke={wipMarker.color}
+                                  strokeWidth={2.6}
+                                  strokeDasharray="3 3"
+                                />
+                              )}
+                              {entry.throughLanes.map((tl) => {
+                                const x = 26 + tl.lane * 34;
+                                const stroke =
+                                  graphColors[tl.color % graphColors.length] ??
+                                  graphColors[0] ??
+                                  "#52b7ff";
+                                return (
+                                  <line
+                                    key={`sep-lane-${entry.id}-${tl.lane}`}
+                                    x1={x}
+                                    y1={0}
+                                    x2={x}
+                                    y2={TRIBUTARY_GROUP_HEIGHT}
+                                    stroke={stroke}
+                                    strokeWidth={2.5}
+                                    strokeOpacity={0.92}
+                                  />
+                                );
+                              })}
+                            </svg>
+                          </span>
+                          <span className="history-time-label">
+                            {entry.label}
+                          </span>
+                        </div>
+                      );
+                    }
+                    return commitRow(entry.commitIndex, posStyle);
+                  }
+                  return commitRow(item.index, posStyle);
+                })}
               </div>
             </>
           )}

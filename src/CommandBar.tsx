@@ -35,6 +35,8 @@ type Props = {
   onLibrary?: () => void;
   onAppearance?: () => void;
   onCommandPalette?: () => void;
+  simpleMode?: boolean;
+  onToggleSimpleMode?: () => void;
   themeSwatches?: readonly string[];
   externalSlot?: ReactNode;
   tabs?: RepoTabItem[];
@@ -68,6 +70,8 @@ export default function CommandBar({
   onLibrary,
   onAppearance,
   onCommandPalette,
+  simpleMode = false,
+  onToggleSimpleMode,
   themeSwatches,
   externalSlot,
   tabs,
@@ -151,6 +155,11 @@ export default function CommandBar({
       group: 3,
     },
   ];
+  const visibleActions = simpleMode
+    ? actions.filter((action) =>
+        ["Fetch", "Pull", "Push", "Rama", "Actualizar"].includes(action.label),
+      )
+    : actions;
 
   const openDescription = locked
     ? "Hay una operación en curso. Espera a que termine."
@@ -326,8 +335,32 @@ export default function CommandBar({
             <PlusIcon aria-hidden="true" />
           </button>
         </div>
-        {(onLibrary || onAppearance || onCommandPalette) && (
+        {(onLibrary ||
+          onAppearance ||
+          onCommandPalette ||
+          onToggleSimpleMode) && (
           <div className="header-utilities">
+            {onToggleSimpleMode && (
+              <button
+                type="button"
+                className={`header-mode-btn${simpleMode ? " active" : ""}`}
+                disabled={locked}
+                aria-pressed={!!simpleMode}
+                aria-label={
+                  simpleMode ? "Modo Simple activo" : "Activar Modo Simple"
+                }
+                title={
+                  simpleMode
+                    ? "Modo Simple activo: pulsa para volver a Modo Completo"
+                    : "Modo Simple: oculta herramientas avanzadas para enfocarte en cambios, commits y sincronización"
+                }
+                onClick={() => {
+                  if (!locked) onToggleSimpleMode();
+                }}
+              >
+                {simpleMode ? "Simple" : "Completo"}
+              </button>
+            )}
             {onCommandPalette && (
               <button
                 type="button"
@@ -427,7 +460,7 @@ export default function CommandBar({
           role="group"
           aria-label="Comandos Git básicos"
         >
-          {actions.map((action, index) => {
+          {visibleActions.map((action, index) => {
             const unavailable = !action.run || !!(action.needsRepo && !repo);
             const description = locked
               ? "Hay una operación en curso. Espera a que termine."
@@ -441,7 +474,7 @@ export default function CommandBar({
               <button
                 key={action.label}
                 type="button"
-                className={`command-action ${action.accent ? "command-accent" : ""} ${index > 0 && action.group !== actions[index - 1].group ? "command-group-start" : ""}`}
+                className={`command-action ${action.accent ? "command-accent" : ""} ${index > 0 && action.group !== visibleActions[index - 1].group ? "command-group-start" : ""}`}
                 disabled={locked}
                 aria-disabled={unavailable || locked}
                 aria-label={action.label}

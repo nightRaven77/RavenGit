@@ -17,6 +17,8 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/
 - **Diff visual de imágenes** (lado a lado, cortina deslizable y superposición), diferencias intra-línea, resaltado de sintaxis, minimapa, líneas de contexto configurables y preparación/descarte por línea.
 - Panel integrado de **Git LFS** (estado, descarga y bloqueos) y **Submódulos Git**.
 - Paleta de comandos (`⌘K`), guía interactiva de **Atajos de teclado** (`?`), 5 temas (incluyendo tema claro *Arctic Light* y alto contraste), menús contextuales y apertura en aplicaciones externas locales.
+- **Modo Simple en 1 clic:** alternador persistente en barra superior y barra de estado para enfocarse en el flujo cotidiano sin herramientas avanzadas.
+- **Integración opt-in de Pull Requests / Merge Requests (GitHub y GitLab):** detección local offline vía `gh` / `glab`, consulta explícita bajo demanda sin tráfico en segundo plano y badges `#PR` en ramas del grafo.
 - Diálogo de autorización explícita al abrir repositorios en modo solo lectura.
 
 ### Cambiado

@@ -154,3 +154,14 @@
   font-size: 9px;
   border-radius: 999px;
 }
+.ref.ref-pr {
+  flex-shrink: 0;
+  cursor: pointer;
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  font-weight: 600;
+}
+.ref.ref-pr:hover {
+  border-color: var(--success);
+}

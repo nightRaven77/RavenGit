@@ -12,6 +12,7 @@ mod conflicts;
 mod env_check;
 mod external;
 mod file_inspect;
+mod forge;
 mod git;
 mod gix_engine;
 mod image_diff;
@@ -163,7 +164,10 @@ pub fn run() {
             commands::sync::contact_remote,
             commands::sync::read_push_options,
             commands::sync::preview_push,
-            commands::sync::publish_push
+            commands::sync::publish_push,
+            commands::sync::read_forge_info,
+            commands::sync::fetch_pull_requests,
+            commands::sync::open_forge_url
         ])
         .run(tauri::generate_context!())
         .expect("No se pudo iniciar RavenGit");

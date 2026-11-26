@@ -83,6 +83,7 @@ export interface AppSettings {
   theme: ThemeId;
   graphPalette: GraphPaletteId;
   graphStyle?: GraphStyleId;
+  simpleMode?: boolean;
   external: ExternalPreferences;
   openTabs?: string[];
   activeTab?: string | null;
@@ -111,6 +112,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: "obsidian",
   graphPalette: "kraken",
   graphStyle: "tributary",
+  simpleMode: false,
   external: {
     preferredEditorId: null,
     preferredTerminalId: null,
@@ -328,6 +330,7 @@ export const GRAPH_PALETTES: readonly GraphPaletteDefinition[] = [
 const THEME_STORAGE_KEY = "ravengit.appearance.theme";
 const PALETTE_STORAGE_KEY = "ravengit.appearance.graphPalette";
 const GRAPH_STYLE_STORAGE_KEY = "ravengit.appearance.graphStyle";
+const SIMPLE_MODE_STORAGE_KEY = "ravengit.appearance.simpleMode";
 
 export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === "string" && THEMES.some((item) => item.id === value);
@@ -360,23 +363,27 @@ export function loadCachedAppearance(): {
   theme: ThemeId;
   graphPalette: GraphPaletteId;
   graphStyle: GraphStyleId;
+  simpleMode: boolean;
 } {
   try {
     const rawTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
     const rawPalette = window.localStorage.getItem(PALETTE_STORAGE_KEY);
     const rawStyle = window.localStorage.getItem(GRAPH_STYLE_STORAGE_KEY);
+    const rawSimpleMode = window.localStorage.getItem(SIMPLE_MODE_STORAGE_KEY);
     return {
       theme: isThemeId(rawTheme) ? rawTheme : DEFAULT_APP_SETTINGS.theme,
       graphPalette: isGraphPaletteId(rawPalette)
         ? rawPalette
         : DEFAULT_APP_SETTINGS.graphPalette,
       graphStyle: isGraphStyleId(rawStyle) ? rawStyle : "tributary",
+      simpleMode: rawSimpleMode === "true",
     };
   } catch {
     return {
       theme: DEFAULT_APP_SETTINGS.theme,
       graphPalette: DEFAULT_APP_SETTINGS.graphPalette,
       graphStyle: "tributary",
+      simpleMode: false,
     };
   }
 }
@@ -385,16 +392,22 @@ export function applyAppearance(
   themeId: ThemeId,
   graphPaletteId: GraphPaletteId,
   graphStyleId: GraphStyleId = "tributary",
+  simpleMode = false,
 ): void {
   if (typeof document !== "undefined") {
     document.documentElement.dataset.theme = themeId;
     document.documentElement.dataset.graphPalette = graphPaletteId;
     document.documentElement.dataset.graphStyle = graphStyleId;
+    document.documentElement.dataset.simpleMode = simpleMode ? "true" : "false";
   }
   try {
     window.localStorage.setItem(THEME_STORAGE_KEY, themeId);
     window.localStorage.setItem(PALETTE_STORAGE_KEY, graphPaletteId);
     window.localStorage.setItem(GRAPH_STYLE_STORAGE_KEY, graphStyleId);
+    window.localStorage.setItem(
+      SIMPLE_MODE_STORAGE_KEY,
+      simpleMode ? "true" : "false",
+    );
   } catch {
     // Ignore storage unavailability in restricted contexts.
   }

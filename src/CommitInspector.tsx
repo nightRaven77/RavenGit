@@ -35,6 +35,7 @@ export interface CommitInspectorProps {
   diffError: string;
   commitImageDiff: ImageDiff | null;
   preferTextForImage: boolean;
+  simpleMode?: boolean;
   onStartResize: (event: React.PointerEvent<HTMLDivElement>) => void;
   onChangeInspectorSize: (updater: (prev: number) => number) => void;
   onCopyText: (value: string, label: string) => void;
@@ -72,6 +73,7 @@ export default function CommitInspector({
   diffError,
   commitImageDiff,
   preferTextForImage,
+  simpleMode = false,
   onStartResize,
   onChangeInspectorSize,
   onCopyText,
@@ -166,29 +168,31 @@ export default function CommitInspector({
         <>
           <div className="commit-meta">
             <h2>{active.subject || "(sin mensaje)"}</h2>
-            <div className="commit-actions">
-              <button
-                className="button"
-                disabled={writing}
-                onClick={() => onTagCommit(active.hash)}
-              >
-                Etiquetar commit…
-              </button>
-              <button
-                className="button"
-                disabled={writing}
-                onClick={() => onReplayCommit("cherryPick", active.hash)}
-              >
-                Cherry-pick
-              </button>
-              <button
-                className="button"
-                disabled={writing}
-                onClick={() => onReplayCommit("revert", active.hash)}
-              >
-                Revertir commit
-              </button>
-            </div>
+            {!simpleMode && (
+              <div className="commit-actions">
+                <button
+                  className="button"
+                  disabled={writing}
+                  onClick={() => onTagCommit(active.hash)}
+                >
+                  Etiquetar commit…
+                </button>
+                <button
+                  className="button"
+                  disabled={writing}
+                  onClick={() => onReplayCommit("cherryPick", active.hash)}
+                >
+                  Cherry-pick
+                </button>
+                <button
+                  className="button"
+                  disabled={writing}
+                  onClick={() => onReplayCommit("revert", active.hash)}
+                >
+                  Revertir commit
+                </button>
+              </div>
+            )}
             <div className="selected-author">
               <AuthorAvatar name={active.author} />
               <span>{active.author || "Autor desconocido"}</span>
@@ -325,32 +329,36 @@ export default function CommitInspector({
                             )}
                           </span>
                         </button>
-                        <div className="commit-file-tools">
-                          <button
-                            type="button"
-                            className="button commit-file-tool"
-                            aria-label="Historial del archivo"
-                            title={`Ver historial de ${file.path}`}
-                            disabled={writing}
-                            onClick={() =>
-                              onOpenFileHistory(file.path, active.hash)
-                            }
-                          >
-                            Historial
-                          </button>
-                          <button
-                            type="button"
-                            className="button commit-file-tool"
-                            aria-label="Blame del archivo"
-                            title={`Ver blame de ${file.path}`}
-                            disabled={
-                              writing || file.status === "D" || file.binary
-                            }
-                            onClick={() => onOpenBlame(file.path, active.hash)}
-                          >
-                            Blame
-                          </button>
-                        </div>
+                        {!simpleMode && (
+                          <div className="commit-file-tools">
+                            <button
+                              type="button"
+                              className="button commit-file-tool"
+                              aria-label="Historial del archivo"
+                              title={`Ver historial de ${file.path}`}
+                              disabled={writing}
+                              onClick={() =>
+                                onOpenFileHistory(file.path, active.hash)
+                              }
+                            >
+                              Historial
+                            </button>
+                            <button
+                              type="button"
+                              className="button commit-file-tool"
+                              aria-label="Blame del archivo"
+                              title={`Ver blame de ${file.path}`}
+                              disabled={
+                                writing || file.status === "D" || file.binary
+                              }
+                              onClick={() =>
+                                onOpenBlame(file.path, active.hash)
+                              }
+                            >
+                              Blame
+                            </button>
+                          </div>
+                        )}
                       </li>
                     );
                   })}

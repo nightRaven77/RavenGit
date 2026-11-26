@@ -31,6 +31,8 @@ export interface SidebarProps {
   writing: boolean;
   undoBusy: boolean;
   undoState: UndoState | null;
+  simpleMode?: boolean;
+  onToggleSimpleMode?: () => void;
   onOpenLibrary: () => void;
   onCreateRepo: (mode: "initialize" | "clone") => void;
   onSelectView: (view: RepoView) => void;
@@ -44,6 +46,8 @@ export interface SidebarProps {
   onOpenAppearance: () => void;
   onOpenSnapshots: () => void;
   onOpenLfsSubmodules: () => void;
+  onOpenPullRequests?: () => void;
+  prCount?: number;
   onOpenUndo: (direction: "undo" | "redo") => void;
   onOpenEnvironment: () => void;
   onOpenShortcuts: () => void;
@@ -70,6 +74,8 @@ export default function Sidebar({
   writing,
   undoBusy,
   undoState,
+  simpleMode = false,
+  onToggleSimpleMode,
   onOpenLibrary,
   onCreateRepo,
   onSelectView,
@@ -83,6 +89,8 @@ export default function Sidebar({
   onOpenAppearance,
   onOpenSnapshots,
   onOpenLfsSubmodules,
+  onOpenPullRequests,
+  prCount = 0,
   onOpenUndo,
   onOpenEnvironment,
   onOpenShortcuts,
@@ -158,131 +166,166 @@ export default function Sidebar({
           Sincronizar
         </button>
       </nav>
-      <details
-        className="workspace-tools"
-        open={view === "branches" || undefined}
-      >
-        <summary>Herramientas</summary>
-        <nav
-          className="repo-navigation"
-          aria-label="Herramientas del repositorio"
-        >
-          <button
-            className="nav-button"
-            disabled={!repo || writing}
-            onClick={(event) => {
-              event.currentTarget.focus();
-              onOpenRestore();
-            }}
-          >
-            Recuperar respaldo de conflicto…
-          </button>
-          <button
-            className="nav-button"
-            disabled={!repo?.head || writing}
-            onClick={() => repo?.head && onOpenTagTarget(repo.head)}
-          >
-            Crear etiqueta…
-          </button>
-          <button
-            className="nav-button"
-            disabled={!repo || writing}
-            onClick={onOpenTagPublication}
-          >
-            Publicar etiqueta…
-          </button>
-          <button
-            className="nav-button"
-            disabled={!repo || writing}
-            onClick={onOpenReplay}
-          >
-            Operaciones de commit
-          </button>
-          <button
-            disabled={!repo || writing}
-            aria-current={view === "branches" ? "page" : undefined}
-            className={view === "branches" ? "nav-active" : "nav-button"}
-            onClick={() => onSelectView("branches")}
-          >
-            Ramas
-          </button>
-          <button
-            className="nav-button"
-            disabled={!repo || writing}
-            onClick={onOpenWorktrees}
-          >
-            Worktrees…
-          </button>
-          <button
-            className="nav-button"
-            disabled={writing}
-            onClick={onOpenActivity}
-          >
-            Actividad y diagnóstico…
-          </button>
-          <button
-            className="nav-button"
-            disabled={writing}
-            onClick={onOpenAppearance}
-          >
-            Apariencia y colores…
-          </button>
-          <button
-            className="nav-button"
-            disabled={!repo || writing}
-            onClick={onOpenSnapshots}
-          >
-            Snapshots locales…
-          </button>
-          <button
-            className="nav-button"
-            disabled={!repo || writing}
-            onClick={onOpenLfsSubmodules}
-          >
-            Git LFS y Submódulos…
-          </button>
-          <button
-            className="nav-button"
-            disabled={!repo || writing || undoBusy || !undoState?.canUndo}
-            title={
-              undoState?.nextUndo
-                ? `${undoState.nextUndo.label} (⌘Z)`
-                : "Sin operaciones recientes para deshacer"
-            }
-            onClick={() => onOpenUndo("undo")}
-          >
-            Deshacer operación…
-          </button>
-          <button
-            className="nav-button"
-            disabled={!repo || writing || undoBusy || !undoState?.canRedo}
-            title={
-              undoState?.nextRedo
-                ? `${undoState.nextRedo.label} (⇧⌘Z)`
-                : "Sin operaciones para rehacer"
-            }
-            onClick={() => onOpenUndo("redo")}
-          >
-            Rehacer operación…
-          </button>
-          <button
-            className="nav-button"
-            disabled={writing}
-            onClick={onOpenEnvironment}
-          >
-            Entorno y motor Git…
-          </button>
+      {simpleMode ? (
+        <div className="sidebar-simple-actions">
+          {repo && undoState?.canUndo && (
+            <button
+              className="nav-button"
+              disabled={writing || undoBusy}
+              onClick={() => onOpenUndo("undo")}
+            >
+              Deshacer operación…
+            </button>
+          )}
           <button className="nav-button" onClick={onOpenShortcuts}>
             Atajos de teclado…
           </button>
-        </nav>
-      </details>
+          {onToggleSimpleMode && (
+            <button className="nav-button" onClick={onToggleSimpleMode}>
+              Cambiar a Modo Completo
+            </button>
+          )}
+        </div>
+      ) : (
+        <details
+          className="workspace-tools"
+          open={view === "branches" || undefined}
+        >
+          <summary>Herramientas</summary>
+          <nav
+            className="repo-navigation"
+            aria-label="Herramientas del repositorio"
+          >
+            <button
+              className="nav-button"
+              disabled={!repo || writing}
+              onClick={(event) => {
+                event.currentTarget.focus();
+                onOpenRestore();
+              }}
+            >
+              Recuperar respaldo de conflicto…
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo?.head || writing}
+              onClick={() => repo?.head && onOpenTagTarget(repo.head)}
+            >
+              Crear etiqueta…
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing}
+              onClick={onOpenTagPublication}
+            >
+              Publicar etiqueta…
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing}
+              onClick={onOpenReplay}
+            >
+              Operaciones de commit
+            </button>
+            <button
+              disabled={!repo || writing}
+              aria-current={view === "branches" ? "page" : undefined}
+              className={view === "branches" ? "nav-active" : "nav-button"}
+              onClick={() => onSelectView("branches")}
+            >
+              Ramas
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing}
+              onClick={onOpenWorktrees}
+            >
+              Worktrees…
+            </button>
+            <button
+              className="nav-button"
+              disabled={writing}
+              onClick={onOpenActivity}
+            >
+              Actividad y diagnóstico…
+            </button>
+            <button
+              className="nav-button"
+              disabled={writing}
+              onClick={onOpenAppearance}
+            >
+              Apariencia y colores…
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing}
+              onClick={onOpenSnapshots}
+            >
+              Snapshots locales…
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing}
+              onClick={onOpenLfsSubmodules}
+            >
+              Git LFS y Submódulos…
+            </button>
+            {onOpenPullRequests && (
+              <button
+                className="nav-button"
+                disabled={!repo || writing}
+                onClick={onOpenPullRequests}
+              >
+                Pull Requests / MRs…
+                {prCount > 0 && <span>{prCount}</span>}
+              </button>
+            )}
+            <button
+              className="nav-button"
+              disabled={!repo || writing || undoBusy || !undoState?.canUndo}
+              title={
+                undoState?.nextUndo
+                  ? `${undoState.nextUndo.label} (⌘Z)`
+                  : "Sin operaciones recientes para deshacer"
+              }
+              onClick={() => onOpenUndo("undo")}
+            >
+              Deshacer operación…
+            </button>
+            <button
+              className="nav-button"
+              disabled={!repo || writing || undoBusy || !undoState?.canRedo}
+              title={
+                undoState?.nextRedo
+                  ? `${undoState.nextRedo.label} (⇧⌘Z)`
+                  : "Sin operaciones para rehacer"
+              }
+              onClick={() => onOpenUndo("redo")}
+            >
+              Rehacer operación…
+            </button>
+            <button
+              className="nav-button"
+              disabled={writing}
+              onClick={onOpenEnvironment}
+            >
+              Entorno y motor Git…
+            </button>
+            <button className="nav-button" onClick={onOpenShortcuts}>
+              Atajos de teclado…
+            </button>
+          </nav>
+        </details>
+      )}
       <div className="sidebar-sections">
-        {[
-          { label: "RAMAS LOCALES", refs: branches },
-          { label: "REFERENCIAS REMOTAS", refs: remotes },
-          { label: "ETIQUETAS", refs: tags },
-        ].map((group) => {
+        {(simpleMode
+          ? [{ label: "RAMAS LOCALES", refs: branches }]
+          : [
+              { label: "RAMAS LOCALES", refs: branches },
+              { label: "REFERENCIAS REMOTAS", refs: remotes },
+              { label: "ETIQUETAS", refs: tags },
+            ]
+        ).map((group) => {
           const renderRefButton = (r: GitRef, prefix?: string) => {
             const shortName = refName(r.name);
             const leaf = prefix
@@ -369,86 +412,88 @@ export default function Sidebar({
             </details>
           );
         })}
-        <details open={worktrees.length > 1}>
-          <summary>
-            WORKTREES
-            <span>{worktrees.length}</span>
-          </summary>
-          {repo ? (
-            <>
-              {worktrees.map((wt) => {
-                const isOpenTab = tabs.some(
-                  (tab) => tab.snapshot.path === wt.path,
-                );
-                const subtitle = wt.branch
-                  ? wt.branch
-                  : wt.bare
-                    ? "bare"
-                    : wt.detached
-                      ? "HEAD separado"
-                      : "sin rama";
-                return (
+        {!simpleMode && (
+          <details open={worktrees.length > 1}>
+            <summary>
+              WORKTREES
+              <span>{worktrees.length}</span>
+            </summary>
+            {repo ? (
+              <>
+                {worktrees.map((wt) => {
+                  const isOpenTab = tabs.some(
+                    (tab) => tab.snapshot.path === wt.path,
+                  );
+                  const subtitle = wt.branch
+                    ? wt.branch
+                    : wt.bare
+                      ? "bare"
+                      : wt.detached
+                        ? "HEAD separado"
+                        : "sin rama";
+                  return (
+                    <button
+                      key={wt.path}
+                      type="button"
+                      className={`branch-button worktree-item ${wt.current ? "current" : ""}`}
+                      disabled={writing || wt.current || wt.prunable}
+                      title={`${wt.path} · ${subtitle}${wt.locked ? " (bloqueado)" : ""}${wt.prunable ? " (obsoleto)" : ""}`}
+                      onClick={() => {
+                        if (!wt.current && !wt.prunable) {
+                          onOpenRepositoryPath(wt.path);
+                        }
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        onOpenWorktreeContextMenu(
+                          wt,
+                          event.clientX,
+                          event.clientY,
+                        );
+                      }}
+                    >
+                      <span
+                        className={`branch-dot ${wt.prunable ? "other" : wt.current ? "branch" : "remote"}`}
+                      />
+                      <span className="truncate">{wt.name}</span>
+                      <span className="worktree-side-meta">
+                        {wt.current
+                          ? "actual"
+                          : wt.locked
+                            ? "bloq."
+                            : wt.prunable
+                              ? "obsoleto"
+                              : isOpenTab
+                                ? "abierto"
+                                : subtitle}
+                      </span>
+                    </button>
+                  );
+                })}
+                <div className="sidebar-worktree-actions">
                   <button
-                    key={wt.path}
                     type="button"
-                    className={`branch-button worktree-item ${wt.current ? "current" : ""}`}
-                    disabled={writing || wt.current || wt.prunable}
-                    title={`${wt.path} · ${subtitle}${wt.locked ? " (bloqueado)" : ""}${wt.prunable ? " (obsoleto)" : ""}`}
-                    onClick={() => {
-                      if (!wt.current && !wt.prunable) {
-                        onOpenRepositoryPath(wt.path);
-                      }
-                    }}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      onOpenWorktreeContextMenu(
-                        wt,
-                        event.clientX,
-                        event.clientY,
-                      );
-                    }}
+                    className="nav-button"
+                    disabled={writing}
+                    onClick={onOpenWorktrees}
                   >
-                    <span
-                      className={`branch-dot ${wt.prunable ? "other" : wt.current ? "branch" : "remote"}`}
-                    />
-                    <span className="truncate">{wt.name}</span>
-                    <span className="worktree-side-meta">
-                      {wt.current
-                        ? "actual"
-                        : wt.locked
-                          ? "bloq."
-                          : wt.prunable
-                            ? "obsoleto"
-                            : isOpenTab
-                              ? "abierto"
-                              : subtitle}
-                    </span>
+                    Nuevo worktree…
                   </button>
-                );
-              })}
-              <div className="sidebar-worktree-actions">
-                <button
-                  type="button"
-                  className="nav-button"
-                  disabled={writing}
-                  onClick={onOpenWorktrees}
-                >
-                  Nuevo worktree…
-                </button>
-                <button
-                  type="button"
-                  className="nav-button"
-                  disabled={writing}
-                  onClick={onOpenWorktrees}
-                >
-                  Gestionar…
-                </button>
-              </div>
-            </>
-          ) : (
-            <p className="sidebar-empty">Abre un repositorio</p>
-          )}
-        </details>
+                  <button
+                    type="button"
+                    className="nav-button"
+                    disabled={writing}
+                    onClick={onOpenWorktrees}
+                  >
+                    Gestionar…
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="sidebar-empty">Abre un repositorio</p>
+            )}
+          </details>
+        )}
       </div>
       <div className="sidebar-foot">
         <LockClosedIcon />

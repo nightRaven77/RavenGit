@@ -8,6 +8,8 @@ export interface StatusBarProps {
   writing: boolean;
   preferencesRepo: string | null;
   preferenceSave: "pending" | "saved" | "failed";
+  simpleMode?: boolean;
+  onToggleSimpleMode?: () => void;
   onAuthorizeRepo: (repoId: string) => void;
   onRetrySavePreferences: () => void;
 }
@@ -19,6 +21,8 @@ export default function StatusBar({
   writing,
   preferencesRepo,
   preferenceSave,
+  simpleMode = false,
+  onToggleSimpleMode,
   onAuthorizeRepo,
   onRetrySavePreferences,
 }: StatusBarProps) {
@@ -43,9 +47,19 @@ export default function StatusBar({
         )}
       </span>
       <span>
-        {writing
-          ? "Operación Git en curso…"
-          : "Cambios · Historial · Sincronizar"}
+        {simpleMode && onToggleSimpleMode ? (
+          <button
+            type="button"
+            className="status-mode-pill"
+            onClick={onToggleSimpleMode}
+          >
+            Modo Simple · Cambiar a Completo
+          </button>
+        ) : writing ? (
+          "Operación Git en curso…"
+        ) : (
+          "Cambios · Historial · Sincronizar"
+        )}
       </span>
       <span>
         {repo && preferencesRepo === repo.id ? (

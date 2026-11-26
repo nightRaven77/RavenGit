@@ -42,11 +42,11 @@ Mejoras orientadas a extender la disponibilidad de RavenGit y optimizar flujos d
   - Visualización del estado de submódulos en el panel integrado.
   - Inicialización y actualización atómica de referencias de submódulos.
 - [ ] **Flujos de Trabajo Remotos (opt-in):**
-  - Detección explícita bajo demanda de Pull Requests / Merge Requests asociados a ramas remotas en GitHub y GitLab.
-  - Accesos directos para creación de ramas basadas en incidencias.
+  - [x] Detección explícita bajo demanda de Pull Requests / Merge Requests asociados a ramas remotas en GitHub y GitLab.
+  - [ ] Accesos directos para creación de ramas basadas en incidencias.
 - [x] **Filtros Avanzados en el Historial:**
   - Búsqueda profunda por rango de fechas, rutas de archivos, búsqueda en código (`-S` / `-G`), historial `--follow`, *Git Blame* y expresiones regulares.
-- [ ] **Modo Simple (interfaz guiada):**
+- [x] **Modo Simple (interfaz guiada):**
   - Alternador en un clic para reducir densidad visual y priorizar flujos cotidianos.
 
 ---

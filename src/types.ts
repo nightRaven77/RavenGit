@@ -550,3 +550,32 @@ export interface SubmoduleOutcome {
   message: string;
   list: SubmoduleList;
 }
+export type ForgeProvider = "github" | "gitlab";
+export interface ForgeInfo {
+  trusted: boolean;
+  provider: ForgeProvider | null;
+  remoteName: string | null;
+  host: string | null;
+  repoSlug: string | null;
+  webUrl: string | null;
+  cliName: string | null;
+  cliAvailable: boolean;
+  currentBranch: string | null;
+  createPrUrl: string | null;
+}
+export interface PullRequestItem {
+  number: number;
+  title: string;
+  state: "open" | "draft" | string;
+  headBranch: string;
+  baseBranch: string;
+  author: string;
+  url: string;
+  updatedAt: string;
+}
+export interface PullRequestsOutcome {
+  provider: ForgeProvider;
+  repoSlug: string;
+  items: PullRequestItem[];
+  fetchedAt: number;
+}

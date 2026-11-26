@@ -2717,3 +2717,114 @@ it("abre y cierra Atajos de teclado con ? sólo fuera de campos editables", asyn
     ).toBeNull(),
   );
 });
+
+it("alterna Modo Simple en un clic, simplifica la interfaz y persiste simpleMode", async () => {
+  await opened();
+
+  const toggleBtn = screen.getByRole("button", { name: "Activar Modo Simple" });
+  expect(toggleBtn.textContent).toBe("Completo");
+  expect(
+    screen.getByText("Herramientas", { selector: "summary" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Stash" })).toBeTruthy();
+
+  await userEvent.click(toggleBtn);
+
+  expect(document.documentElement.dataset.simpleMode).toBe("true");
+  expect(
+    screen.getByRole("button", { name: "Modo Simple activo" }).textContent,
+  ).toBe("Simple");
+  expect(
+    screen.queryByText("Herramientas", { selector: "summary" }),
+  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Stash" })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Búsqueda avanzada…" }),
+  ).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Modo Simple · Cambiar a Completo" }),
+  ).toBeTruthy();
+  expect(api).toHaveBeenCalledWith("save_app_settings", {
+    settings: expect.objectContaining({ simpleMode: true }),
+  });
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Modo Simple activo" }),
+  );
+  expect(document.documentElement.dataset.simpleMode).toBe("false");
+  expect(
+    screen.getByText("Herramientas", { selector: "summary" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Stash" })).toBeTruthy();
+  expect(api).toHaveBeenCalledWith("save_app_settings", {
+    settings: expect.objectContaining({ simpleMode: false }),
+  });
+});
+
+it("consulta PRs/MRs sólo de forma explícita opt-in y muestra badge #42 en la rama del grafo", async () => {
+  const branchedRepo = {
+    ...structuredClone(repo),
+    refs: [{ name: "refs/heads/main", hash, kind: "branch" }],
+  };
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") return branchedRepo;
+    if (command === "read_forge_info") {
+      return {
+        trusted: true,
+        provider: "github",
+        remoteName: "origin",
+        host: "github.com",
+        repoSlug: "nightRaven77/RavenGit",
+        webUrl: "https://github.com/nightRaven77/RavenGit",
+        cliName: "gh",
+        cliAvailable: true,
+        currentBranch: "main",
+        createPrUrl:
+          "https://github.com/nightRaven77/RavenGit/compare/main?expand=1",
+      };
+    }
+    if (command === "fetch_pull_requests") {
+      return {
+        provider: "github",
+        repoSlug: "nightRaven77/RavenGit",
+        fetchedAt: 1_795_650_000,
+        items: [
+          {
+            number: 42,
+            title: "feat: modo simple y PR opt-in",
+            state: "open",
+            headBranch: "main",
+            baseBranch: "develop",
+            author: "erick",
+            url: "https://github.com/nightRaven77/RavenGit/pull/42",
+            updatedAt: "2026-11-25T18:00:00Z",
+          },
+        ],
+      };
+    }
+    return fallback(command, args);
+  });
+
+  await opened();
+  expect(
+    api.mock.calls.some(([command]) => command === "fetch_pull_requests"),
+  ).toBe(false);
+
+  await userEvent.click(screen.getByRole("button", { name: "PR / MR" }));
+  const fetchBtn = await screen.findByRole("button", {
+    name: "Consultar PRs / MRs",
+  });
+  await userEvent.click(fetchBtn);
+
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("fetch_pull_requests", { id: repo.id }),
+  );
+  expect(await screen.findByText("feat: modo simple y PR opt-in")).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+
+  const prPill = document.querySelector(".ref.ref-pr");
+  expect(prPill).toBeTruthy();
+  expect(prPill?.textContent).toBe("#42");
+});

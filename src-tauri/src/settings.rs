@@ -69,6 +69,7 @@ pub struct AppSettings {
     pub graph_palette: String,
     #[serde(default = "default_graph_style")]
     pub graph_style: String,
+    pub simple_mode: bool,
     pub external: ExternalPreferences,
     pub open_tabs: Vec<String>,
     pub active_tab: Option<String>,
@@ -82,6 +83,7 @@ impl Default for AppSettings {
             theme: "obsidian".into(),
             graph_palette: "kraken".into(),
             graph_style: default_graph_style(),
+            simple_mode: false,
             external: ExternalPreferences::default(),
             open_tabs: Vec::new(),
             active_tab: None,
@@ -278,6 +280,7 @@ mod tests {
             theme: "raven-violet".into(),
             graph_palette: "neon".into(),
             graph_style: "compact".into(),
+            simple_mode: true,
             external: ExternalPreferences {
                 preferred_editor_id: Some("antigravity".into()),
                 preferred_terminal_id: Some("iterm2".into()),
@@ -312,6 +315,7 @@ mod tests {
         assert_eq!(legacy.active_tab, None);
         assert_eq!(legacy.snapshots, SnapshotPreferences::default());
         assert_eq!(legacy.graph_style, "tributary");
+        assert!(!legacy.simple_mode);
     }
 
     #[test]

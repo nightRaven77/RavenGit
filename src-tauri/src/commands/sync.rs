@@ -1,5 +1,5 @@
 use crate::{
-    accounts,
+    accounts, forge,
     git::{self, GitError},
     pull, push, remotes, ssh,
     state::{AppState, library_directory, selected, session, set_repository_trust, trusted},
@@ -341,4 +341,41 @@ pub(crate) async fn integrate_pull(
             "La integración se interrumpió. Revisa el merge en Ramas antes de repetir.",
         )
     })?
+}
+
+#[tauri::command]
+pub(crate) async fn read_forge_info(
+    id: String,
+    state: State<'_, AppState>,
+) -> git::Result<forge::ForgeInfo> {
+    let repo = selected(&state, &id)?;
+    let allowed = trusted(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || forge::inspect(&repo, allowed))
+        .await
+        .map_err(|_| GitError::new("WORKER", "No se pudo inspeccionar el proveedor remoto."))?
+}
+
+#[tauri::command]
+pub(crate) async fn fetch_pull_requests(
+    id: String,
+    state: State<'_, AppState>,
+) -> git::Result<forge::PullRequestsOutcome> {
+    let repo = selected(&state, &id)?;
+    let allowed = trusted(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || forge::fetch_pull_requests(&repo, allowed))
+        .await
+        .map_err(|_| GitError::new("WORKER", "La consulta de PRs/MRs se interrumpió."))?
+}
+
+#[tauri::command]
+pub(crate) async fn open_forge_url(
+    id: String,
+    url: String,
+    state: State<'_, AppState>,
+) -> git::Result<String> {
+    let repo = selected(&state, &id)?;
+    let allowed = trusted(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || forge::open_url(&repo, &url, allowed))
+        .await
+        .map_err(|_| GitError::new("WORKER", "No se pudo abrir la URL del proveedor remoto."))?
 }

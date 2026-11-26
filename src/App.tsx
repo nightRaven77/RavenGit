@@ -46,6 +46,7 @@ import type {
   GitRef,
   HistoryPage,
   ImageDiff,
+  PullRequestItem,
   RepoChangedEvent,
   Snapshot,
   UndoOutcome,
@@ -114,6 +115,7 @@ const TagDialog = lazy(() => import("./TagDialog"));
 const TagPublishDialog = lazy(() => import("./TagPublishDialog"));
 const ActivityDialog = lazy(() => import("./ActivityDialog"));
 const ShortcutsDialog = lazy(() => import("./ShortcutsDialog"));
+const PullRequestsDialog = lazy(() => import("./PullRequestsDialog"));
 import { buildTributaryItems } from "./historyGroups";
 import {
   operationEvent,
@@ -132,6 +134,9 @@ function App() {
   const [graphStyle, setGraphStyle] = useState<GraphStyleId>(
     () => loadCachedAppearance().graphStyle,
   );
+  const [simpleMode, setSimpleMode] = useState<boolean>(
+    () => loadCachedAppearance().simpleMode,
+  );
   const [externalPreferences, setExternalPreferences] =
     useState<ExternalPreferences>(DEFAULT_APP_SETTINGS.external);
   const [externalApps, setExternalApps] = useState<ExternalAppsState | null>(
@@ -145,6 +150,7 @@ function App() {
   const tabsTouchedRef = useRef(false);
   const snapshotsTouchedRef = useRef(false);
   const graphStyleTouchedRef = useRef(false);
+  const simpleModeTouchedRef = useRef(false);
   const startupRestoredRef = useRef(false);
   const lastFocusRefreshRef = useRef(0);
   tabsRef.current = tabs;
@@ -235,6 +241,10 @@ function App() {
   const [preferTextForImage, setPreferTextForImage] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [prDialogOpen, setPrDialogOpen] = useState(false);
+  const [pullRequestsByRepo, setPullRequestsByRepo] = useState<
+    Record<string, PullRequestItem[]>
+  >({});
   const [branchPreselect, setBranchPreselect] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -291,8 +301,8 @@ function App() {
     [graphPalette, theme],
   );
   useEffect(() => {
-    applyAppearance(theme, graphPalette, graphStyle);
-  }, [theme, graphPalette, graphStyle]);
+    applyAppearance(theme, graphPalette, graphStyle, simpleMode);
+  }, [theme, graphPalette, graphStyle, simpleMode]);
   useEffect(
     () => () => {
       splitResizeCleanup.current?.();
@@ -368,6 +378,10 @@ function App() {
           graphStyleTouchedRef.current = true;
           setGraphStyle(loaded.graphStyle);
         }
+        if (typeof loaded.simpleMode === "boolean") {
+          simpleModeTouchedRef.current = true;
+          setSimpleMode(loaded.simpleMode);
+        }
         if (loaded.external) setExternalPreferences(loaded.external);
         if (loaded.snapshots) {
           snapshotsTouchedRef.current = true;
@@ -417,6 +431,7 @@ function App() {
     currentId: string | null,
     nextSnapshots = snapshotPrefs,
     nextStyle = graphStyle,
+    nextSimpleMode = simpleMode,
   ): AppSettings {
     const payload: AppSettings = {
       version: 1,
@@ -426,6 +441,9 @@ function App() {
     };
     if (graphStyleTouchedRef.current) {
       payload.graphStyle = nextStyle;
+    }
+    if (simpleModeTouchedRef.current) {
+      payload.simpleMode = nextSimpleMode;
     }
     if (snapshotsTouchedRef.current) {
       payload.snapshots = nextSnapshots;
@@ -825,6 +843,12 @@ function App() {
     const nextActiveId = nextActive?.snapshot.id ?? null;
     dismissedTrustIdsRef.current.delete(targetId);
     setTrustPromptRepoId((current) => (current === targetId ? null : current));
+    setPullRequestsByRepo((current) => {
+      if (!(targetId in current)) return current;
+      const next = { ...current };
+      delete next[targetId];
+      return next;
+    });
     tabsTouchedRef.current = true;
     tabsRef.current = remaining;
     activeTabIdRef.current = nextActiveId;
@@ -968,7 +992,7 @@ function App() {
   function changeAppearance(nextTheme: ThemeId, nextPalette: GraphPaletteId) {
     setTheme(nextTheme);
     setGraphPalette(nextPalette);
-    applyAppearance(nextTheme, nextPalette, graphStyle);
+    applyAppearance(nextTheme, nextPalette, graphStyle, simpleMode);
     void persistSettings(
       buildSettingsPayload(
         nextTheme,
@@ -986,7 +1010,7 @@ function App() {
   function changeGraphStyle(nextStyle: GraphStyleId) {
     graphStyleTouchedRef.current = true;
     setGraphStyle(nextStyle);
-    applyAppearance(theme, graphPalette, nextStyle);
+    applyAppearance(theme, graphPalette, nextStyle, simpleMode);
     void persistSettings(
       buildSettingsPayload(
         theme,
@@ -1000,6 +1024,28 @@ function App() {
     ).catch((reason) =>
       setNotice(
         `No se pudo guardar el estilo del grafo en disco: ${errorText(reason)}`,
+      ),
+    );
+  }
+  function toggleSimpleMode() {
+    simpleModeTouchedRef.current = true;
+    const nextSimpleMode = !simpleMode;
+    setSimpleMode(nextSimpleMode);
+    applyAppearance(theme, graphPalette, graphStyle, nextSimpleMode);
+    void persistSettings(
+      buildSettingsPayload(
+        theme,
+        graphPalette,
+        externalPreferences,
+        tabsRef.current,
+        activeTabIdRef.current,
+        snapshotPrefs,
+        graphStyle,
+        nextSimpleMode,
+      ),
+    ).catch((reason) =>
+      setNotice(
+        `No se pudo guardar el modo de interfaz en disco: ${errorText(reason)}`,
       ),
     );
   }
@@ -1019,21 +1065,30 @@ function App() {
     );
     await reloadExternalApps();
   }
+  const effectiveShowHash = !simpleMode && showHash;
+  const activePullRequests = repo ? (pullRequestsByRepo[repo.id] ?? []) : [];
+  const pullRequestsByBranch = useMemo(() => {
+    const map = new Map<string, PullRequestItem>();
+    for (const item of activePullRequests) {
+      if (!map.has(item.headBranch)) map.set(item.headBranch, item);
+    }
+    return map;
+  }, [activePullRequests]);
   const historyColumns = isTributary
-    ? `${refsWidth}px ${graphWidth}px minmax(260px,1fr)${showAuthor ? ` ${authorWidth}px` : ""}${showDate ? " 108px" : ""}${showHash ? " 80px" : ""}`
-    : `${graphWidth}px minmax(240px,1fr)${showAuthor ? ` ${authorWidth}px` : ""}${showDate ? " 90px" : ""}${showHash ? " 80px" : ""}`;
+    ? `${refsWidth}px ${graphWidth}px minmax(260px,1fr)${showAuthor ? ` ${authorWidth}px` : ""}${showDate ? " 108px" : ""}${effectiveShowHash ? " 80px" : ""}`
+    : `${graphWidth}px minmax(240px,1fr)${showAuthor ? ` ${authorWidth}px` : ""}${showDate ? " 90px" : ""}${effectiveShowHash ? " 80px" : ""}`;
   const historyMinWidth = isTributary
     ? refsWidth +
       graphWidth +
       260 +
       (showAuthor ? authorWidth : 0) +
       (showDate ? 108 : 0) +
-      (showHash ? 80 : 0)
+      (effectiveShowHash ? 80 : 0)
     : graphWidth +
       240 +
       (showAuthor ? authorWidth : 0) +
       (showDate ? 90 : 0) +
-      (showHash ? 80 : 0);
+      (effectiveShowHash ? 80 : 0);
   const searchIndex = useMemo(
     () =>
       commits.map((commit) =>
@@ -2294,6 +2349,22 @@ function App() {
         keywords: ["keyboard", "teclas", "ayuda", "cheatsheet"],
         onSelect: () => setShortcutsOpen(true),
       },
+      {
+        id: "toggle-simple-mode",
+        category: "Aplicación",
+        label: simpleMode ? "Cambiar a Modo Completo" : "Activar Modo Simple",
+        keywords: ["simple", "guiado", "avanzado", "interfaz"],
+        disabled: busy || loadingMore || writing,
+        onSelect: toggleSimpleMode,
+      },
+      {
+        id: "pull-requests",
+        category: "Repositorio",
+        label: "Pull Requests / MRs (GitHub / GitLab)…",
+        keywords: ["pr", "mr", "github", "gitlab", "review"],
+        disabled: !repo || writing,
+        onSelect: () => setPrDialogOpen(true),
+      },
     ],
     [
       repo,
@@ -2307,6 +2378,7 @@ function App() {
       externalApps,
       undoState,
       undoBusy,
+      simpleMode,
     ],
   );
   function jump(hash: string) {
@@ -2391,13 +2463,15 @@ function App() {
       repoHead={repo?.head ?? null}
       repoBranch={repo?.branch ?? null}
       repoRefs={repo?.refs ?? []}
+      pullRequestsByBranch={pullRequestsByBranch}
       showAuthor={showAuthor}
       showDate={showDate}
-      showHash={showHash}
+      showHash={effectiveShowHash}
       onClearCompareAnchor={() => setCompareAnchor(null)}
       onOpenOrderedComparison={openOrderedComparison}
       onSelectCommit={select}
       onOpenContextMenu={openCommitContextMenu}
+      onOpenPullRequests={() => setPrDialogOpen(true)}
       onStepCommit={(next) => {
         select(commits[next].hash);
         scrollToCommitIndex(next, "auto");
@@ -2693,6 +2767,30 @@ function App() {
         {shortcutsOpen && (
           <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />
         )}
+        {repo && prDialogOpen && (
+          <PullRequestsDialog
+            key={`prs:${repo.id}`}
+            repoId={repo.id}
+            repoName={repo.name}
+            branches={branches.map((r) => r.name)}
+            cachedItems={pullRequestsByRepo[repo.id]}
+            onLoaded={(outcome) =>
+              setPullRequestsByRepo((current) => ({
+                ...current,
+                [repo.id]: outcome.items,
+              }))
+            }
+            onAuthorize={() => {
+              setPrDialogOpen(false);
+              setTrustPromptRepoId(repo.id);
+            }}
+            onJumpToBranch={(branchRef) => {
+              const found = branches.find((r) => r.name === branchRef);
+              if (found) jump(found.hash);
+            }}
+            onClose={() => setPrDialogOpen(false)}
+          />
+        )}
       </Suspense>
       <div className="app-header">
         <a className="skip-navigation" href={`#${view}-content`}>
@@ -2727,6 +2825,8 @@ function App() {
           onLibrary={() => setLibraryOpen(true)}
           onAppearance={() => setAppearanceOpen(true)}
           onCommandPalette={() => setPaletteOpen(true)}
+          simpleMode={simpleMode}
+          onToggleSimpleMode={toggleSimpleMode}
           themeSwatches={THEMES.find(
             (item) => item.id === theme,
           )?.swatches.slice(1, 4)}
@@ -2836,6 +2936,8 @@ function App() {
         writing={writing}
         undoBusy={undoBusy}
         undoState={undoState}
+        simpleMode={simpleMode}
+        onToggleSimpleMode={toggleSimpleMode}
         onOpenLibrary={() => setLibraryOpen(true)}
         onCreateRepo={(mode) => setCreation(mode)}
         onSelectView={setView}
@@ -2849,6 +2951,8 @@ function App() {
         onOpenAppearance={() => setAppearanceOpen(true)}
         onOpenSnapshots={() => setSnapshotsOpen(true)}
         onOpenLfsSubmodules={() => setLfsSubmodulesOpen(true)}
+        onOpenPullRequests={() => setPrDialogOpen(true)}
+        prCount={activePullRequests.length}
         onOpenUndo={(direction) => void openUndoPreview(direction)}
         onOpenEnvironment={() => setEnvDialogOpen(true)}
         onOpenShortcuts={() => setShortcutsOpen(true)}
@@ -3010,84 +3114,103 @@ function App() {
                   : `${commits.length} cargados`}
             </span>
           </div>
-          <button
-            type="button"
-            className="button history-deep-search-btn"
-            disabled={!repo || writing}
-            onClick={() => setSearchDialogMode("history")}
-            title="Buscar en todo el historial y en código fuente (⌘⇧F)"
-          >
-            Búsqueda avanzada…
-          </button>
+          {!simpleMode && (
+            <>
+              <button
+                type="button"
+                className="button history-deep-search-btn"
+                disabled={!repo || writing}
+                onClick={() => setSearchDialogMode("history")}
+                title="Buscar en todo el historial y en código fuente (⌘⇧F)"
+              >
+                Búsqueda avanzada…
+              </button>
+              {repo && (
+                <button
+                  type="button"
+                  className="button history-pr-btn"
+                  disabled={writing}
+                  onClick={() => setPrDialogOpen(true)}
+                  title="Consultar Pull Requests / Merge Requests bajo demanda"
+                >
+                  {activePullRequests.length > 0
+                    ? `PR / MR (${activePullRequests.length})`
+                    : "PR / MR"}
+                </button>
+              )}
+            </>
+          )}
           <div className="history-controls">
-            <details className="history-options">
-              <summary>Vista</summary>
-              <div className="history-options-body">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={showAuthor}
-                    onChange={(e) => setShowAuthor(e.target.checked)}
-                  />
-                  Autor
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={showDate}
-                    onChange={(e) => setShowDate(e.target.checked)}
-                  />
-                  Fecha
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={showHash}
-                    onChange={(e) => setShowHash(e.target.checked)}
-                  />
-                  Hash del commit
-                </label>
-                <label>
-                  Ancho de autor · {authorWidth} px
-                  <input
-                    aria-label="Ancho de autor"
-                    type="range"
-                    min="120"
-                    max="240"
-                    step="10"
-                    disabled={!showAuthor}
-                    value={authorWidth}
-                    onChange={(e) => setAuthorWidth(Number(e.target.value))}
-                  />
-                </label>
-                {isTributary && (
+            {!simpleMode && (
+              <details className="history-options">
+                <summary>Vista</summary>
+                <div className="history-options-body">
                   <label>
-                    Ancho de Rama / Tag · {refsWidth} px
                     <input
-                      aria-label="Ancho de Rama / Tag"
+                      type="checkbox"
+                      checked={showAuthor}
+                      onChange={(e) => setShowAuthor(e.target.checked)}
+                    />
+                    Autor
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={showDate}
+                      onChange={(e) => setShowDate(e.target.checked)}
+                    />
+                    Fecha
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={showHash}
+                      onChange={(e) => setShowHash(e.target.checked)}
+                    />
+                    Hash del commit
+                  </label>
+                  <label>
+                    Ancho de autor · {authorWidth} px
+                    <input
+                      aria-label="Ancho de autor"
                       type="range"
-                      min={MIN_REFS_COL_WIDTH}
-                      max={MAX_REFS_COL_WIDTH}
-                      step="8"
-                      value={refsWidth}
-                      onChange={(e) => setRefsWidth(Number(e.target.value))}
+                      min="120"
+                      max="240"
+                      step="10"
+                      disabled={!showAuthor}
+                      value={authorWidth}
+                      onChange={(e) => setAuthorWidth(Number(e.target.value))}
                     />
                   </label>
-                )}
-                <label>
-                  Ancho del inspector · {inspectorSize} %
-                  <input
-                    aria-label="Ancho del inspector"
-                    type="range"
-                    min="30"
-                    max="60"
-                    step="2"
-                    value={inspectorSize}
-                    onChange={(e) => setInspectorSize(Number(e.target.value))}
-                  />
-                </label>
-              </div>
-            </details>
+                  {isTributary && (
+                    <label>
+                      Ancho de Rama / Tag · {refsWidth} px
+                      <input
+                        aria-label="Ancho de Rama / Tag"
+                        type="range"
+                        min={MIN_REFS_COL_WIDTH}
+                        max={MAX_REFS_COL_WIDTH}
+                        step="8"
+                        value={refsWidth}
+                        onChange={(e) => setRefsWidth(Number(e.target.value))}
+                      />
+                    </label>
+                  )}
+                  <label>
+                    Ancho del inspector · {inspectorSize} %
+                    <input
+                      aria-label="Ancho del inspector"
+                      type="range"
+                      min="30"
+                      max="60"
+                      step="2"
+                      value={inspectorSize}
+                      onChange={(e) => setInspectorSize(Number(e.target.value))}
+                    />
+                  </label>
+                </div>
+              </details>
+            )}
             <button
               className="button"
               aria-expanded={inspectorOpen}
@@ -3174,7 +3297,7 @@ function App() {
               )}
               {showAuthor && <span>Autor</span>}
               {showDate && <span>Fecha</span>}
-              {showHash && <span>Commit</span>}
+              {effectiveShowHash && <span>Commit</span>}
             </div>
           </div>
         )}
@@ -3435,6 +3558,7 @@ function App() {
         diffError={diffError}
         commitImageDiff={commitImageDiff}
         preferTextForImage={preferTextForImage}
+        simpleMode={simpleMode}
         onStartResize={startInspectorResize}
         onChangeInspectorSize={setInspectorSize}
         onCopyText={copyText}
@@ -3458,6 +3582,8 @@ function App() {
         writing={writing}
         preferencesRepo={preferencesRepo}
         preferenceSave={preferenceSave}
+        simpleMode={simpleMode}
+        onToggleSimpleMode={toggleSimpleMode}
         onAuthorizeRepo={(repoId) => setTrustPromptRepoId(repoId)}
         onRetrySavePreferences={() => setSaveAttempt((value) => value + 1)}
       />

@@ -11,7 +11,7 @@ import {
 import type { GraphRow } from "./graph";
 import type { ThroughLane } from "./historyGroups";
 import type { GraphStyleId } from "./themes";
-import type { Commit, GitRef, WorktreeSummary } from "./types";
+import type { Commit, GitRef, PullRequestItem, WorktreeSummary } from "./types";
 
 export interface CommitRowProps {
   commit: Commit;
@@ -31,6 +31,7 @@ export interface CommitRowProps {
   repoHead: string | null;
   repoBranch: string | null;
   repoRefs: readonly GitRef[];
+  pullRequestsByBranch?: ReadonlyMap<string, PullRequestItem>;
   showAuthor: boolean;
   showDate: boolean;
   showHash: boolean;
@@ -38,6 +39,7 @@ export interface CommitRowProps {
   onOpenOrderedComparison: (first: Commit, second: Commit) => void;
   onSelectCommit: (hash: string) => void;
   onOpenContextMenu: (commit: Commit, x: number, y: number) => void;
+  onOpenPullRequests?: () => void;
   onStepCommit: (nextIndex: number) => void;
 }
 
@@ -59,6 +61,7 @@ export function CommitRow({
   repoHead,
   repoBranch,
   repoRefs,
+  pullRequestsByBranch,
   showAuthor,
   showDate,
   showHash,
@@ -66,6 +69,7 @@ export function CommitRow({
   onOpenOrderedComparison,
   onSelectCommit,
   onOpenContextMenu,
+  onOpenPullRequests,
   onStepCommit,
 }: CommitRowProps) {
   const rowColor =
@@ -91,6 +95,40 @@ export function CommitRow({
   const displayRefs = isTributary
     ? refs.filter((r) => !collapsedRemoteNames.has(r.name))
     : refs;
+  const matchingPrs: PullRequestItem[] = [];
+  if (pullRequestsByBranch && pullRequestsByBranch.size > 0) {
+    const seenPrNumbers = new Set<number>();
+    for (const r of refs) {
+      if (r.kind !== "branch") continue;
+      const pr = pullRequestsByBranch.get(refName(r.name));
+      if (pr && !seenPrNumbers.has(pr.number)) {
+        seenPrNumbers.add(pr.number);
+        matchingPrs.push(pr);
+      }
+    }
+  }
+  const renderPrPill = (pr: PullRequestItem) => (
+    <span
+      key={`pr-${pr.number}`}
+      role="button"
+      tabIndex={0}
+      className="ref ref-pr"
+      title={`#${pr.number}: ${pr.title}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpenPullRequests?.();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenPullRequests?.();
+        }
+      }}
+    >
+      #{pr.number}
+    </span>
+  );
   const renderRefBadge = (r: GitRef) => {
     const shortRef = refName(r.name);
     const isCurrentBranch = r.kind === "branch" && shortRef === repoBranch;
@@ -229,6 +267,7 @@ export function CommitRow({
             </span>
           )}
           {visibleTributaryRefs.map(renderRefBadge)}
+          {matchingPrs.slice(0, 1).map(renderPrPill)}
           {extraTributaryCount > 0 && (
             <span className="ref ref-more">+{extraTributaryCount}</span>
           )}
@@ -257,6 +296,7 @@ export function CommitRow({
               </span>
             )}
             {displayRefs.map(renderRefBadge)}
+            {matchingPrs.map(renderPrPill)}
           </span>
         )}
         <span className="truncate">{c.subject || "(sin mensaje)"}</span>

@@ -29,6 +29,7 @@ Este directorio reúne documentación de usuario, producto, arquitectura, distri
 - [Plan de beta](releases/PLAN_BETA_1.md) y [matriz de Windows](releases/MATRIZ_BETA_1_WINDOWS.md): preparación y aceptación pendiente.
 - [Empaquetado por tag](releases/TAGS_BETA.md): condiciones de los workflows de entrega.
 - [Preparación de macOS](releases/MACOS_BETA.md): compilación y límites de distribución.
+- [Preparación de Linux](releases/LINUX.md): empaquetado `.deb` y `.AppImage` en `ubuntu-22.04`.
 - [Preparación de SignPath](releases/SIGNPATH.md), [política de firma](releases/CODE_SIGNING_POLICY.md) y [lista para apertura pública](releases/OPEN_SOURCE_CHECKLIST.md).
 - [Inventario de licencias](legal/INVENTARIO_DEPENDENCIAS.md): dependencias y obligaciones por revisar.
 

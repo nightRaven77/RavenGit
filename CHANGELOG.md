@@ -19,7 +19,8 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/
 - Paleta de comandos (`⌘K`), guía interactiva de **Atajos de teclado** (`?`), **Guía rápida de RavenGit** integrada de 6 pasos, 7 temas (incluyendo tema claro *Arctic Light* y alto contraste) con 5 paletas de grafo, menús contextuales y apertura en aplicaciones externas locales.
 - **Modo Simple en 1 clic:** alternador persistente en barra superior y barra de estado para enfocarse en el flujo cotidiano sin herramientas avanzadas.
 - **Integración opt-in de Pull Requests / Merge Requests (GitHub y GitLab):** detección local offline vía `gh` / `glab`, consulta explícita bajo demanda sin tráfico en segundo plano y badges `#PR` en ramas del grafo.
-- **Manual de uso modular (`docs/manual/`):** 7 guías enlazadas desde el README cubriendo primeros pasos, grafo Tributary, diffs, conflictos, sincronización, Seguridad 2.0 y atajos.
+- **Manual de uso modular (`docs/manual/`):** 7 guías con capturas reales enlazadas desde el README cubriendo primeros pasos, grafo Tributary, diffs, conflictos, sincronización, Seguridad 2.0 y atajos.
+- **Soporte y empaquetado Linux (`.deb` y `.AppImage`):** metadatos `bundle.linux` en `tauri.conf.json`, script `scripts/build-linux.mjs` (`npm run release:build:linux`), workflow `.github/workflows/linux-release.yml` y guía [docs/releases/LINUX.md](docs/releases/LINUX.md).
 - Diálogo de autorización explícita al abrir repositorios en modo solo lectura.
 
 ### Cambiado
@@ -28,7 +29,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/
 - Refactorización modular de `src/App.tsx`, `src/App.css` (`src/styles/*`) y `src-tauri/src/lib.rs` (`state.rs` + `commands/*`).
 
 ### Mantenimiento y CI
-- Pipeline automático de CI en `.github/workflows/ci.yml` (Prettier, TypeScript/Vite, Vitest, `release:check`, `cargo fmt`, `cargo clippy -D warnings` y `cargo test` en macOS y Windows).
+- Pipeline automático de CI en `.github/workflows/ci.yml` (Prettier, TypeScript/Vite, Vitest, `release:check`, `release:check:linux`, `cargo fmt`, `cargo clippy -D warnings` y `cargo test` en macOS, Windows y Linux `ubuntu-22.04`).
 - Scripts `npm run format` y `npm run format:check` cubriendo el 100 % de `src/`.
 
 ## [1.0.0-beta.1] - 2026-11-10

@@ -26,10 +26,23 @@
   },
   "bundle": {
     "active": true,
+    "category": "Development",
+    "shortDescription": "Cliente Git visual y local-first",
+    "longDescription": "Cliente Git de escritorio moderno, visual y local-first construido con Tauri 2, React y Rust.",
     "resources": {
       "../LICENSE": "LICENSE"
     },
     "targets": "all",
+    "linux": {
+      "deb": {
+        "depends": [
+          "git"
+        ]
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",

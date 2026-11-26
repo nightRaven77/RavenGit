@@ -22,8 +22,9 @@ El objetivo principal de esta fase es culminar los procesos de distribución seg
 Mejoras orientadas a extender la disponibilidad de RavenGit y optimizar flujos de trabajo con repositorios complejos.
 
 - [ ] **Soporte para Linux:**
-  - Empaquetado oficial en formatos **AppImage**, **Flatpak** y paquetes .deb.
-  - Integración con llaveros de contraseñas de escritorio (*Secret Service API*).
+  - [x] Empaquetado oficial en formatos **AppImage** y paquetes **.deb** con pipeline CI en `ubuntu-22.04` (`npm run release:build:linux`).
+  - [ ] Empaquetado **Flatpak** y validación interactiva en escritorios Linux limpios.
+  - Integración con llaveros de contraseñas de escritorio (*Secret Service API* / `git-credential-libsecret`).
 - [x] **Git LFS (Large File Storage):**
   - Detección automática de punteros LFS en el árbol de trabajo.
   - Visualización del estado de descarga y bloqueo de archivos grandes.

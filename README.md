@@ -5,7 +5,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-v2-orange.svg)](https://v2.tauri.app)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-dea584.svg)](https://www.rust-lang.org)
-[![Plataformas](https://img.shields.io/badge/Plataformas-Windows%20x64%20%7C%20macOS-blueviolet.svg)](#requisitos-del-sistema)
+[![Plataformas](https://img.shields.io/badge/Plataformas-Windows%20x64%20%7C%20macOS%20%7C%20Linux-blueviolet.svg)](#requisitos-del-sistema)
 
 **RavenGit** es un cliente Git de escritorio moderno, visual y de arquitectura **local-first**, diseñado para inspeccionar el historial, resolver conflictos y gestionar repositorios con total seguridad, rapidez y privacidad.
 
@@ -75,6 +75,7 @@ Consulta el [**Manual de uso de RavenGit**](docs/manual/README.md) para guías p
 - **Git:** Git 2.38 o superior instalado y accesible en la variable de entorno `PATH`.
 - **Windows:** Windows 10 u 11 (x64) con el runtime de [Microsoft Edge WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (incluido por defecto en Windows 10/11).
 - **macOS:** macOS 12 (Monterey) o superior; compatible con Apple Silicon (arm64) e Intel (x86_64).
+- **Linux:** distribuciones x64 con WebKitGTK 4.1 (`libwebkit2gtk-4.1`), empaquetado en `.deb` y `.AppImage` (ver [guía de Linux](docs/releases/LINUX.md)).
 
 ---
 
@@ -140,9 +141,10 @@ npm run version:bump 1.0.4   # Versión específica
 ## Integración Continua y Firma de Código
 
 RavenGit cuenta con flujos automatizados de CI/CD mediante **GitHub Actions**:
-- **CI continuo (`.github/workflows/ci.yml`):** validación automática de formato Prettier, compilación TypeScript/Vite, pruebas Vitest, verificación de entregas y matriz Rust (`cargo fmt`, `clippy -D warnings`, `cargo test`) en macOS y Windows.
+- **CI continuo (`.github/workflows/ci.yml`):** validación automática de formato Prettier, compilación TypeScript/Vite, pruebas Vitest, verificación de entregas y matriz Rust (`cargo fmt`, `clippy -D warnings`, `cargo test`) en macOS, Windows y Linux (`ubuntu-22.04`).
 - **Windows (x64):** compilación, validación de iconos, empaquetado NSIS y firma Authenticode automatizada vía la API de [SignPath](docs/releases/SIGNPATH.md).
 - **macOS:** compilación y empaquetado en imagen DMG.
+- **Linux (x64):** compilación y empaquetado `.deb` y `.AppImage` mediante `.github/workflows/linux-release.yml` (`npm run release:build:linux`).
 - Cada entrega genera manifiestos de integridad y sumas de verificación SHA-256 publicados en los artefactos de la release.
 
 ---

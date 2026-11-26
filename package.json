@@ -17,7 +17,9 @@
     "release:check": "node scripts/check-release.mjs",
     "release:build:windows": "node scripts/build-beta-windows.mjs",
     "release:build:macos": "node scripts/build-beta-macos.mjs",
-    "release:check:macos": "node scripts/build-beta-macos.mjs --check-config"
+    "release:check:macos": "node scripts/build-beta-macos.mjs --check-config",
+    "release:build:linux": "node scripts/build-linux.mjs",
+    "release:check:linux": "node scripts/build-linux.mjs --check-config"
   },
   "dependencies": {
     "@radix-ui/react-icons": "^1.3.2",

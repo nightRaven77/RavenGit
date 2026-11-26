@@ -17,6 +17,7 @@ Bienvenido al manual oficial de **RavenGit**, un cliente Git de escritorio visua
 - **Git CLI:** Git **2.38 o superior** accesible en la variable `PATH`.
 - **Windows:** Windows 10 u 11 (x64) con Microsoft Edge WebView2 (incluido por defecto).
 - **macOS:** macOS 12 (Monterey) o superior en Apple Silicon (`arm64`) o Intel (`x86_64`).
+- **Linux:** distribuciones x64 modernas (paquetes `.deb` y `.AppImage`) con `libwebkit2gtk-4.1` (y `libfuse2` para AppImage).
 
 > **Consejo:** abre **Herramientas → Entorno y motor Git…** en cualquier momento para comprobar la versión detectada de Git CLI, `gix` y Git LFS.
 

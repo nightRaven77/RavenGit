@@ -165,14 +165,20 @@ export default function RestoreDialog({
     <dialog
       ref={dialog}
       className="dialog confirm-dialog"
-      aria-label={isRedo ? "Rehacer cambios de archivo" : "Restaurar archivo de trabajo"}
+      aria-label={
+        isRedo ? "Rehacer cambios de archivo" : "Restaurar archivo de trabajo"
+      }
       onCancel={(e) => {
         e.preventDefault();
         close();
       }}
     >
       <header className="dialog-header">
-        <h2>{isRedo ? "Rehacer cambios respaldados" : "Restaurar archivo de trabajo"}</h2>
+        <h2>
+          {isRedo
+            ? "Rehacer cambios respaldados"
+            : "Restaurar archivo de trabajo"}
+        </h2>
         <button
           className="button icon-only close-button"
           aria-label="Cerrar diálogo de restauración"
@@ -193,7 +199,9 @@ export default function RestoreDialog({
             : "Se sustituirán las modificaciones de este archivo por la versión del índice. Se creará una copia de seguridad para que puedas rehacer los cambios."}
         </p>
 
-        {loading && <p role="status">Calculando vista previa de restauración…</p>}
+        {loading && (
+          <p role="status">Calculando vista previa de restauración…</p>
+        )}
 
         {error && (
           <div className="banner error" role="alert">
@@ -210,14 +218,19 @@ export default function RestoreDialog({
         {plan && (
           <div className="restore-review">
             <p id="restore-diff-help">
-              Revisión de diferencias que se aplicarán (Inicio/Fin para desplazarse):
+              Revisión de diferencias que se aplicarán (Inicio/Fin para
+              desplazarse):
             </p>
             <pre
               className="diff-view"
               tabIndex={0}
               aria-describedby="restore-diff-help"
               onKeyDown={navigateContent}
-              style={{ maxHeight: "240px", overflow: "auto", whiteSpace: "pre-wrap" }}
+              style={{
+                maxHeight: "240px",
+                overflow: "auto",
+                whiteSpace: "pre-wrap",
+              }}
             >
               {plan.diff || "Sin diferencias textuales calculables."}
             </pre>

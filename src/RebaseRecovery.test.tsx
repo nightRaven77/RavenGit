@@ -92,12 +92,12 @@ it("explica y permite retirar el registro cuando no se confirmó el respaldo", a
   });
   const onEdit = vi.fn(async () => {});
   render(<RebaseRecovery repoId="fixture" busy={false} onEdit={onEdit} />);
-  expect(
-    await screen.findByText(/No se confirmó un respaldo/),
-  ).toBeTruthy();
+  expect(await screen.findByText(/No se confirmó un respaldo/)).toBeTruthy();
   await userEvent.click(screen.getByRole("checkbox"));
   await userEvent.click(
-    screen.getByRole("button", { name: "Retirar registro de inicio rechazado" }),
+    screen.getByRole("button", {
+      name: "Retirar registro de inicio rechazado",
+    }),
   );
   expect(onEdit).toHaveBeenCalledWith("recovery", { kind: "clearRecord" });
 });

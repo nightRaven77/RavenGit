@@ -163,7 +163,10 @@ it("ofrece publicar una etiqueta creada sin conectar hasta revisar el destino", 
   await userEvent.click(
     screen.getByRole("button", { name: "Etiquetar commit…" }),
   );
-  await userEvent.type(screen.getByLabelText("Nombre de etiqueta"), "v1");
+  await userEvent.type(
+    await screen.findByLabelText("Nombre de etiqueta"),
+    "v1",
+  );
   await userEvent.click(
     screen.getByRole("button", { name: "Revisar etiqueta" }),
   );

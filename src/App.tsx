@@ -1,4 +1,12 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -54,38 +62,41 @@ import {
   type ThemeId,
 } from "./themes";
 import OpenExternalMenu from "./OpenExternalMenu";
-import AppearanceDialog from "./AppearanceDialog";
 import AuthorAvatar from "./AuthorAvatar";
-import BlameDialog from "./BlameDialog";
-import CompareDialog from "./CompareDialog";
-import EnvironmentDialog from "./EnvironmentDialog";
-import FileHistoryDialog from "./FileHistoryDialog";
-import LibraryDialog from "./LibraryDialog";
-import InitializeDialog from "./InitializeDialog";
-import LfsSubmodulesDialog from "./LfsSubmodulesDialog";
-import SnapshotsDialog from "./SnapshotsDialog";
-import UndoDialog from "./UndoDialog";
 import type { RepositoryLibrary, HistoryPreferences } from "./library";
 import ChangesPanel from "./ChangesPanel";
-import RemotesPanel from "./RemotesPanel";
-import PushPanel from "./PushPanel";
 import OperationNotice, { type OperationResult } from "./OperationNotice";
-import PullPanel from "./PullPanel";
 import CommandBar from "./CommandBar";
-import BranchesPanel from "./BranchesPanel";
 import DiffViewer, { DiffModeControl } from "./DiffViewer";
+
+const RemotesPanel = lazy(() => import("./RemotesPanel"));
+const PushPanel = lazy(() => import("./PushPanel"));
+const PullPanel = lazy(() => import("./PullPanel"));
+const BranchesPanel = lazy(() => import("./BranchesPanel"));
 import ImageDiffViewer, { isImageAssetPath } from "./ImageDiffViewer";
-import StashDialog from "./StashDialog";
 import TrustDialog from "./TrustDialog";
-import WorktreeDialog from "./WorktreeDialog";
-import ConflictRestoreDialog from "./ConflictRestoreDialog";
-import ReplayDialog, { type ReplayTarget } from "./ReplayDialog";
-import SearchDialog from "./SearchDialog";
-import TagDialog from "./TagDialog";
-import TagPublishDialog from "./TagPublishDialog";
-import ActivityDialog from "./ActivityDialog";
+import type { ReplayTarget } from "./ReplayDialog";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import CommandPalette, { type PaletteCommand } from "./CommandPalette";
+
+const AppearanceDialog = lazy(() => import("./AppearanceDialog"));
+const BlameDialog = lazy(() => import("./BlameDialog"));
+const CompareDialog = lazy(() => import("./CompareDialog"));
+const EnvironmentDialog = lazy(() => import("./EnvironmentDialog"));
+const FileHistoryDialog = lazy(() => import("./FileHistoryDialog"));
+const LibraryDialog = lazy(() => import("./LibraryDialog"));
+const InitializeDialog = lazy(() => import("./InitializeDialog"));
+const LfsSubmodulesDialog = lazy(() => import("./LfsSubmodulesDialog"));
+const SnapshotsDialog = lazy(() => import("./SnapshotsDialog"));
+const UndoDialog = lazy(() => import("./UndoDialog"));
+const StashDialog = lazy(() => import("./StashDialog"));
+const WorktreeDialog = lazy(() => import("./WorktreeDialog"));
+const ConflictRestoreDialog = lazy(() => import("./ConflictRestoreDialog"));
+const ReplayDialog = lazy(() => import("./ReplayDialog"));
+const SearchDialog = lazy(() => import("./SearchDialog"));
+const TagDialog = lazy(() => import("./TagDialog"));
+const TagPublishDialog = lazy(() => import("./TagPublishDialog"));
+const ActivityDialog = lazy(() => import("./ActivityDialog"));
 import {
   operationEvent,
   type OperationKey,
@@ -2508,281 +2519,285 @@ function App() {
       data-inspector={inspectorOpen}
       style={{ "--inspector-size": `${inspectorSize}%` } as React.CSSProperties}
     >
-      {libraryOpen && (
-        <LibraryDialog
-          onLock={setWriting}
-          onDeleted={(path) => {
-            const currentTabs = tabsRef.current;
-            const remaining = currentTabs.filter(
-              (item) => item.snapshot.path !== path,
-            );
-            if (remaining.length !== currentTabs.length) {
-              const removedActive = activeTab?.snapshot.path === path;
-              const nextActive = removedActive
-                ? (remaining[remaining.length - 1] ?? null)
-                : (remaining.find(
-                    (item) => item.snapshot.id === activeTabIdRef.current,
-                  ) ?? null);
-              const nextActiveId = nextActive?.snapshot.id ?? null;
-              tabsTouchedRef.current = true;
-              tabsRef.current = remaining;
-              activeTabIdRef.current = nextActiveId;
-              setTabs(remaining);
-              setActiveTabId(nextActiveId);
-              if (removedActive) applyTabUi(nextActive);
-              persistTabState(remaining, nextActiveId);
+      <Suspense fallback={null}>
+        {libraryOpen && (
+          <LibraryDialog
+            onLock={setWriting}
+            onDeleted={(path) => {
+              const currentTabs = tabsRef.current;
+              const remaining = currentTabs.filter(
+                (item) => item.snapshot.path !== path,
+              );
+              if (remaining.length !== currentTabs.length) {
+                const removedActive = activeTab?.snapshot.path === path;
+                const nextActive = removedActive
+                  ? (remaining[remaining.length - 1] ?? null)
+                  : (remaining.find(
+                      (item) => item.snapshot.id === activeTabIdRef.current,
+                    ) ?? null);
+                const nextActiveId = nextActive?.snapshot.id ?? null;
+                tabsTouchedRef.current = true;
+                tabsRef.current = remaining;
+                activeTabIdRef.current = nextActiveId;
+                setTabs(remaining);
+                setActiveTabId(nextActiveId);
+                if (removedActive) applyTabUi(nextActive);
+                persistTabState(remaining, nextActiveId);
+              }
+              setNotice(
+                "Carpeta movida a la Papelera del sistema. No se eliminó el repositorio remoto.",
+              );
+            }}
+            currentPath={repo?.path}
+            onOpen={choose}
+            onClose={() => setLibraryOpen(false)}
+            onForgot={(path) => {
+              if (path === repo?.path) setPreferencesRepo(null);
+            }}
+          />
+        )}
+        {activityOpen && (
+          <ActivityDialog onClose={() => setActivityOpen(false)} />
+        )}
+        {appearanceOpen && (
+          <AppearanceDialog
+            theme={theme}
+            graphPalette={graphPalette}
+            graphStyle={graphStyle}
+            onChange={changeAppearance}
+            onChangeGraphStyle={changeGraphStyle}
+            onClose={() => setAppearanceOpen(false)}
+          />
+        )}
+        {paletteOpen && (
+          <CommandPalette
+            commands={paletteCommands}
+            onClose={() => setPaletteOpen(false)}
+          />
+        )}
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            label={contextMenu.label}
+            items={contextMenu.items}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
+        {repo && tagTarget && (
+          <TagDialog
+            key={`tag-${repo.id}`}
+            repoId={repo.id}
+            commit={tagTarget}
+            head={repo.head}
+            onPublish={(name) => {
+              setTagTarget(null);
+              setTagPublication(name);
+            }}
+            onClose={() => setTagTarget(null)}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        )}
+        {repo && tagPublication !== undefined && (
+          <TagPublishDialog
+            key={`tag-publish-${repo.id}`}
+            repoId={repo.id}
+            initialTag={tagPublication ?? undefined}
+            onClose={() => setTagPublication(undefined)}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        )}
+        {creation && (
+          <InitializeDialog
+            key={`creation:${creation}`}
+            mode={creation}
+            onClose={() => setCreation(null)}
+            onLock={setWriting}
+            onOpen={choose}
+          />
+        )}
+        {repo && restoreOpen && (
+          <ConflictRestoreDialog
+            key={`restore:${repo.id}`}
+            repoId={repo.id}
+            onClose={() => {
+              setRestoreOpen(false);
+              setChangesRevision((value) => value + 1);
+            }}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        )}
+        {repo && stashOpen && (
+          <StashDialog
+            key={`stash:${repo.id}`}
+            repoId={repo.id}
+            onClose={() => setStashOpen(false)}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        )}
+        {repo && worktreeOpen && (
+          <WorktreeDialog
+            key={`worktrees:${repo.id}`}
+            repoId={repo.id}
+            repoPath={repo.path}
+            repoName={repo.name}
+            openTabPaths={tabs.map((item) => item.snapshot.path)}
+            onClose={() => setWorktreeOpen(false)}
+            onLock={setWriting}
+            onUpdated={() => refresh()}
+            onOpenInTab={(targetPath) => openRepositoryPath(targetPath)}
+            onAuthorize={() => setTrustPromptRepoId(repo.id)}
+          />
+        )}
+        {envDialogOpen && (
+          <EnvironmentDialog
+            status={envStatus}
+            checking={envChecking}
+            onRecheck={() => recheckEnvironment(false)}
+            onClose={() => setEnvDialogOpen(false)}
+          />
+        )}
+        {repo && snapshotsOpen && (
+          <SnapshotsDialog
+            key={`snapshots:${repo.id}`}
+            repoId={repo.id}
+            repoName={repo.name}
+            trusted={repo.trusted !== false}
+            preferences={snapshotPrefs}
+            onSavePreferences={saveSnapshotPreferences}
+            onAuthorize={() => {
+              setSnapshotsOpen(false);
+              setTrustPromptRepoId(repo.id);
+            }}
+            onRestored={async () => {
+              await refresh();
+            }}
+            onLock={setWriting}
+            onClose={() => setSnapshotsOpen(false)}
+          />
+        )}
+        {repo && lfsSubmodulesOpen && (
+          <LfsSubmodulesDialog
+            key={`lfs-sub:${repo.id}`}
+            repoId={repo.id}
+            repoName={repo.name}
+            trusted={repo.trusted !== false}
+            onAuthorize={() => {
+              setLfsSubmodulesOpen(false);
+              setTrustPromptRepoId(repo.id);
+            }}
+            onUpdated={async () => {
+              await refresh();
+            }}
+            onLock={setWriting}
+            onClose={() => setLfsSubmodulesOpen(false)}
+          />
+        )}
+        {repo && undoPlan && (
+          <UndoDialog
+            key={`undo:${undoPlan.token}`}
+            plan={undoPlan}
+            undoCount={undoState?.undoCount ?? 0}
+            redoCount={undoState?.redoCount ?? 0}
+            busy={undoBusy}
+            error={undoError}
+            onConfirm={confirmUndoPlan}
+            onClose={() => {
+              setUndoPlan(null);
+              setUndoError("");
+            }}
+          />
+        )}
+        {repo && trustPromptRepoId === repo.id && (
+          <TrustDialog
+            key={`trust:${repo.id}`}
+            repoId={repo.id}
+            repoName={repo.name}
+            repoPath={repo.path}
+            onAuthorized={() => {
+              updateRepoTrust(repo.id, true);
+              setTrustPromptRepoId(null);
+              setNotice(
+                "Repositorio autorizado. Operaciones locales habilitadas.",
+              );
+            }}
+            onReadOnly={() => {
+              dismissedTrustIdsRef.current.add(repo.id);
+              setTrustPromptRepoId(null);
+            }}
+            onLock={setWriting}
+          />
+        )}
+        {repo && searchDialogMode && (
+          <SearchDialog
+            key={`search:${repo.id}:${searchDialogMode}`}
+            repoId={repo.id}
+            repoName={repo.name}
+            currentScope={historyScope}
+            branches={branches.map((ref) => ref.name)}
+            initialMode={searchDialogMode}
+            initialQuery={query}
+            onClose={() => setSearchDialogMode(null)}
+            onJumpToCommit={jumpToSearchedCommit}
+          />
+        )}
+        {repo && fileHistoryTarget && (
+          <FileHistoryDialog
+            key={`fh:${repo.id}:${fileHistoryTarget.path}:${fileHistoryTarget.revision ?? "HEAD"}`}
+            repoId={repo.id}
+            path={fileHistoryTarget.path}
+            revision={fileHistoryTarget.revision}
+            onClose={() => setFileHistoryTarget(null)}
+            onJumpToCommit={jumpToSearchedCommit}
+            onOpenBlame={(targetPath, commitHash) =>
+              setBlameTarget({ path: targetPath, revision: commitHash })
             }
-            setNotice(
-              "Carpeta movida a la Papelera del sistema. No se eliminó el repositorio remoto.",
-            );
-          }}
-          currentPath={repo?.path}
-          onOpen={choose}
-          onClose={() => setLibraryOpen(false)}
-          onForgot={(path) => {
-            if (path === repo?.path) setPreferencesRepo(null);
-          }}
-        />
-      )}
-      {activityOpen && (
-        <ActivityDialog onClose={() => setActivityOpen(false)} />
-      )}
-      {appearanceOpen && (
-        <AppearanceDialog
-          theme={theme}
-          graphPalette={graphPalette}
-          graphStyle={graphStyle}
-          onChange={changeAppearance}
-          onChangeGraphStyle={changeGraphStyle}
-          onClose={() => setAppearanceOpen(false)}
-        />
-      )}
-      {paletteOpen && (
-        <CommandPalette
-          commands={paletteCommands}
-          onClose={() => setPaletteOpen(false)}
-        />
-      )}
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          label={contextMenu.label}
-          items={contextMenu.items}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
-      {repo && tagTarget && (
-        <TagDialog
-          key={`tag-${repo.id}`}
-          repoId={repo.id}
-          commit={tagTarget}
-          head={repo.head}
-          onPublish={(name) => {
-            setTagTarget(null);
-            setTagPublication(name);
-          }}
-          onClose={() => setTagTarget(null)}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {repo && tagPublication !== undefined && (
-        <TagPublishDialog
-          key={`tag-publish-${repo.id}`}
-          repoId={repo.id}
-          initialTag={tagPublication ?? undefined}
-          onClose={() => setTagPublication(undefined)}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {creation && (
-        <InitializeDialog
-          key={`creation:${creation}`}
-          mode={creation}
-          onClose={() => setCreation(null)}
-          onLock={setWriting}
-          onOpen={choose}
-        />
-      )}
-      {repo && restoreOpen && (
-        <ConflictRestoreDialog
-          key={`restore:${repo.id}`}
-          repoId={repo.id}
-          onClose={() => {
-            setRestoreOpen(false);
-            setChangesRevision((value) => value + 1);
-          }}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {repo && stashOpen && (
-        <StashDialog
-          key={`stash:${repo.id}`}
-          repoId={repo.id}
-          onClose={() => setStashOpen(false)}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {repo && worktreeOpen && (
-        <WorktreeDialog
-          key={`worktrees:${repo.id}`}
-          repoId={repo.id}
-          repoPath={repo.path}
-          repoName={repo.name}
-          openTabPaths={tabs.map((item) => item.snapshot.path)}
-          onClose={() => setWorktreeOpen(false)}
-          onLock={setWriting}
-          onUpdated={() => refresh()}
-          onOpenInTab={(targetPath) => openRepositoryPath(targetPath)}
-          onAuthorize={() => setTrustPromptRepoId(repo.id)}
-        />
-      )}
-      {envDialogOpen && (
-        <EnvironmentDialog
-          status={envStatus}
-          checking={envChecking}
-          onRecheck={() => recheckEnvironment(false)}
-          onClose={() => setEnvDialogOpen(false)}
-        />
-      )}
-      {repo && snapshotsOpen && (
-        <SnapshotsDialog
-          key={`snapshots:${repo.id}`}
-          repoId={repo.id}
-          repoName={repo.name}
-          trusted={repo.trusted !== false}
-          preferences={snapshotPrefs}
-          onSavePreferences={saveSnapshotPreferences}
-          onAuthorize={() => {
-            setSnapshotsOpen(false);
-            setTrustPromptRepoId(repo.id);
-          }}
-          onRestored={async () => {
-            await refresh();
-          }}
-          onLock={setWriting}
-          onClose={() => setSnapshotsOpen(false)}
-        />
-      )}
-      {repo && lfsSubmodulesOpen && (
-        <LfsSubmodulesDialog
-          key={`lfs-sub:${repo.id}`}
-          repoId={repo.id}
-          repoName={repo.name}
-          trusted={repo.trusted !== false}
-          onAuthorize={() => {
-            setLfsSubmodulesOpen(false);
-            setTrustPromptRepoId(repo.id);
-          }}
-          onUpdated={async () => {
-            await refresh();
-          }}
-          onLock={setWriting}
-          onClose={() => setLfsSubmodulesOpen(false)}
-        />
-      )}
-      {repo && undoPlan && (
-        <UndoDialog
-          key={`undo:${undoPlan.token}`}
-          plan={undoPlan}
-          undoCount={undoState?.undoCount ?? 0}
-          redoCount={undoState?.redoCount ?? 0}
-          busy={undoBusy}
-          error={undoError}
-          onConfirm={confirmUndoPlan}
-          onClose={() => {
-            setUndoPlan(null);
-            setUndoError("");
-          }}
-        />
-      )}
-      {repo && trustPromptRepoId === repo.id && (
-        <TrustDialog
-          key={`trust:${repo.id}`}
-          repoId={repo.id}
-          repoName={repo.name}
-          repoPath={repo.path}
-          onAuthorized={() => {
-            updateRepoTrust(repo.id, true);
-            setTrustPromptRepoId(null);
-            setNotice(
-              "Repositorio autorizado. Operaciones locales habilitadas.",
-            );
-          }}
-          onReadOnly={() => {
-            dismissedTrustIdsRef.current.add(repo.id);
-            setTrustPromptRepoId(null);
-          }}
-          onLock={setWriting}
-        />
-      )}
-      {repo && searchDialogMode && (
-        <SearchDialog
-          key={`search:${repo.id}:${searchDialogMode}`}
-          repoId={repo.id}
-          repoName={repo.name}
-          currentScope={historyScope}
-          branches={branches.map((ref) => ref.name)}
-          initialMode={searchDialogMode}
-          initialQuery={query}
-          onClose={() => setSearchDialogMode(null)}
-          onJumpToCommit={jumpToSearchedCommit}
-        />
-      )}
-      {repo && fileHistoryTarget && (
-        <FileHistoryDialog
-          key={`fh:${repo.id}:${fileHistoryTarget.path}:${fileHistoryTarget.revision ?? "HEAD"}`}
-          repoId={repo.id}
-          path={fileHistoryTarget.path}
-          revision={fileHistoryTarget.revision}
-          onClose={() => setFileHistoryTarget(null)}
-          onJumpToCommit={jumpToSearchedCommit}
-          onOpenBlame={(targetPath, commitHash) =>
-            setBlameTarget({ path: targetPath, revision: commitHash })
-          }
-        />
-      )}
-      {repo && blameTarget && (
-        <BlameDialog
-          key={`blame:${repo.id}:${blameTarget.path}:${blameTarget.revision ?? "HEAD"}`}
-          repoId={repo.id}
-          path={blameTarget.path}
-          revision={blameTarget.revision}
-          onClose={() => setBlameTarget(null)}
-          onJumpToCommitHash={(targetHash) => void jumpToCommitHash(targetHash)}
-          onOpenHistory={(targetPath, rev) =>
-            setFileHistoryTarget({ path: targetPath, revision: rev ?? null })
-          }
-        />
-      )}
-      {repo && comparePair && (
-        <CompareDialog
-          key={`cmp:${repo.id}:${comparePair.base.hash}:${comparePair.target.hash}`}
-          repoId={repo.id}
-          base={comparePair.base}
-          target={comparePair.target}
-          onClose={() => setComparePair(null)}
-          onSwap={() =>
-            setComparePair((pair) =>
-              pair ? { base: pair.target, target: pair.base } : null,
-            )
-          }
-        />
-      )}
-      {repo && replay !== undefined && (
-        <ReplayDialog
-          key={`replay:${repo.id}`}
-          repoId={repo.id}
-          initial={replay ?? undefined}
-          onClose={() => setReplay(undefined)}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
+          />
+        )}
+        {repo && blameTarget && (
+          <BlameDialog
+            key={`blame:${repo.id}:${blameTarget.path}:${blameTarget.revision ?? "HEAD"}`}
+            repoId={repo.id}
+            path={blameTarget.path}
+            revision={blameTarget.revision}
+            onClose={() => setBlameTarget(null)}
+            onJumpToCommitHash={(targetHash) =>
+              void jumpToCommitHash(targetHash)
+            }
+            onOpenHistory={(targetPath, rev) =>
+              setFileHistoryTarget({ path: targetPath, revision: rev ?? null })
+            }
+          />
+        )}
+        {repo && comparePair && (
+          <CompareDialog
+            key={`cmp:${repo.id}:${comparePair.base.hash}:${comparePair.target.hash}`}
+            repoId={repo.id}
+            base={comparePair.base}
+            target={comparePair.target}
+            onClose={() => setComparePair(null)}
+            onSwap={() =>
+              setComparePair((pair) =>
+                pair ? { base: pair.target, target: pair.base } : null,
+              )
+            }
+          />
+        )}
+        {repo && replay !== undefined && (
+          <ReplayDialog
+            key={`replay:${repo.id}`}
+            repoId={repo.id}
+            initial={replay ?? undefined}
+            onClose={() => setReplay(undefined)}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        )}
+      </Suspense>
       <div className="app-header">
         <a className="skip-navigation" href={`#${view}-content`}>
           Saltar al contenido
@@ -3293,44 +3308,40 @@ function App() {
         />
       )}
       {repo && (
-        <RemotesPanel
-          key={`remotes-${repo.id}`}
-          active={view === "remotes"}
-          repoId={repo.id}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {repo && (
-        <PushPanel
-          key={`push-${repo.id}`}
-          repository={{ name: repo.name, path: repo.path }}
-          onResult={(result) => rememberResult(result, "push", repo.id)}
-          active={view === "push"}
-          repoId={repo.id}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {repo && (
-        <PullPanel
-          key={`pull-${repo.id}`}
-          active={view === "pull"}
-          repoId={repo.id}
-          onLock={setWriting}
-          onUpdated={refresh}
-          onBranches={() => setView("branches")}
-        />
-      )}
-      {repo && (
-        <BranchesPanel
-          key={`branches-${repo.id}`}
-          active={view === "branches"}
-          repoId={repo.id}
-          initialBranch={branchPreselect}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
+        <Suspense fallback={null}>
+          <RemotesPanel
+            key={`remotes-${repo.id}`}
+            active={view === "remotes"}
+            repoId={repo.id}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+          <PushPanel
+            key={`push-${repo.id}`}
+            repository={{ name: repo.name, path: repo.path }}
+            onResult={(result) => rememberResult(result, "push", repo.id)}
+            active={view === "push"}
+            repoId={repo.id}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+          <PullPanel
+            key={`pull-${repo.id}`}
+            active={view === "pull"}
+            repoId={repo.id}
+            onLock={setWriting}
+            onUpdated={refresh}
+            onBranches={() => setView("branches")}
+          />
+          <BranchesPanel
+            key={`branches-${repo.id}`}
+            active={view === "branches"}
+            repoId={repo.id}
+            initialBranch={branchPreselect}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        </Suspense>
       )}
       <section
         id="history-content"

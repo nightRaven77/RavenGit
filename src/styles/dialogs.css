@@ -1330,10 +1330,10 @@
 }
 .shortcuts-dialog {
   width: min(680px, calc(100vw - 32px));
-  max-height: min(82vh, 640px);
+  max-height: min(88vh, 720px);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 .shortcuts-search {
   display: flex;
@@ -1378,10 +1378,10 @@
   border: 1px solid var(--border-subtle);
   background: var(--bg-surface);
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .shortcuts-group h3 {
   margin: 0;
@@ -1397,7 +1397,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 .shortcut-row {
   display: flex;
@@ -1553,12 +1553,16 @@
   font-size: 11px;
   color: var(--accent-text);
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .pr-state-pill {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 999px;
   border: 1px solid var(--border-default);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .pr-state-pill.open {
   color: var(--success);
@@ -1716,4 +1720,53 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.primary-button,
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.primary-button {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.primary-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.ghost-button {
+  border: 1px solid var(--border-strong);
+  background: var(--bg-control);
+  color: var(--text-secondary);
+}
+.ghost-button:hover:not(:disabled) {
+  background: var(--bg-control-hover);
+}
+.ghost-button.danger-button,
+.danger-button {
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+.ghost-button.danger-button:hover:not(:disabled),
+.danger-button:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+.primary-button:disabled,
+.ghost-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.snapshots-dialog footer.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
 }

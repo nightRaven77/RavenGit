@@ -392,7 +392,10 @@ export function WipRow({
         </svg>
       </span>
       <span className="wip-main">
-        <span className="wip-title">Cambios sin commitear (WIP)</span>
+        <span className="wip-header-line">
+          <span className="wip-title">Cambios sin commitear (WIP)</span>
+          <span className="wip-cta">Ir a Cambios →</span>
+        </span>
         <span className="wip-badges">
           {wip.staged > 0 && (
             <span className="wip-badge staged">{wip.staged} preparados</span>
@@ -412,7 +415,6 @@ export function WipRow({
           )}
         </span>
       </span>
-      <span className="wip-cta">Ir a Cambios →</span>
     </button>
   );
 }

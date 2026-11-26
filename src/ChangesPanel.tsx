@@ -83,6 +83,7 @@ export default function ChangesPanel({
   const [preferTextForImage, setPreferTextForImage] = useState(false);
   const imageDiffRequest = useRef(0);
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
+  const [wrapLines, setWrapLines] = useState(true);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
   const [contextLines, setContextLines] = useState(3);
   const [lineSelection, setLineSelection] = useState<{
@@ -1266,6 +1267,8 @@ export default function ChangesPanel({
                     mode={effectiveDiffMode}
                     onChange={setDiffMode}
                     available={splitAvailable}
+                    wrapLines={wrapLines}
+                    onWrapLinesChange={setWrapLines}
                     ignoreWhitespace={ignoreWhitespace}
                     onIgnoreWhitespaceChange={
                       selectedEntry?.untracked ? undefined : setIgnoreWhitespace
@@ -1403,6 +1406,7 @@ export default function ChangesPanel({
                             text={hunk.text}
                             mode={effectiveDiffMode}
                             filePath={selected.path}
+                            wrapLines={wrapLines}
                             selectable={effectiveDiffMode === "unified"}
                             selectedLines={selectedSet}
                             onLineClick={(bodyIdx, shiftKey) =>
@@ -1416,6 +1420,7 @@ export default function ChangesPanel({
                     <DiffContent
                       mode={effectiveDiffMode}
                       filePath={selected.path}
+                      wrapLines={wrapLines}
                       text={diff.text || "Sin diferencias de contenido."}
                     />
                   )}

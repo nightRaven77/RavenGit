@@ -1203,6 +1203,25 @@ p {
   padding: 0 16px;
   white-space: pre;
 }
+.diff-content-wrap.wrap-lines > pre {
+  white-space: pre-wrap;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.diff-content-wrap.wrap-lines .diff-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.diff-content-wrap.no-wrap .split-diff {
+  table-layout: auto;
+}
+.diff-content-wrap.no-wrap .split-cell,
+.diff-content-wrap.no-wrap .split-meta {
+  white-space: pre;
+  overflow-wrap: normal;
+}
 .diff-line.addition {
   color: var(--success-text);
   background: var(--success-soft);

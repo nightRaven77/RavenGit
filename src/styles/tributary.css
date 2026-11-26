@@ -124,11 +124,28 @@
   color: var(--accent-text);
 }
 .wip-row.tributary .wip-main {
+  grid-column: 3 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
   padding-left: 6px;
+  padding-right: 12px;
+}
+.wip-header-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 .wip-row.tributary .wip-cta {
-  padding-right: 12px;
-  justify-self: end;
+  padding-right: 0;
+  margin-left: 0;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent-text);
 }
 .graph-style-grid {
   display: grid;
@@ -141,16 +158,18 @@
   gap: 6px;
 }
 .appearance-preview-refs {
-  width: 124px;
+  width: 172px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
+  padding-left: 4px;
   overflow: hidden;
 }
 .appearance-preview-refs .ref {
-  max-width: 68px;
+  max-width: 84px;
+  flex-shrink: 0;
   font-size: 9px;
   border-radius: 999px;
 }

@@ -122,3 +122,22 @@ it("muestra controles -w, contexto y minimapa en diffs largos", async () => {
   );
   expect(onContext).toHaveBeenCalledWith(6);
 });
+
+it("activa ajuste de líneas por defecto y permite alternarlo", async () => {
+  const { container } = render(
+    <DiffViewer
+      text={
+        '@@ -1 +1 @@\n-const larga = "texto muy largo";\n+const larga = "texto muy largo actualizado para probar ajuste";\n'
+      }
+      filePath="src/wrap.ts"
+    />,
+  );
+
+  const toggle = screen.getByRole("button", { name: "Ajustar líneas" });
+  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  expect(container.querySelector(".diff-content-wrap.wrap-lines")).toBeTruthy();
+
+  await userEvent.click(toggle);
+  expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  expect(container.querySelector(".diff-content-wrap.no-wrap")).toBeTruthy();
+});

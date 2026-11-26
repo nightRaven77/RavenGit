@@ -28,6 +28,8 @@ export function DiffModeControl({
   onIgnoreWhitespaceChange,
   contextLines = 3,
   onContextLinesChange,
+  wrapLines = true,
+  onWrapLinesChange,
 }: {
   mode: DiffMode;
   onChange: (mode: DiffMode) => void;
@@ -36,6 +38,8 @@ export function DiffModeControl({
   onIgnoreWhitespaceChange?: (value: boolean) => void;
   contextLines?: number;
   onContextLinesChange?: (value: number) => void;
+  wrapLines?: boolean;
+  onWrapLinesChange?: (value: boolean) => void;
 }) {
   return (
     <div className="diff-mode" role="group" aria-label="Formato del diff">
@@ -56,6 +60,17 @@ export function DiffModeControl({
       >
         Dividido
       </button>
+      {onWrapLinesChange && (
+        <button
+          type="button"
+          className="button"
+          aria-pressed={wrapLines}
+          onClick={() => onWrapLinesChange(!wrapLines)}
+          title="Ajustar líneas largas al ancho del panel sin desplazamiento horizontal"
+        >
+          Ajustar líneas
+        </button>
+      )}
       {onIgnoreWhitespaceChange && (
         <button
           type="button"
@@ -352,6 +367,7 @@ export const DiffContent = memo(function DiffContent({
   selectedLines,
   onLineClick,
   showMinimap = true,
+  wrapLines = true,
 }: {
   text: string;
   mode?: DiffMode;
@@ -360,6 +376,7 @@ export const DiffContent = memo(function DiffContent({
   selectedLines?: ReadonlySet<number>;
   onLineClick?: (bodyLineIndex: number, shiftKey: boolean) => void;
   showMinimap?: boolean;
+  wrapLines?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const splitScrollRef = useRef<HTMLDivElement>(null);
@@ -423,7 +440,10 @@ export const DiffContent = memo(function DiffContent({
 
   if (mode === "split" && rows && splitMeta) {
     return (
-      <div ref={wrapRef} className="diff-content-wrap">
+      <div
+        ref={wrapRef}
+        className={`diff-content-wrap ${wrapLines ? "wrap-lines" : "no-wrap"}`}
+      >
         <div
           ref={splitScrollRef}
           className="split-scroll"
@@ -486,7 +506,10 @@ export const DiffContent = memo(function DiffContent({
           comparación dividida.
         </p>
       )}
-      <div ref={wrapRef} className="diff-content-wrap">
+      <div
+        ref={wrapRef}
+        className={`diff-content-wrap ${wrapLines ? "wrap-lines" : "no-wrap"}`}
+      >
         <pre aria-label="Contenido del diff">
           {lines.map((entry, i) => {
             const line = entry.raw;
@@ -591,6 +614,7 @@ export default function DiffViewer({
   onContextLinesChange?: (value: number) => void;
 }) {
   const [mode, setMode] = useState<DiffMode>("unified");
+  const [wrapLines, setWrapLines] = useState(true);
   const available = useMemo(() => splitDiff(text) !== null, [text]);
   const effective = available ? mode : "unified";
   return (
@@ -603,8 +627,15 @@ export default function DiffViewer({
         onIgnoreWhitespaceChange={onIgnoreWhitespaceChange}
         contextLines={contextLines}
         onContextLinesChange={onContextLinesChange}
+        wrapLines={wrapLines}
+        onWrapLinesChange={setWrapLines}
       />
-      <DiffContent text={text} mode={effective} filePath={filePath} />
+      <DiffContent
+        text={text}
+        mode={effective}
+        filePath={filePath}
+        wrapLines={wrapLines}
+      />
     </>
   );
 }

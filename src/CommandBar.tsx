@@ -1,15 +1,17 @@
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { PlusIcon } from "@radix-ui/react-icons";
 import {
-  DownloadIcon,
-  ReloadIcon,
-  ArrowDownIcon,
-  ArrowUpIcon,
-  Share2Icon,
-  ArchiveIcon,
-  MagnifyingGlassIcon,
-  PlusIcon,
-  QuestionMarkCircledIcon,
-} from "@radix-ui/react-icons";
+  AnimBranchIcon,
+  AnimFetchIcon,
+  AnimHelpIcon,
+  AnimLibraryIcon,
+  AnimPaletteIcon,
+  AnimPullIcon,
+  AnimPushIcon,
+  AnimRefreshIcon,
+  AnimSearchIcon,
+  AnimStashIcon,
+} from "./AnimatedIcons";
 import type { Snapshot } from "./types";
 
 export interface RepoTabItem {
@@ -98,7 +100,7 @@ export default function CommandBar({
   const actions: Action[] = [
     {
       label: "Fetch",
-      icon: ArrowDownIcon,
+      icon: AnimFetchIcon,
       description: "Abrir Remotos para elegir el destino y confirmar Fetch",
       run: onFetch,
       needsRepo: true,
@@ -106,7 +108,7 @@ export default function CommandBar({
     },
     {
       label: "Pull",
-      icon: DownloadIcon,
+      icon: AnimPullIcon,
       description:
         "Abrir Pull para revisar el upstream, confirmar Fetch e integrar con merge",
       run: onPull,
@@ -115,7 +117,7 @@ export default function CommandBar({
     },
     {
       label: "Push",
-      icon: ArrowUpIcon,
+      icon: AnimPushIcon,
       description:
         "Abrir Publicar para revisar remoto, ramas y commits antes de enviar",
       run: onPush,
@@ -125,7 +127,7 @@ export default function CommandBar({
     },
     {
       label: "Rama",
-      icon: Share2Icon,
+      icon: AnimBranchIcon,
       description: "Crear, cambiar o renombrar ramas locales",
       run: onBranches,
       needsRepo: true,
@@ -133,7 +135,7 @@ export default function CommandBar({
     },
     {
       label: "Stash",
-      icon: ArchiveIcon,
+      icon: AnimStashIcon,
       description:
         "Guardar cambios temporalmente o restaurar un stash conservando su entrada",
       run: onStash,
@@ -142,7 +144,7 @@ export default function CommandBar({
     },
     {
       label: "Buscar",
-      icon: MagnifyingGlassIcon,
+      icon: AnimSearchIcon,
       description: "Buscar mensaje, autor o hash en el historial cargado",
       run: onSearch,
       needsRepo: true,
@@ -150,7 +152,7 @@ export default function CommandBar({
     },
     {
       label: "Actualizar",
-      icon: ReloadIcon,
+      icon: AnimRefreshIcon,
       description:
         "Releer historial y referencias locales; no contacta con servidores",
       run: onRefresh,
@@ -390,17 +392,7 @@ export default function CommandBar({
                   if (!locked) onAppearance();
                 }}
               >
-                <svg
-                  viewBox="0 0 16 16"
-                  width="13"
-                  height="13"
-                  aria-hidden="true"
-                >
-                  <path
-                    fill="currentColor"
-                    d="M8 1.5a6.5 6.5 0 1 0 0 13 1.4 1.4 0 0 0 1.3-1.9c-.2-.5-.1-1 .3-1.3.4-.3.9-.3 1.4-.3H12a2.5 2.5 0 0 0 2.5-2.5C14.5 4.4 11.6 1.5 8 1.5Zm-3 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm2-3a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm3.5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"
-                  />
-                </svg>
+                <AnimPaletteIcon width={14} height={14} />
                 <span className="header-appearance-label">Apariencia</span>
                 {themeSwatches && themeSwatches.length > 0 && (
                   <span className="appearance-swatches" aria-hidden="true">
@@ -426,17 +418,7 @@ export default function CommandBar({
                   if (!locked) onLibrary();
                 }}
               >
-                <svg
-                  viewBox="0 0 16 16"
-                  width="14"
-                  height="14"
-                  aria-hidden="true"
-                >
-                  <path
-                    fill="currentColor"
-                    d="M2.25 2.5A1.25 1.25 0 0 1 3.5 1.25H7a1.5 1.5 0 0 1 1 .38 1.5 1.5 0 0 1 1-.38h3.5a1.25 1.25 0 0 1 1.25 1.25v9.75a1.25 1.25 0 0 1-1.25 1.25H9a1.25 1.25 0 0 0-1 .5 1.25 1.25 0 0 0-1-.5H3.5a1.25 1.25 0 0 1-1.25-1.25V2.5Zm1.5 0v9.5H7c.35 0 .68.12.95.33V2.75A.5.5 0 0 0 7.45 2.5H3.75Zm5.55 9.83c.27-.21.6-.33.95-.33h2.25V2.5H9.8a.5.5 0 0 0-.5.25v9.58Z"
-                  />
-                </svg>
+                <AnimLibraryIcon width={14} height={14} />
               </button>
             )}
             {onQuickGuide && (
@@ -450,7 +432,7 @@ export default function CommandBar({
                   if (!locked) onQuickGuide();
                 }}
               >
-                <QuestionMarkCircledIcon aria-hidden="true" />
+                <AnimHelpIcon width={14} height={14} />
               </button>
             )}
           </div>

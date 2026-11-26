@@ -3361,7 +3361,13 @@ function App() {
           ) : !repo ? (
             <div className="empty-state">
               <span className="empty-icon">
-                <CommitIcon width="28" height="28" />
+                <img
+                  src="/ravengit.svg"
+                  width="34"
+                  height="34"
+                  alt=""
+                  aria-hidden="true"
+                />
               </span>
               <div className="eyebrow">CADA RAMA TIENE UNA HISTORIA</div>
               <h2>Empieza por tu repositorio.</h2>
@@ -3377,6 +3383,22 @@ function App() {
                 >
                   <OpenInNewWindowIcon />
                   Abrir repositorio local
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={busy}
+                  onClick={() => setCreation("clone")}
+                >
+                  Clonar URL…
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={busy}
+                  onClick={() => setCreation("initialize")}
+                >
+                  Crear nuevo…
                 </button>
                 <button
                   type="button"

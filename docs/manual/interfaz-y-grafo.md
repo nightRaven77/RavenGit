@@ -23,6 +23,7 @@ La barra lateral organiza el contexto del repositorio activo:
 - **Control de biblioteca y creación:** botón **Repositorios ▾** (abre tu biblioteca local y colecciones), **Nuevo repositorio…** y **Clonar repositorio…**.
 - **Vistas principales:** **Cambios**, **Historial** y **Sincronizar**.
 - **Cajón de Herramientas** (en Modo Completo): acceso directo a recuperación de conflictos, creación/publicación de etiquetas, operaciones de commit, ramas, worktrees, actividad y diagnóstico, apariencia, snapshots locales, Git LFS y Submódulos, Pull Requests / MRs, Undo/Redo, entorno Git, guía rápida y atajos de teclado.
+- **Filtro rápido de referencias:** campo compacto encima de las secciones para filtrar en vivo ramas locales (conservando carpetas de prefijo), referencias remotas, etiquetas y worktrees, con botón para limpiar el filtro.
 - **Secciones de referencias:**
   - **RAMAS LOCALES:** agrupadas automáticamente por prefijo (por ejemplo `feature/`, `fix/`), con indicador `actual` sobre tu rama activa.
   - **REFERENCIAS REMOTAS** y **ETIQUETAS** (visibles en Modo Completo).

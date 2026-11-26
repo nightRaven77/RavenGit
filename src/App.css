@@ -834,6 +834,7 @@ p {
   font-size: 11px;
   padding: 0;
   cursor: pointer;
+  transition: background-color 0.14s ease;
 }
 .commit-row:hover {
   background: var(--bg-row-hover);
@@ -1443,4 +1444,64 @@ p {
 }
 .repo-navigation button > span {
   margin-left: auto;
+}
+.empty-icon img {
+  display: block;
+}
+.anim-icon {
+  flex-shrink: 0;
+}
+.anim-icon > g,
+.anim-icon > path,
+.anim-icon > circle {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.command-action:hover:not(:disabled) .anim-arrow-down,
+.command-action:focus-visible:not(:disabled) .anim-arrow-down {
+  transform: translateY(1.6px);
+}
+.command-action:hover:not(:disabled) .anim-arrow-up,
+.command-action:focus-visible:not(:disabled) .anim-arrow-up {
+  transform: translateY(-1.6px);
+}
+.command-action:hover:not(:disabled) .anim-spin,
+.command-action:focus-visible:not(:disabled) .anim-spin {
+  transform: rotate(180deg);
+}
+.command-action:hover:not(:disabled) .anim-lid,
+.command-action:focus-visible:not(:disabled) .anim-lid {
+  transform: translateY(-1.5px) rotate(-4deg);
+}
+.command-action:hover:not(:disabled) .anim-tilt,
+.header-appearance-btn:hover:not(:disabled) .anim-tilt,
+.workspace-tools > summary:hover .anim-tilt {
+  transform: rotate(-10deg) scale(1.06);
+}
+.header-icon-btn:hover:not(:disabled) .anim-book-right {
+  transform: translateX(1.2px);
+}
+.nav-button:hover:not(:disabled) .anim-arrow-right,
+.nav-active:hover:not(:disabled) .anim-arrow-right {
+  transform: translateX(1.8px);
+}
+.nav-button:hover:not(:disabled) .anim-line-shift,
+.nav-active:hover:not(:disabled) .anim-line-shift {
+  transform: translateX(1px);
+}
+.command-action:hover:not(:disabled) .anim-node-pop,
+.header-icon-btn:hover:not(:disabled) .anim-node-pop,
+.nav-button:hover:not(:disabled) .anim-node-pop,
+.nav-active:hover:not(:disabled) .anim-node-pop,
+.sidebar-sections summary:hover .anim-node-pop {
+  transform: scale(1.2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .commit-row,
+  .anim-icon > g,
+  .anim-icon > path,
+  .anim-icon > circle {
+    transition: none !important;
+  }
 }

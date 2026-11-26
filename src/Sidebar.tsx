@@ -1,10 +1,16 @@
+import { useEffect, useMemo, useState } from "react";
+import { LockClosedIcon, OpenInNewWindowIcon } from "@radix-ui/react-icons";
 import {
-  ArrowRightIcon,
-  CommitIcon,
-  FileTextIcon,
-  LockClosedIcon,
-  OpenInNewWindowIcon,
-} from "@radix-ui/react-icons";
+  AnimBranchIcon,
+  AnimChangesIcon,
+  AnimHistoryIcon,
+  AnimRemoteIcon,
+  AnimSearchIcon,
+  AnimSyncIcon,
+  AnimTagIcon,
+  AnimToolsIcon,
+  AnimWorktreeIcon,
+} from "./AnimatedIcons";
 import { refName, type RepoView } from "./appHelpers";
 import type {
   GitRef,
@@ -101,6 +107,52 @@ export default function Sidebar({
   onOpenRepositoryPath,
   onOpenWorktreeContextMenu,
 }: SidebarProps) {
+  const [refFilter, setRefFilter] = useState("");
+  useEffect(() => {
+    setRefFilter("");
+  }, [repo?.id]);
+
+  const normalizedFilter = useMemo(
+    () =>
+      refFilter
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase(),
+    [refFilter],
+  );
+  const hasFilter = normalizedFilter.length > 0;
+  const matchesText = (value: string) =>
+    !hasFilter ||
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLocaleLowerCase()
+      .includes(normalizedFilter);
+
+  const filteredBranches = useMemo(
+    () => branches.filter((r) => matchesText(refName(r.name))),
+    [branches, normalizedFilter],
+  );
+  const filteredRemotes = useMemo(
+    () => remotes.filter((r) => matchesText(refName(r.name))),
+    [remotes, normalizedFilter],
+  );
+  const filteredTags = useMemo(
+    () => tags.filter((r) => matchesText(refName(r.name))),
+    [tags, normalizedFilter],
+  );
+  const filteredWorktrees = useMemo(
+    () =>
+      worktrees.filter(
+        (wt) =>
+          matchesText(wt.name) ||
+          (wt.branch ? matchesText(wt.branch) : false) ||
+          matchesText(wt.path),
+      ),
+    [worktrees, normalizedFilter],
+  );
+
   return (
     <aside className="sidebar">
       <div className="sidebar-repo-controls">
@@ -145,7 +197,7 @@ export default function Sidebar({
           className={view === "changes" ? "nav-active" : "nav-button"}
           onClick={() => onSelectView("changes")}
         >
-          <FileTextIcon />
+          <AnimChangesIcon width={14} height={14} />
           Cambios
           {wip?.trusted && wip.total > 0 && <span>{wip.total}</span>}
         </button>
@@ -155,7 +207,7 @@ export default function Sidebar({
           className={view === "history" ? "nav-active" : "nav-button"}
           onClick={() => onSelectView("history")}
         >
-          <CommitIcon />
+          <AnimHistoryIcon width={14} height={14} />
           Historial<span>{commitsCount || "—"}</span>
         </button>
         <button
@@ -164,7 +216,7 @@ export default function Sidebar({
           className={syncing ? "nav-active" : "nav-button"}
           onClick={() => onGoSync(lastSyncView)}
         >
-          <ArrowRightIcon />
+          <AnimSyncIcon width={14} height={14} />
           Sincronizar
         </button>
       </nav>
@@ -198,7 +250,10 @@ export default function Sidebar({
           className="workspace-tools"
           open={view === "branches" || undefined}
         >
-          <summary>Herramientas</summary>
+          <summary>
+            <AnimToolsIcon width={13} height={13} />
+            Herramientas
+          </summary>
           <nav
             className="repo-navigation"
             aria-label="Herramientas del repositorio"
@@ -329,13 +384,53 @@ export default function Sidebar({
           </nav>
         </details>
       )}
+      {repo && (
+        <div className="sidebar-filter">
+          <AnimSearchIcon width={13} height={13} />
+          <input
+            type="text"
+            value={refFilter}
+            aria-label="Filtrar ramas y referencias"
+            placeholder="Filtrar ramas, tags…"
+            onChange={(event) => setRefFilter(event.target.value)}
+          />
+          {refFilter && (
+            <button
+              type="button"
+              className="sidebar-filter-clear"
+              aria-label="Limpiar filtro lateral"
+              onClick={() => setRefFilter("")}
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
       <div className="sidebar-sections">
         {(simpleMode
-          ? [{ label: "RAMAS LOCALES", refs: branches }]
+          ? [
+              {
+                label: "RAMAS LOCALES",
+                refs: filteredBranches,
+                Icon: AnimBranchIcon,
+              },
+            ]
           : [
-              { label: "RAMAS LOCALES", refs: branches },
-              { label: "REFERENCIAS REMOTAS", refs: remotes },
-              { label: "ETIQUETAS", refs: tags },
+              {
+                label: "RAMAS LOCALES",
+                refs: filteredBranches,
+                Icon: AnimBranchIcon,
+              },
+              {
+                label: "REFERENCIAS REMOTAS",
+                refs: filteredRemotes,
+                Icon: AnimRemoteIcon,
+              },
+              {
+                label: "ETIQUETAS",
+                refs: filteredTags,
+                Icon: AnimTagIcon,
+              },
             ]
         ).map((group) => {
           const renderRefButton = (r: GitRef, prefix?: string) => {
@@ -404,10 +499,20 @@ export default function Sidebar({
               </>
             );
           };
+          const GroupIcon = group.Icon;
           return (
-            <details key={group.label} open={group.label === "RAMAS LOCALES"}>
+            <details
+              key={group.label}
+              open={
+                group.label === "RAMAS LOCALES" ||
+                (hasFilter && group.refs.length > 0)
+              }
+            >
               <summary>
-                {group.label}
+                <span className="sidebar-summary-label">
+                  <GroupIcon width={12} height={12} />
+                  {group.label}
+                </span>
                 <span>{group.refs.length}</span>
               </summary>
               {group.refs.length ? (
@@ -418,70 +523,86 @@ export default function Sidebar({
                 )
               ) : (
                 <p className="sidebar-empty">
-                  {repo ? "Sin referencias" : "Abre un repositorio"}
+                  {repo
+                    ? hasFilter
+                      ? "Sin coincidencias"
+                      : "Sin referencias"
+                    : "Abre un repositorio"}
                 </p>
               )}
             </details>
           );
         })}
         {!simpleMode && (
-          <details open={worktrees.length > 1}>
+          <details
+            open={
+              worktrees.length > 1 ||
+              (hasFilter && filteredWorktrees.length > 0)
+            }
+          >
             <summary>
-              WORKTREES
-              <span>{worktrees.length}</span>
+              <span className="sidebar-summary-label">
+                <AnimWorktreeIcon width={12} height={12} />
+                WORKTREES
+              </span>
+              <span>{filteredWorktrees.length}</span>
             </summary>
             {repo ? (
               <>
-                {worktrees.map((wt) => {
-                  const isOpenTab = tabs.some(
-                    (tab) => tab.snapshot.path === wt.path,
-                  );
-                  const subtitle = wt.branch
-                    ? wt.branch
-                    : wt.bare
-                      ? "bare"
-                      : wt.detached
-                        ? "HEAD separado"
-                        : "sin rama";
-                  return (
-                    <button
-                      key={wt.path}
-                      type="button"
-                      className={`branch-button worktree-item ${wt.current ? "current" : ""}`}
-                      disabled={writing || wt.current || wt.prunable}
-                      title={`${wt.path} · ${subtitle}${wt.locked ? " (bloqueado)" : ""}${wt.prunable ? " (obsoleto)" : ""}`}
-                      onClick={() => {
-                        if (!wt.current && !wt.prunable) {
-                          onOpenRepositoryPath(wt.path);
-                        }
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        onOpenWorktreeContextMenu(
-                          wt,
-                          event.clientX,
-                          event.clientY,
-                        );
-                      }}
-                    >
-                      <span
-                        className={`branch-dot ${wt.prunable ? "other" : wt.current ? "branch" : "remote"}`}
-                      />
-                      <span className="truncate">{wt.name}</span>
-                      <span className="worktree-side-meta">
-                        {wt.current
-                          ? "actual"
-                          : wt.locked
-                            ? "bloq."
-                            : wt.prunable
-                              ? "obsoleto"
-                              : isOpenTab
-                                ? "abierto"
-                                : subtitle}
-                      </span>
-                    </button>
-                  );
-                })}
+                {filteredWorktrees.length > 0 ? (
+                  filteredWorktrees.map((wt) => {
+                    const isOpenTab = tabs.some(
+                      (tab) => tab.snapshot.path === wt.path,
+                    );
+                    const subtitle = wt.branch
+                      ? wt.branch
+                      : wt.bare
+                        ? "bare"
+                        : wt.detached
+                          ? "HEAD separado"
+                          : "sin rama";
+                    return (
+                      <button
+                        key={wt.path}
+                        type="button"
+                        className={`branch-button worktree-item ${wt.current ? "current" : ""}`}
+                        disabled={writing || wt.current || wt.prunable}
+                        title={`${wt.path} · ${subtitle}${wt.locked ? " (bloqueado)" : ""}${wt.prunable ? " (obsoleto)" : ""}`}
+                        onClick={() => {
+                          if (!wt.current && !wt.prunable) {
+                            onOpenRepositoryPath(wt.path);
+                          }
+                        }}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          onOpenWorktreeContextMenu(
+                            wt,
+                            event.clientX,
+                            event.clientY,
+                          );
+                        }}
+                      >
+                        <span
+                          className={`branch-dot ${wt.prunable ? "other" : wt.current ? "branch" : "remote"}`}
+                        />
+                        <span className="truncate">{wt.name}</span>
+                        <span className="worktree-side-meta">
+                          {wt.current
+                            ? "actual"
+                            : wt.locked
+                              ? "bloq."
+                              : wt.prunable
+                                ? "obsoleto"
+                                : isOpenTab
+                                  ? "abierto"
+                                  : subtitle}
+                        </span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p className="sidebar-empty">Sin coincidencias</p>
+                )}
                 <div className="sidebar-worktree-actions">
                   <button
                     type="button"

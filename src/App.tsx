@@ -12,16 +12,31 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  ArrowRightIcon,
   CommitIcon,
   ExclamationTriangleIcon,
-  FileTextIcon,
-  OpenInNewWindowIcon,
   MagnifyingGlassIcon,
-  LockClosedIcon,
+  OpenInNewWindowIcon,
 } from "@radix-ui/react-icons";
 import { layoutGraph, graphPixelWidth } from "./graph";
-import GraphCell from "./GraphCell";
+import CommitInspector from "./CommitInspector";
+import { CommitRow, HistoryTimeSeparator, WipRow } from "./HistoryRow";
+import Sidebar from "./Sidebar";
+import StatusBar from "./StatusBar";
+import {
+  COMPACT_ROW_HEIGHT,
+  DEFAULT_REFS_COL_WIDTH,
+  MAX_OPEN_TABS,
+  MAX_REFS_COL_WIDTH,
+  MIN_REFS_COL_WIDTH,
+  TRIBUTARY_GROUP_HEIGHT,
+  TRIBUTARY_ROW_HEIGHT,
+  defaultTabEntry,
+  errorText,
+  refName,
+  short,
+  type RepoView,
+  type TabEntry,
+} from "./appHelpers";
 import type {
   Commit,
   CommitDiff,
@@ -42,6 +57,9 @@ import type {
 } from "./types";
 import "./themes.css";
 import "./App.css";
+import "./styles/panels.css";
+import "./styles/dialogs.css";
+import "./styles/tributary.css";
 import "./workspace.css";
 import {
   DEFAULT_APP_SETTINGS,
@@ -62,19 +80,17 @@ import {
   type ThemeId,
 } from "./themes";
 import OpenExternalMenu from "./OpenExternalMenu";
-import AuthorAvatar from "./AuthorAvatar";
 import type { RepositoryLibrary, HistoryPreferences } from "./library";
 import ChangesPanel from "./ChangesPanel";
 import OperationNotice, { type OperationResult } from "./OperationNotice";
 import CommandBar from "./CommandBar";
-import DiffViewer, { DiffModeControl } from "./DiffViewer";
 
 const RemotesPanel = lazy(() => import("./RemotesPanel"));
 const PushPanel = lazy(() => import("./PushPanel"));
 const PullPanel = lazy(() => import("./PullPanel"));
 const BranchesPanel = lazy(() => import("./BranchesPanel"));
-import ImageDiffViewer, { isImageAssetPath } from "./ImageDiffViewer";
 import TrustDialog from "./TrustDialog";
+import { isImageAssetPath } from "./ImageDiffViewer";
 import type { ReplayTarget } from "./ReplayDialog";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import CommandPalette, { type PaletteCommand } from "./CommandPalette";
@@ -105,138 +121,6 @@ import {
   type OperationReport,
   type OperationStatus,
 } from "./operations";
-function formatCommitDate(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? "Sin fecha"
-    : date.toLocaleDateString("es-MX", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      });
-}
-function formatRelativeCommitDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Sin fecha";
-  const diffMs = Date.now() - date.getTime();
-  if (diffMs < 0) return formatCommitDate(value);
-  const diffHours = Math.floor(diffMs / 3_600_000);
-  const diffDays = Math.floor(diffMs / 86_400_000);
-  if (diffHours < 1) return "hace un momento";
-  if (diffDays === 0) return `hace ${diffHours} h`;
-  if (diffDays === 1) return "ayer";
-  if (diffDays < 7) return `hace ${diffDays} días`;
-  return formatCommitDate(value);
-}
-const COMPACT_ROW_HEIGHT = 42;
-const TRIBUTARY_ROW_HEIGHT = 52;
-const DEFAULT_REFS_COL_WIDTH = 176;
-const MIN_REFS_COL_WIDTH = 120;
-const MAX_REFS_COL_WIDTH = 280;
-const TRIBUTARY_GROUP_HEIGHT = 28;
-const short = (s: string) => s.slice(0, 8);
-const refName = (s: string) => s.replace(/^refs\/(heads|remotes|tags)\//, "");
-function errorText(error: unknown): string {
-  if (typeof error === "object" && error && "message" in error)
-    return String(error.message);
-  return "No se pudo completar la lectura. Vuelve a intentarlo.";
-}
-function LocalDeviceIcon() {
-  return (
-    <svg viewBox="0 0 12 12" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M2 2.5A1 1 0 0 1 3 1.5h6a1 1 0 0 1 1 1V7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2.5Zm1.2.2v4.1h5.6V2.7H3.2ZM1 9.2h10l-.7 1.3H1.7L1 9.2Z"
-      />
-    </svg>
-  );
-}
-function RefBadgeIcon({
-  kind,
-}: {
-  kind: "branch" | "remote" | "tag" | "other";
-}) {
-  if (kind === "remote") {
-    return (
-      <svg viewBox="0 0 12 12" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M3.6 9.5h5a2.1 2.1 0 0 0 .3-4.18A2.8 2.8 0 0 0 3.5 4.7a2.3 2.3 0 0 0 .1 4.8Z"
-        />
-      </svg>
-    );
-  }
-  if (kind === "tag") {
-    return (
-      <svg viewBox="0 0 12 12" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M1.8 2.3A.8.8 0 0 1 2.6 1.5h3.1l4.4 4.4a.8.8 0 0 1 0 1.1L7 10.1a.8.8 0 0 1-1.1 0L1.5 5.7V2.6a.8.8 0 0 1 .3-.3Zm2 1.8a.9.9 0 1 0 0-1.8.9.9 0 0 0 0 1.8Z"
-        />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 12 12" aria-hidden="true">
-      <path
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinecap="round"
-        d="M3.5 2.5v7M8.5 3.5c0 2.5-5 1.8-5 4.2"
-      />
-      <circle cx="3.5" cy="2.4" r="1.2" fill="currentColor" />
-      <circle cx="8.5" cy="2.8" r="1.2" fill="currentColor" />
-      <circle cx="3.5" cy="9.6" r="1.2" fill="currentColor" />
-    </svg>
-  );
-}
-type RepoView =
-  "history" | "changes" | "remotes" | "push" | "branches" | "pull";
-
-const MAX_OPEN_TABS = 12;
-
-interface TabEntry {
-  snapshot: Snapshot;
-  view: RepoView;
-  lastSyncView: "remotes" | "pull" | "push";
-  selected: string | null;
-  historyScope: string;
-  query: string;
-  inspectorOpen: boolean;
-  inspectorSize: number;
-  authorWidth: number;
-  showAuthor: boolean;
-  showDate: boolean;
-  showHash: boolean;
-  refsWidth: number;
-  preferencesRepo: string | null;
-  branchPreselect: string | null;
-  wip: WorktreeSummary | null;
-  worktrees: WorktreesState | null;
-}
-
-function defaultTabEntry(snapshot: Snapshot): TabEntry {
-  return {
-    snapshot,
-    view: "history",
-    lastSyncView: "remotes",
-    selected: null,
-    historyScope: "all",
-    query: "",
-    inspectorOpen: true,
-    inspectorSize: 38,
-    authorWidth: 160,
-    showAuthor: true,
-    showDate: true,
-    showHash: false,
-    refsWidth: DEFAULT_REFS_COL_WIDTH,
-    preferencesRepo: null,
-    branchPreselect: null,
-    wip: null,
-    worktrees: null,
-  };
-}
 
 function App() {
   const [theme, setTheme] = useState<ThemeId>(
@@ -2487,225 +2371,39 @@ function App() {
       setComparePair({ base: first, target: second });
     }
   }
-  const commitRow = (index: number, style?: React.CSSProperties) => {
-    const c = commits[index];
-    const row = rows[index];
-    const rowColor =
-      graphColors[row.color % graphColors.length] ??
-      graphColors[0] ??
-      "#52b7ff";
-    const isHead = c.hash === repo?.head;
-    const refs = repo?.refs.filter((r) => r.hash === c.hash) ?? [];
-    const hasRefs = refs.length > 0;
-    const collapsedRemoteNames = new Set<string>();
-    if (isTributary) {
-      for (const r of refs) {
-        if (r.kind !== "branch") continue;
-        const shortBranch = refName(r.name);
-        for (const other of refs) {
-          if (
-            other.kind === "remote" &&
-            refName(other.name).endsWith(`/${shortBranch}`)
-          ) {
-            collapsedRemoteNames.add(other.name);
-          }
-        }
-      }
-    }
-    const displayRefs = isTributary
-      ? refs.filter((r) => !collapsedRemoteNames.has(r.name))
-      : refs;
-    const renderRefBadge = (r: GitRef) => {
-      const shortRef = refName(r.name);
-      const isCurrentBranch = r.kind === "branch" && shortRef === repo?.branch;
-      const syncedRemotes =
-        r.kind === "branch"
-          ? refs.filter(
-              (other) =>
-                other.kind === "remote" &&
-                refName(other.name).endsWith(`/${shortRef}`),
-            )
-          : [];
-      const syncedRemote = syncedRemotes.length > 0;
-      return (
-        <span
-          className={`ref ${r.kind}${isCurrentBranch ? " ref-current" : ""}`}
-          style={
-            r.kind === "branch"
-              ? ({ "--pill-color": rowColor } as React.CSSProperties)
-              : undefined
-          }
-          key={r.name}
-          title={
-            syncedRemote
-              ? `${r.name} (sincronizada con ${syncedRemotes.map((rem) => refName(rem.name)).join(", ")})`
-              : r.name
-          }
-        >
-          {isTributary && isCurrentBranch ? (
-            <svg viewBox="0 0 12 12" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M4.6 8.9 2.1 6.4l.9-.9 1.6 1.6L9 2.7l.9.9-5.3 5.3Z"
-              />
-            </svg>
-          ) : (
-            <RefBadgeIcon kind={r.kind} />
-          )}
-          <span>{shortRef}</span>
-          {isTributary &&
-            r.kind === "branch" &&
-            (syncedRemote ? (
-              <span
-                className="ref-dual-sync"
-                aria-label="Local y remoto sincronizados"
-              >
-                <LocalDeviceIcon />
-                <RefBadgeIcon kind="remote" />
-              </span>
-            ) : (
-              <span className="ref-local-only" aria-hidden="true">
-                <LocalDeviceIcon />
-              </span>
-            ))}
-          {syncedRemote && !isTributary && (
-            <span
-              className="ref-sync-badge"
-              aria-hidden="true"
-              title="Sincronizada con remoto"
-            >
-              <svg viewBox="0 0 12 12" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M4.6 8.9 2.1 6.4l.9-.9 1.6 1.6L9 2.7l.9.9-5.3 5.3Z"
-                />
-              </svg>
-            </span>
-          )}
-        </span>
-      );
-    };
-    const visibleTributaryRefs = isTributary
-      ? displayRefs.slice(0, 2)
-      : displayRefs;
-    const extraTributaryCount = isTributary
-      ? Math.max(0, displayRefs.length - visibleTributaryRefs.length)
-      : 0;
-    const showDetachedHeadPill = isHead && (!isTributary || !repo?.branch);
-    return (
-      <button
-        key={c.hash}
-        type="button"
-        className={`commit-row${isTributary ? " tributary" : ""}${selected === c.hash ? " selected" : ""}`}
-        style={
-          {
-            ...style,
-            gridTemplateColumns: historyColumns,
-            "--row-lane-color": rowColor,
-          } as React.CSSProperties
-        }
-        onClick={(event) => {
-          if (event.shiftKey && active && active.hash !== c.hash) {
-            setCompareAnchor(null);
-            openOrderedComparison(active, c);
-            return;
-          }
-          if (compareAnchor && compareAnchor.hash !== c.hash) {
-            const anchor = compareAnchor;
-            setCompareAnchor(null);
-            openOrderedComparison(anchor, c);
-            return;
-          }
-          select(c.hash);
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          openCommitContextMenu(c, event.clientX, event.clientY);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-            e.preventDefault();
-            const next = Math.max(
-              0,
-              Math.min(
-                commits.length - 1,
-                index + (e.key === "ArrowDown" ? 1 : -1),
-              ),
-            );
-            select(commits[next].hash);
-            scrollToCommitIndex(next, "auto");
-          }
-        }}
-        aria-pressed={selected === c.hash}
-        aria-label={`${c.subject}. ${c.author}. Commit ${short(c.hash)}. ${c.parents.length} padres.`}
-      >
-        {isTributary && (
-          <span
-            className="commit-refs-col"
-            title={refs.map((r) => refName(r.name)).join(", ") || undefined}
-          >
-            {showDetachedHeadPill && (
-              <span className="ref head">
-                <svg viewBox="0 0 12 12" aria-hidden="true">
-                  <circle cx="6" cy="6" r="3.2" fill="currentColor" />
-                </svg>
-                HEAD
-              </span>
-            )}
-            {visibleTributaryRefs.map(renderRefBadge)}
-            {extraTributaryCount > 0 && (
-              <span className="ref ref-more">+{extraTributaryCount}</span>
-            )}
-          </span>
-        )}
-        <GraphCell
-          row={row}
-          width={graphWidth}
-          rowHeight={activeRowHeight}
-          colors={graphColors}
-          isHead={isHead}
-          hasRefs={hasRefs}
-          style={graphStyle}
-          authorName={c.author}
-          refSide={isTributary ? "left" : "right"}
-        />
-        <span className="commit-subject">
-          {!isTributary && (
-            <span className="inline-refs">
-              {showDetachedHeadPill && (
-                <span className="ref head">
-                  <svg viewBox="0 0 12 12" aria-hidden="true">
-                    <circle cx="6" cy="6" r="3.2" fill="currentColor" />
-                  </svg>
-                  HEAD
-                </span>
-              )}
-              {displayRefs.map(renderRefBadge)}
-            </span>
-          )}
-          <span className="truncate">{c.subject || "(sin mensaje)"}</span>
-        </span>
-        {showAuthor && (
-          <span className="history-author" title={c.author}>
-            <AuthorAvatar name={c.author} />
-            <span className="truncate">{c.author || "Autor desconocido"}</span>
-          </span>
-        )}
-        {showDate && (
-          <time
-            className="history-date"
-            dateTime={c.date}
-            title={`${formatCommitDate(c.date)} · ${c.date}`}
-          >
-            {isTributary
-              ? formatRelativeCommitDate(c.date)
-              : formatCommitDate(c.date)}
-          </time>
-        )}
-        {showHash && <code className="hash">{short(c.hash)}</code>}
-      </button>
-    );
-  };
+  const commitRow = (index: number, style?: React.CSSProperties) => (
+    <CommitRow
+      key={commits[index].hash}
+      commit={commits[index]}
+      index={index}
+      row={rows[index]}
+      style={style}
+      commitsLength={commits.length}
+      graphWidth={graphWidth}
+      activeRowHeight={activeRowHeight}
+      graphColors={graphColors}
+      graphStyle={graphStyle}
+      isTributary={isTributary}
+      historyColumns={historyColumns}
+      selected={selected}
+      active={active}
+      compareAnchor={compareAnchor}
+      repoHead={repo?.head ?? null}
+      repoBranch={repo?.branch ?? null}
+      repoRefs={repo?.refs ?? []}
+      showAuthor={showAuthor}
+      showDate={showDate}
+      showHash={showHash}
+      onClearCompareAnchor={() => setCompareAnchor(null)}
+      onOpenOrderedComparison={openOrderedComparison}
+      onSelectCommit={select}
+      onOpenContextMenu={openCommitContextMenu}
+      onStepCommit={(next) => {
+        select(commits[next].hash);
+        scrollToCommitIndex(next, "auto");
+      }}
+    />
+  );
   return (
     <main
       ref={mainShellRef}
@@ -3121,372 +2819,44 @@ function App() {
           )}
         </div>
       </div>
-      <aside className="sidebar">
-        <div className="sidebar-repo-controls">
-          <button
-            className="library-launcher"
-            onClick={() => setLibraryOpen(true)}
-            disabled={busy || loadingMore || writing}
-          >
-            Repositorios <span aria-hidden="true">▾</span>
-          </button>
-          <div className="sidebar-quick-create">
-            <button
-              className="button sidebar-create"
-              disabled={busy || loadingMore || writing}
-              onClick={() => setCreation("initialize")}
-            >
-              Nuevo repositorio…
-            </button>
-            <button
-              className="button sidebar-create"
-              disabled={busy || loadingMore || writing}
-              onClick={() => setCreation("clone")}
-            >
-              Clonar repositorio…
-            </button>
-          </div>
-        </div>
-        <div className="section-label">ESPACIO LOCAL</div>
-        <div className="workspace-name">
-          <OpenInNewWindowIcon />
-          <span>{repo?.name ?? "Tu primer repositorio"}</span>
-        </div>
-        {repo && (
-          <div className="repo-path" title={repo.path}>
-            {repo.path}
-          </div>
-        )}
-        <nav className="repo-navigation" aria-label="Vistas del repositorio">
-          <button
-            disabled={!repo || writing}
-            aria-current={view === "changes" ? "page" : undefined}
-            className={view === "changes" ? "nav-active" : "nav-button"}
-            onClick={() => setView("changes")}
-          >
-            <FileTextIcon />
-            Cambios
-            {wip?.trusted && wip.total > 0 && <span>{wip.total}</span>}
-          </button>
-          <button
-            disabled={writing}
-            aria-current={view === "history" ? "page" : undefined}
-            className={view === "history" ? "nav-active" : "nav-button"}
-            onClick={() => setView("history")}
-          >
-            <CommitIcon />
-            Historial<span>{commits.length || "—"}</span>
-          </button>
-          <button
-            disabled={!repo || writing}
-            aria-current={syncing ? "page" : undefined}
-            className={syncing ? "nav-active" : "nav-button"}
-            onClick={() => goSync(lastSyncView)}
-          >
-            <ArrowRightIcon />
-            Sincronizar
-          </button>
-        </nav>
-        <details
-          className="workspace-tools"
-          open={view === "branches" || undefined}
-        >
-          <summary>Herramientas</summary>
-          <nav
-            className="repo-navigation"
-            aria-label="Herramientas del repositorio"
-          >
-            <button
-              className="nav-button"
-              disabled={!repo || writing}
-              onClick={(event) => {
-                event.currentTarget.focus();
-                setRestoreOpen(true);
-              }}
-            >
-              Recuperar respaldo de conflicto…
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo?.head || writing}
-              onClick={() => repo?.head && setTagTarget(repo.head)}
-            >
-              Crear etiqueta…
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo || writing}
-              onClick={() => setTagPublication(null)}
-            >
-              Publicar etiqueta…
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo || writing}
-              onClick={() => setReplay(null)}
-            >
-              Operaciones de commit
-            </button>
-            <button
-              disabled={!repo || writing}
-              aria-current={view === "branches" ? "page" : undefined}
-              className={view === "branches" ? "nav-active" : "nav-button"}
-              onClick={() => setView("branches")}
-            >
-              Ramas
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo || writing}
-              onClick={() => setWorktreeOpen(true)}
-            >
-              Worktrees…
-            </button>
-            <button
-              className="nav-button"
-              disabled={writing}
-              onClick={() => setActivityOpen(true)}
-            >
-              Actividad y diagnóstico…
-            </button>
-            <button
-              className="nav-button"
-              disabled={writing}
-              onClick={() => setAppearanceOpen(true)}
-            >
-              Apariencia y colores…
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo || writing}
-              onClick={() => setSnapshotsOpen(true)}
-            >
-              Snapshots locales…
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo || writing}
-              onClick={() => setLfsSubmodulesOpen(true)}
-            >
-              Git LFS y Submódulos…
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo || writing || undoBusy || !undoState?.canUndo}
-              title={
-                undoState?.nextUndo
-                  ? `${undoState.nextUndo.label} (⌘Z)`
-                  : "Sin operaciones recientes para deshacer"
-              }
-              onClick={() => void openUndoPreview("undo")}
-            >
-              Deshacer operación…
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo || writing || undoBusy || !undoState?.canRedo}
-              title={
-                undoState?.nextRedo
-                  ? `${undoState.nextRedo.label} (⇧⌘Z)`
-                  : "Sin operaciones para rehacer"
-              }
-              onClick={() => void openUndoPreview("redo")}
-            >
-              Rehacer operación…
-            </button>
-            <button
-              className="nav-button"
-              disabled={writing}
-              onClick={() => setEnvDialogOpen(true)}
-            >
-              Entorno y motor Git…
-            </button>
-            <button
-              className="nav-button"
-              onClick={() => setShortcutsOpen(true)}
-            >
-              Atajos de teclado…
-            </button>
-          </nav>
-        </details>
-        <div className="sidebar-sections">
-          {[
-            { label: "RAMAS LOCALES", refs: branches },
-            { label: "REFERENCIAS REMOTAS", refs: remotes },
-            { label: "ETIQUETAS", refs: tags },
-          ].map((group) => {
-            const renderRefButton = (r: GitRef, prefix?: string) => {
-              const shortName = refName(r.name);
-              const leaf = prefix
-                ? shortName.slice(prefix.length + 1)
-                : shortName;
-              return (
-                <button
-                  className="branch-button"
-                  disabled={writing}
-                  key={r.name}
-                  onClick={() => jump(r.hash)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    openRefContextMenu(r, event.clientX, event.clientY);
-                  }}
-                  title={`Localizar ${shortName} en el historial; no cambia la rama activa`}
-                >
-                  <span className={`branch-dot ${r.kind}`} />
-                  <span className="truncate">
-                    {prefix ? (
-                      <>
-                        <span className="branch-prefix">{prefix}/</span>
-                        {leaf}
-                      </>
-                    ) : (
-                      shortName
-                    )}
-                  </span>
-                  {shortName === repo?.branch && (
-                    <span className="current-indicator">actual</span>
-                  )}
-                </button>
-              );
-            };
-            const renderLocalBranches = () => {
-              const root: GitRef[] = [];
-              const folders = new Map<string, GitRef[]>();
-              for (const ref of group.refs) {
-                const name = refName(ref.name);
-                const slash = name.indexOf("/");
-                if (slash > 0) {
-                  const prefix = name.slice(0, slash);
-                  const bucket = folders.get(prefix);
-                  if (bucket) bucket.push(ref);
-                  else folders.set(prefix, [ref]);
-                } else {
-                  root.push(ref);
-                }
-              }
-              return (
-                <>
-                  {root.map((r) => renderRefButton(r))}
-                  {[...folders.entries()].map(([prefix, items]) => (
-                    <details key={prefix} className="branch-folder" open>
-                      <summary className="branch-folder-summary">
-                        {prefix}
-                        <span>{items.length}</span>
-                      </summary>
-                      <div className="branch-folder-items">
-                        {items.map((r) => renderRefButton(r, prefix))}
-                      </div>
-                    </details>
-                  ))}
-                </>
-              );
-            };
-            return (
-              <details key={group.label} open={group.label === "RAMAS LOCALES"}>
-                <summary>
-                  {group.label}
-                  <span>{group.refs.length}</span>
-                </summary>
-                {group.refs.length ? (
-                  group.label === "RAMAS LOCALES" ? (
-                    renderLocalBranches()
-                  ) : (
-                    group.refs.map((r) => renderRefButton(r))
-                  )
-                ) : (
-                  <p className="sidebar-empty">
-                    {repo ? "Sin referencias" : "Abre un repositorio"}
-                  </p>
-                )}
-              </details>
-            );
-          })}
-          <details open={worktrees.length > 1}>
-            <summary>
-              WORKTREES
-              <span>{worktrees.length}</span>
-            </summary>
-            {repo ? (
-              <>
-                {worktrees.map((wt: WorktreeItem) => {
-                  const isOpenTab = tabs.some(
-                    (tab) => tab.snapshot.path === wt.path,
-                  );
-                  const subtitle = wt.branch
-                    ? wt.branch
-                    : wt.bare
-                      ? "bare"
-                      : wt.detached
-                        ? "HEAD separado"
-                        : "sin rama";
-                  return (
-                    <button
-                      key={wt.path}
-                      type="button"
-                      className={`branch-button worktree-item ${wt.current ? "current" : ""}`}
-                      disabled={writing || wt.current || wt.prunable}
-                      title={`${wt.path} · ${subtitle}${wt.locked ? " (bloqueado)" : ""}${wt.prunable ? " (obsoleto)" : ""}`}
-                      onClick={() => {
-                        if (!wt.current && !wt.prunable) {
-                          void openRepositoryPath(wt.path);
-                        }
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        openWorktreeContextMenu(
-                          wt,
-                          event.clientX,
-                          event.clientY,
-                        );
-                      }}
-                    >
-                      <span
-                        className={`branch-dot ${wt.prunable ? "other" : wt.current ? "branch" : "remote"}`}
-                      />
-                      <span className="truncate">{wt.name}</span>
-                      <span className="worktree-side-meta">
-                        {wt.current
-                          ? "actual"
-                          : wt.locked
-                            ? "bloq."
-                            : wt.prunable
-                              ? "obsoleto"
-                              : isOpenTab
-                                ? "abierto"
-                                : subtitle}
-                      </span>
-                    </button>
-                  );
-                })}
-                <div className="sidebar-worktree-actions">
-                  <button
-                    type="button"
-                    className="nav-button"
-                    disabled={writing}
-                    onClick={() => setWorktreeOpen(true)}
-                  >
-                    Nuevo worktree…
-                  </button>
-                  <button
-                    type="button"
-                    className="nav-button"
-                    disabled={writing}
-                    onClick={() => setWorktreeOpen(true)}
-                  >
-                    Gestionar…
-                  </button>
-                </div>
-              </>
-            ) : (
-              <p className="sidebar-empty">Abre un repositorio</p>
-            )}
-          </details>
-        </div>
-        <div className="sidebar-foot">
-          <LockClosedIcon />
-          <p>Control local. Conexiones sólo cuando las solicitas.</p>
-        </div>
-      </aside>
+      <Sidebar
+        repo={repo}
+        tabs={tabs}
+        view={view}
+        lastSyncView={lastSyncView}
+        syncing={syncing}
+        commitsCount={commits.length}
+        wip={wip}
+        branches={branches}
+        remotes={remotes}
+        tags={tags}
+        worktrees={worktrees}
+        busy={busy}
+        loadingMore={loadingMore}
+        writing={writing}
+        undoBusy={undoBusy}
+        undoState={undoState}
+        onOpenLibrary={() => setLibraryOpen(true)}
+        onCreateRepo={(mode) => setCreation(mode)}
+        onSelectView={setView}
+        onGoSync={goSync}
+        onOpenRestore={() => setRestoreOpen(true)}
+        onOpenTagTarget={(hash) => setTagTarget(hash)}
+        onOpenTagPublication={() => setTagPublication(null)}
+        onOpenReplay={() => setReplay(null)}
+        onOpenWorktrees={() => setWorktreeOpen(true)}
+        onOpenActivity={() => setActivityOpen(true)}
+        onOpenAppearance={() => setAppearanceOpen(true)}
+        onOpenSnapshots={() => setSnapshotsOpen(true)}
+        onOpenLfsSubmodules={() => setLfsSubmodulesOpen(true)}
+        onOpenUndo={(direction) => void openUndoPreview(direction)}
+        onOpenEnvironment={() => setEnvDialogOpen(true)}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
+        onJumpToHash={jump}
+        onOpenRefContextMenu={openRefContextMenu}
+        onOpenRepositoryPath={(path) => void openRepositoryPath(path)}
+        onOpenWorktreeContextMenu={openWorktreeContextMenu}
+      />
       {repo && (
         <ChangesPanel
           key={repo.id}
@@ -3963,79 +3333,18 @@ function App() {
           ) : (
             <>
               {wip?.trusted && wip.total > 0 && wipMarker && (
-                <button
-                  type="button"
-                  className={`wip-row${isTributary ? " tributary" : ""}`}
-                  disabled={writing}
-                  onClick={() => setView("changes")}
-                  aria-label={`Cambios sin commitear (${wip.total}) — Ir a Cambios`}
-                  style={{
-                    minWidth: historyMinWidth,
-                    ...(isTributary
-                      ? { gridTemplateColumns: historyColumns }
-                      : {}),
-                  }}
-                >
-                  {isTributary && (
-                    <span className="wip-refs-col">
-                      <span className="wip-left-pill">WIP</span>
-                    </span>
-                  )}
-                  <span
-                    className="wip-graph-cell"
-                    style={{ width: graphWidth }}
-                    aria-hidden="true"
-                  >
-                    <svg width={graphWidth} height={activeRowHeight}>
-                      <line
-                        x1={wipMarker.x}
-                        y1={isTributary ? 33 : 24}
-                        x2={wipMarker.x}
-                        y2={activeRowHeight}
-                        stroke={wipMarker.color}
-                        strokeWidth={isTributary ? 2.6 : 2}
-                        strokeDasharray="3 3"
-                      />
-                      <circle
-                        cx={wipMarker.x}
-                        cy={isTributary ? 22 : 18}
-                        r={isTributary ? 10 : 5.5}
-                        fill="var(--bg-canvas)"
-                        stroke={wipMarker.color}
-                        strokeWidth={isTributary ? 2.4 : 2}
-                        strokeDasharray={isTributary ? "3 2.5" : undefined}
-                      />
-                    </svg>
-                  </span>
-                  <span className="wip-main">
-                    <span className="wip-title">
-                      Cambios sin commitear (WIP)
-                    </span>
-                    <span className="wip-badges">
-                      {wip.staged > 0 && (
-                        <span className="wip-badge staged">
-                          {wip.staged} preparados
-                        </span>
-                      )}
-                      {wip.unstaged > 0 && (
-                        <span className="wip-badge unstaged">
-                          {wip.unstaged} sin preparar
-                        </span>
-                      )}
-                      {wip.untracked > 0 && (
-                        <span className="wip-badge untracked">
-                          {wip.untracked} nuevos
-                        </span>
-                      )}
-                      {wip.conflicts > 0 && (
-                        <span className="wip-badge conflict">
-                          {wip.conflicts} conflictos
-                        </span>
-                      )}
-                    </span>
-                  </span>
-                  <span className="wip-cta">Ir a Cambios →</span>
-                </button>
+                <WipRow
+                  wip={wip}
+                  wipX={wipMarker.x}
+                  wipColor={wipMarker.color}
+                  isTributary={isTributary}
+                  writing={writing}
+                  graphWidth={graphWidth}
+                  activeRowHeight={activeRowHeight}
+                  historyMinWidth={historyMinWidth}
+                  historyColumns={historyColumns}
+                  onOpenChanges={() => setView("changes")}
+                />
               )}
               <div
                 className="virtual-list"
@@ -4058,65 +3367,19 @@ function App() {
                     if (!entry) return null;
                     if (entry.kind === "group") {
                       return (
-                        <div
+                        <HistoryTimeSeparator
                           key={entry.id}
-                          className="history-time-separator"
-                          role="separator"
-                          aria-label={entry.label}
-                          style={{
-                            ...posStyle,
-                            gridTemplateColumns: historyColumns,
-                          }}
-                        >
-                          <span
-                            className="history-time-refs-spacer"
-                            aria-hidden="true"
-                          />
-                          <span
-                            className="history-time-graph"
-                            style={{ width: graphWidth }}
-                            aria-hidden="true"
-                          >
-                            <svg
-                              width={graphWidth}
-                              height={TRIBUTARY_GROUP_HEIGHT}
-                            >
-                              {entry.isFirst && wipMarker && (
-                                <line
-                                  x1={wipMarker.x}
-                                  y1={0}
-                                  x2={wipMarker.x}
-                                  y2={TRIBUTARY_GROUP_HEIGHT}
-                                  stroke={wipMarker.color}
-                                  strokeWidth={2.6}
-                                  strokeDasharray="3 3"
-                                />
-                              )}
-                              {entry.throughLanes.map((tl) => {
-                                const x = 26 + tl.lane * 34;
-                                const stroke =
-                                  graphColors[tl.color % graphColors.length] ??
-                                  graphColors[0] ??
-                                  "#52b7ff";
-                                return (
-                                  <line
-                                    key={`sep-lane-${entry.id}-${tl.lane}`}
-                                    x1={x}
-                                    y1={0}
-                                    x2={x}
-                                    y2={TRIBUTARY_GROUP_HEIGHT}
-                                    stroke={stroke}
-                                    strokeWidth={2.5}
-                                    strokeOpacity={0.92}
-                                  />
-                                );
-                              })}
-                            </svg>
-                          </span>
-                          <span className="history-time-label">
-                            {entry.label}
-                          </span>
-                        </div>
+                          id={entry.id}
+                          label={entry.label}
+                          isFirst={entry.isFirst}
+                          throughLanes={entry.throughLanes}
+                          style={posStyle}
+                          historyColumns={historyColumns}
+                          graphWidth={graphWidth}
+                          groupHeight={TRIBUTARY_GROUP_HEIGHT}
+                          graphColors={graphColors}
+                          wipMarker={wipMarker}
+                        />
                       );
                     }
                     return commitRow(entry.commitIndex, posStyle);
@@ -4152,449 +3415,52 @@ function App() {
           </div>
         )}
       </section>
-      <aside
-        id="commit-inspector"
-        hidden={(!!repo && view !== "history") || !inspectorOpen}
-        className="inspector history-inspector"
-        aria-label="Detalle del commit"
-      >
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Redimensionar panel de detalle"
-          aria-valuemin={30}
-          aria-valuemax={60}
-          aria-valuenow={inspectorSize}
-          tabIndex={0}
-          className={`inspector-resizer${draggingSplit ? " active" : ""}`}
-          onPointerDown={startInspectorResize}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowLeft") {
-              e.preventDefault();
-              setInspectorSize((v) => Math.min(60, v + 2));
-            } else if (e.key === "ArrowRight") {
-              e.preventDefault();
-              setInspectorSize((v) => Math.max(30, v - 2));
-            }
-          }}
-        />
-        <div className="inspector-heading">
-          <FileTextIcon />
-          <h2>Detalle del commit</h2>
-          {active && (
-            <button
-              type="button"
-              className="inspector-hash-pill"
-              title="Copiar hash completo del commit"
-              aria-label={`Copiar hash completo ${short(active.hash)}`}
-              onClick={() => copyText(active.hash, "Hash copiado")}
-            >
-              <code>{short(active.hash)}</code>
-              <svg viewBox="0 0 12 12" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M4 1.5h5.5A1.5 1.5 0 0 1 11 3v5.5H9.8V3a.3.3 0 0 0-.3-.3H4V1.5Zm-1.5 2A1.5 1.5 0 0 0 1 5v5.5A1.5 1.5 0 0 0 2.5 12H8a1.5 1.5 0 0 0 1.5-1.5V5A1.5 1.5 0 0 0 8 3.5H2.5Zm0 1.2H8a.3.3 0 0 1 .3.3v5.5a.3.3 0 0 1-.3.3H2.5a.3.3 0 0 1-.3-.3V5a.3.3 0 0 1 .3-.3Z"
-                />
-              </svg>
-            </button>
-          )}
-          <div
-            className="commit-step-navigation"
-            role="group"
-            aria-label="Navegar por commits cargados"
-          >
-            <button
-              className="button"
-              aria-label="Commit anterior en la lista"
-              title="Commit anterior en la lista (orden topológico)"
-              disabled={!active || commits.indexOf(active) === 0}
-              onClick={() =>
-                active && jump(commits[commits.indexOf(active) - 1].hash)
-              }
-            >
-              ↑
-            </button>
-            <button
-              className="button"
-              aria-label="Commit siguiente en la lista"
-              title="Commit siguiente en la lista (orden topológico)"
-              disabled={
-                !active || commits.indexOf(active) === commits.length - 1
-              }
-              onClick={() =>
-                active && jump(commits[commits.indexOf(active) + 1].hash)
-              }
-            >
-              ↓
-            </button>
-          </div>
-        </div>
-        {active ? (
-          <>
-            <div className="commit-meta">
-              <h2>{active.subject || "(sin mensaje)"}</h2>
-              <div className="commit-actions">
-                <button
-                  className="button"
-                  disabled={writing}
-                  onClick={() => setTagTarget(active.hash)}
-                >
-                  Etiquetar commit…
-                </button>
-                <button
-                  className="button"
-                  disabled={writing}
-                  onClick={() =>
-                    setReplay({ kind: "cherryPick", commit: active.hash })
-                  }
-                >
-                  Cherry-pick
-                </button>
-                <button
-                  className="button"
-                  disabled={writing}
-                  onClick={() =>
-                    setReplay({ kind: "revert", commit: active.hash })
-                  }
-                >
-                  Revertir commit
-                </button>
-              </div>
-              <div className="selected-author">
-                <AuthorAvatar name={active.author} />
-                <span>{active.author || "Autor desconocido"}</span>
-                <time dateTime={active.date}>
-                  {formatCommitDate(active.date)}
-                </time>
-              </div>
-              <details className="commit-details" key={active.hash}>
-                <summary>Más detalles</summary>
-                <dl>
-                  <dt>Autor</dt>
-                  <dd>{active.author}</dd>
-                  <dt>Fecha</dt>
-                  <dd>{new Date(active.date).toLocaleString("es-MX")}</dd>
-                  <dt>Hash</dt>
-                  <dd className="full-hash">{active.hash}</dd>
-                  <dt>Padres</dt>
-                  <dd>
-                    {active.parents.length
-                      ? active.parents.map((p) => (
-                          <button
-                            key={p}
-                            className="parent-link"
-                            onClick={() => jump(p)}
-                            title={p}
-                          >
-                            {short(p)} <ArrowRightIcon />
-                          </button>
-                        ))
-                      : "Commit raíz"}
-                  </dd>
-                </dl>
-              </details>
-            </div>
-            {active.parents.length > 0 && (
-              <nav
-                className="commit-parent-navigation"
-                aria-label="Navegar por padres"
-              >
-                {active.parents.map((parent, index) => (
-                  <button
-                    className="button"
-                    key={parent}
-                    title={parent}
-                    onClick={() => jump(parent)}
-                  >
-                    Ir al padre {index + 1}
-                  </button>
-                ))}
-              </nav>
-            )}
-            {(filesBusy || (commitFiles && commitFiles.length > 0)) && (
-              <section
-                className="commit-files"
-                aria-label="Archivos del commit"
-                aria-busy={filesBusy}
-              >
-                <div className="commit-files-header">
-                  <span>
-                    Archivos modificados ({commitFiles?.length ?? "…"})
-                  </span>
-                  {commitFiles && commitFiles.length > 0 && (
-                    <span className="commit-files-totals">
-                      <span className="stat-add">
-                        +
-                        {commitFiles.reduce(
-                          (acc, item) => acc + (item.additions ?? 0),
-                          0,
-                        )}
-                      </span>{" "}
-                      <span className="stat-del">
-                        −
-                        {commitFiles.reduce(
-                          (acc, item) => acc + (item.deletions ?? 0),
-                          0,
-                        )}
-                      </span>
-                    </span>
-                  )}
-                  {selectedFile && (
-                    <button
-                      type="button"
-                      className="button commit-files-reset"
-                      onClick={() => setSelectedFile(null)}
-                    >
-                      Ver todos
-                    </button>
-                  )}
-                </div>
-                {commitFiles && commitFiles.length > 0 && (
-                  <ul className="commit-files-list">
-                    {commitFiles.map((file) => {
-                      const activeFile = selectedFile?.path === file.path;
-                      return (
-                        <li
-                          key={`${file.status}:${file.path}`}
-                          className="commit-file-item"
-                        >
-                          <button
-                            type="button"
-                            className={`commit-file-row${activeFile ? " selected" : ""}`}
-                            aria-pressed={activeFile}
-                            onClick={() =>
-                              setSelectedFile((current) =>
-                                current?.path === file.path ? null : file,
-                              )
-                            }
-                            title={
-                              file.oldPath
-                                ? `${file.oldPath} → ${file.path}`
-                                : file.path
-                            }
-                          >
-                            <span
-                              className={`commit-file-status status-${file.status}`}
-                            >
-                              {file.status}
-                            </span>
-                            <span className="truncate">
-                              {file.oldPath
-                                ? `${file.oldPath} → ${file.path}`
-                                : file.path}
-                            </span>
-                            <span className="commit-file-stats">
-                              {file.binary ? (
-                                "bin"
-                              ) : (
-                                <>
-                                  <span className="stat-add">
-                                    +{file.additions ?? 0}
-                                  </span>
-                                  <span className="stat-del">
-                                    −{file.deletions ?? 0}
-                                  </span>
-                                </>
-                              )}
-                            </span>
-                          </button>
-                          <div className="commit-file-tools">
-                            <button
-                              type="button"
-                              className="button commit-file-tool"
-                              aria-label="Historial del archivo"
-                              title={`Ver historial de ${file.path}`}
-                              disabled={writing}
-                              onClick={() =>
-                                setFileHistoryTarget({
-                                  path: file.path,
-                                  revision: active.hash,
-                                })
-                              }
-                            >
-                              Historial
-                            </button>
-                            <button
-                              type="button"
-                              className="button commit-file-tool"
-                              aria-label="Blame del archivo"
-                              title={`Ver blame de ${file.path}`}
-                              disabled={
-                                writing || file.status === "D" || file.binary
-                              }
-                              onClick={() =>
-                                setBlameTarget({
-                                  path: file.path,
-                                  revision: active.hash,
-                                })
-                              }
-                            >
-                              Blame
-                            </button>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </section>
-            )}
-            <div className="diff-toolbar">
-              <span>
-                {selectedFile ? selectedFile.path : "Diff del commit"}
-              </span>
-              {active.parents.length > 1 ? (
-                <label>
-                  Contra padre{" "}
-                  <select
-                    value={parentIndex}
-                    onChange={(e) => {
-                      setParentIndex(Number(e.target.value));
-                      setSelectedFile(null);
-                    }}
-                  >
-                    {active.parents.map((p, i) => (
-                      <option key={p} value={i}>
-                        {i + 1} · {short(p)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <code>
-                  {active.parents[0] ? short(active.parents[0]) : "árbol vacío"}{" "}
-                  → {short(active.hash)}
-                </code>
-              )}
-            </div>
-            <div className="diff-body" aria-busy={diffBusy}>
-              {diffBusy ? (
-                <div className="skeleton-list" aria-label="Leyendo diff">
-                  <div className="skeleton-row" />
-                  <div className="skeleton-row" />
-                  <div className="skeleton-row" />
-                </div>
-              ) : diffError ? (
-                <>
-                  <div className="banner error" role="alert">
-                    {diffError}
-                  </div>
-                  {!selectedFile && commitFiles && commitFiles.length > 0 && (
-                    <p className="partial-note">
-                      Selecciona un archivo individual arriba para inspeccionar
-                      su diff sin superar el límite de 2 MiB.
-                    </p>
-                  )}
-                </>
-              ) : selectedFile &&
-                isImageAssetPath(selectedFile.path) &&
-                commitImageDiff &&
-                !preferTextForImage ? (
-                <ImageDiffViewer
-                  diff={commitImageDiff}
-                  onToggleText={
-                    commitImageDiff.mime === "image/svg+xml" && diff?.text
-                      ? () => setPreferTextForImage(true)
-                      : undefined
-                  }
-                  toggleTextLabel="Ver diff de texto"
-                />
-              ) : diff?.text ? (
-                <>
-                  {selectedFile &&
-                    isImageAssetPath(selectedFile.path) &&
-                    commitImageDiff && (
-                      <div className="image-diff-switch-row">
-                        <button
-                          type="button"
-                          className="button"
-                          onClick={() => setPreferTextForImage(false)}
-                        >
-                          Ver diff visual
-                        </button>
-                      </div>
-                    )}
-                  <DiffViewer
-                    text={diff.text}
-                    filePath={selectedFile?.path}
-                    ignoreWhitespace={commitIgnoreWhitespace}
-                    onIgnoreWhitespaceChange={setCommitIgnoreWhitespace}
-                    contextLines={commitContextLines}
-                    onContextLinesChange={setCommitContextLines}
-                  />
-                </>
-              ) : (
-                <>
-                  {(commitIgnoreWhitespace || commitContextLines !== 3) && (
-                    <DiffModeControl
-                      mode="unified"
-                      onChange={() => {}}
-                      available={false}
-                      ignoreWhitespace={commitIgnoreWhitespace}
-                      onIgnoreWhitespaceChange={setCommitIgnoreWhitespace}
-                      contextLines={commitContextLines}
-                      onContextLinesChange={setCommitContextLines}
-                    />
-                  )}
-                  <div className="diff-empty">
-                    Sin diferencias de contenido contra este padre.
-                  </div>
-                </>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="inspector-empty">
-            <CommitIcon width="24" height="24" />
-            <h3>El contexto, a un clic.</h3>
-            <p>Selecciona un commit para ver su autor, sus padres y el diff.</p>
-          </div>
-        )}
-      </aside>
-      <footer className="statusbar">
-        <span>
-          <span className="status-dot" />
-          {busy || loadingMore
-            ? "Leyendo repositorio…"
-            : repo
-              ? "Repositorio local conectado"
-              : "Listo para abrir un repositorio"}
-          {repo && repo.trusted === false && (
-            <button
-              type="button"
-              className="status-trust-btn"
-              disabled={writing || busy}
-              onClick={() => setTrustPromptRepoId(repo.id)}
-            >
-              Solo lectura · Autorizar…
-            </button>
-          )}
-        </span>
-        <span>
-          {writing
-            ? "Operación Git en curso…"
-            : "Cambios · Historial · Sincronizar"}
-        </span>
-        <span>
-          {repo && preferencesRepo === repo.id ? (
-            <>
-              {preferenceSave === "pending" ? (
-                "Guardando preferencias…"
-              ) : preferenceSave === "saved" ? (
-                "Preferencias guardadas"
-              ) : (
-                <button onClick={() => setSaveAttempt((value) => value + 1)}>
-                  Reintentar guardar preferencias
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              <CommitIcon /> Git local · Sin publicación automática
-            </>
-          )}
-        </span>
-      </footer>
+      <CommitInspector
+        repo={repo}
+        view={view}
+        inspectorOpen={inspectorOpen}
+        inspectorSize={inspectorSize}
+        draggingSplit={draggingSplit}
+        active={active}
+        commits={commits}
+        writing={writing}
+        parentIndex={parentIndex}
+        commitFiles={commitFiles}
+        filesBusy={filesBusy}
+        selectedFile={selectedFile}
+        commitIgnoreWhitespace={commitIgnoreWhitespace}
+        commitContextLines={commitContextLines}
+        diff={diff}
+        diffBusy={diffBusy}
+        diffError={diffError}
+        commitImageDiff={commitImageDiff}
+        preferTextForImage={preferTextForImage}
+        onStartResize={startInspectorResize}
+        onChangeInspectorSize={setInspectorSize}
+        onCopyText={copyText}
+        onJump={jump}
+        onTagCommit={(hash) => setTagTarget(hash)}
+        onReplayCommit={(kind, commit) => setReplay({ kind, commit })}
+        onSelectFile={setSelectedFile}
+        onOpenFileHistory={(path, revision) =>
+          setFileHistoryTarget({ path, revision })
+        }
+        onOpenBlame={(path, revision) => setBlameTarget({ path, revision })}
+        onChangeParentIndex={setParentIndex}
+        onPreferTextForImage={setPreferTextForImage}
+        onIgnoreWhitespaceChange={setCommitIgnoreWhitespace}
+        onContextLinesChange={setCommitContextLines}
+      />
+      <StatusBar
+        repo={repo}
+        busy={busy}
+        loadingMore={loadingMore}
+        writing={writing}
+        preferencesRepo={preferencesRepo}
+        preferenceSave={preferenceSave}
+        onAuthorizeRepo={(repoId) => setTrustPromptRepoId(repoId)}
+        onRetrySavePreferences={() => setSaveAttempt((value) => value + 1)}
+      />
     </main>
   );
 }

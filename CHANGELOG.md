@@ -6,6 +6,28 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/
 
 ---
 
+## [Unreleased]
+
+### Añadido
+- Grafo estilo **Tributary** con avatares circulares de autor, columna izquierda `Rama / Tag` redimensionable (`120–280 px`), iconos duales de sincronización local/remoto colapsando remotos coincidentes, separadores temporales (`Hoy`, `Esta semana`, `Anterior`) y selector de estilo (*Tributary* / *Compacto*) en *Apariencia*.
+- Motor híbrido nativo **`gix` (gitoxide)** + Git CLI, verificador integrado de entorno (`Entorno y motor Git…`) y carga progresiva del historial con scroll infinito.
+- Pestañas multi-repositorio con sesiones y bloqueos aislados, observador local en tiempo real con fila **WIP** conectada a `HEAD` y gestor completo de **Git Worktrees**.
+- Búsqueda profunda en todo el historial y en código fuente (`-S` / `-G`), historial de archivo (`--follow`), **Git Blame** interactivo y comparación de rango entre dos commits (`Shift+Clic`).
+- **Seguridad 2.0:** snapshots locales (manuales y automáticos con retención configurable) y ciclo **Undo / Redo** con vista previa (`⌘Z` / `⇧⌘Z`).
+- **Diff visual de imágenes** (lado a lado, cortina deslizable y superposición), diferencias intra-línea, resaltado de sintaxis, minimapa, líneas de contexto configurables y preparación/descarte por línea.
+- Panel integrado de **Git LFS** (estado, descarga y bloqueos) y **Submódulos Git**.
+- Paleta de comandos (`⌘K`), guía interactiva de **Atajos de teclado** (`?`), 5 temas (incluyendo tema claro *Arctic Light* y alto contraste), menús contextuales y apertura en aplicaciones externas locales.
+- Diálogo de autorización explícita al abrir repositorios en modo solo lectura.
+
+### Cambiado
+- Rediseño compacto de dos filas en el encabezado, agrupación de ramas por prefijo en la barra lateral y persistencia de visibilidad de columna `Autor` y ancho de `Rama / Tag` por repositorio.
+- División de código (`React.lazy` + `Suspense`) en diálogos y paneles secundarios para mantener el paquete principal por debajo de 500 kB.
+- Refactorización modular de `src/App.tsx`, `src/App.css` (`src/styles/*`) y `src-tauri/src/lib.rs` (`state.rs` + `commands/*`).
+
+### Mantenimiento y CI
+- Pipeline automático de CI en `.github/workflows/ci.yml` (Prettier, TypeScript/Vite, Vitest, `release:check`, `cargo fmt`, `cargo clippy -D warnings` y `cargo test` en macOS y Windows).
+- Scripts `npm run format` y `npm run format:check` cubriendo el 100 % de `src/`.
+
 ## [1.0.0-beta.1] - 2026-11-10
 
 Beta 1 de Windows x64 preparada para validación privada. No es una versión estable ni una entrega pública; la aceptación en otra máquina y la validación de macOS siguen pendientes. Consulta el [estado de la beta](docs/releases/1.0.0-beta.1.md).

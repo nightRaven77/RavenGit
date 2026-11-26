@@ -24,28 +24,30 @@ Mejoras orientadas a extender la disponibilidad de RavenGit y optimizar flujos d
 - [ ] **Soporte para Linux:**
   - Empaquetado oficial en formatos **AppImage**, **Flatpak** y paquetes .deb.
   - Integración con llaveros de contraseñas de escritorio (*Secret Service API*).
-- [ ] **Git LFS (Large File Storage):**
+- [x] **Git LFS (Large File Storage):**
   - Detección automática de punteros LFS en el árbol de trabajo.
   - Visualización del estado de descarga y bloqueo de archivos grandes.
-- [ ] **Mejoras en Visualización de Diferencias:**
-  - Comparador visual lado a lado para imágenes (modo cortina y diferencias por capas).
-  - Marcado de diferencias a nivel de palabra/carácter en cambios de una sola línea.
-- [ ] **Personalización de Temas:**
+- [x] **Mejoras en Visualización de Diferencias:**
+  - Comparador visual lado a lado para imágenes (modo cortina, lado a lado y superposición).
+  - Marcado de diferencias a nivel de palabra/carácter en cambios de una sola línea, resaltado de sintaxis y staging por línea.
+- [x] **Personalización de Temas:**
   - Modo de alto contraste estricto para usuarios con necesidades visuales específicas.
-  - Soporte para tema claro (*light mode*).
+  - Soporte para tema claro (*Arctic Light*), paletas del grafo y estilos Tributary/Compacto.
 
 ---
 
 ## 🔮 v1.2.0 — Flujos de Equipo y Extensiones
 
-- [ ] **Soporte para Submódulos Git:**
-  - Visualización del estado de submódulos en el panel de cambios y grafo.
-  - Actualización atómica de referencias de submódulos.
-- [ ] **Flujos de Trabajo Remotos:**
-  - Detección de Pull Requests / Merge Requests asociados a ramas remotas en GitHub y GitLab.
+- [x] **Soporte para Submódulos Git:**
+  - Visualización del estado de submódulos en el panel integrado.
+  - Inicialización y actualización atómica de referencias de submódulos.
+- [ ] **Flujos de Trabajo Remotos (opt-in):**
+  - Detección explícita bajo demanda de Pull Requests / Merge Requests asociados a ramas remotas en GitHub y GitLab.
   - Accesos directos para creación de ramas basadas en incidencias.
-- [ ] **Filtros Avanzados en el Historial:**
-  - Búsqueda por rango de fechas, rutas de archivos específicas (*file history*) y sintaxis de búsqueda regular.
+- [x] **Filtros Avanzados en el Historial:**
+  - Búsqueda profunda por rango de fechas, rutas de archivos, búsqueda en código (`-S` / `-G`), historial `--follow`, *Git Blame* y expresiones regulares.
+- [ ] **Modo Simple (interfaz guiada):**
+  - Alternador en un clic para reducir densidad visual y priorizar flujos cotidianos.
 
 ---
 

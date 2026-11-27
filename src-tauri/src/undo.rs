@@ -640,6 +640,7 @@ mod tests {
             f.git(&["init", "-b", "main"]);
             f.git(&["config", "user.name", "RavenGit"]);
             f.git(&["config", "user.email", "test@ravengit.local"]);
+            f.git(&["config", "core.autocrlf", "false"]);
             fs::write(f.0.join("app.txt"), "base\n").unwrap();
             f.git(&["add", "--all"]);
             f.git(&["commit", "-m", "raiz"]);

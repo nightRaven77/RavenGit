@@ -68,8 +68,22 @@ fn error(code: &'static str, message: impl Into<String>) -> GitError {
     GitError::new(code, message)
 }
 
+fn strip_verbatim(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(stripped) = text.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    path
+}
+
 fn canonical_or_raw(path: &Path) -> PathBuf {
-    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    strip_verbatim(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
 }
 
 fn paths_match(a: &Path, b: &Path) -> bool {
@@ -82,7 +96,7 @@ fn git_path(repo: &Repository, name: &str) -> Result<PathBuf> {
             &repo.path,
             &["rev-parse", "--path-format=absolute", "--git-path", name],
         )?
-        .trim_end_matches('\n'),
+        .trim_end_matches(['\r', '\n']),
     ))
 }
 
@@ -777,6 +791,7 @@ mod tests {
         f.git(&main_dir, &["init", "-b", "main"]);
         f.git(&main_dir, &["config", "user.name", "Test"]);
         f.git(&main_dir, &["config", "user.email", "test@example.com"]);
+        f.git(&main_dir, &["config", "core.autocrlf", "false"]);
         fs::write(main_dir.join("README.md"), "hola\n").unwrap();
         f.git(&main_dir, &["add", "--all"]);
         f.git(&main_dir, &["commit", "-m", "init"]);
@@ -834,7 +849,7 @@ mod tests {
             .state
             .worktrees
             .iter()
-            .find(|wt| wt.path == wt1_real)
+            .find(|wt| paths_match(Path::new(&wt.path), Path::new(&wt1_real)))
             .unwrap();
         assert!(wt1_item.locked);
         assert_eq!(wt1_item.lock_reason.as_deref(), Some("En USB"));

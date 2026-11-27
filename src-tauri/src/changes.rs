@@ -700,8 +700,18 @@ impl IndexTransaction {
                 .map_err(|_| failure("INDEX_COPY", "No se pudo proteger la carpeta temporal."))?;
         }
         if transaction.index.exists() {
+            let modified = fs::metadata(&transaction.index)
+                .and_then(|meta| meta.modified())
+                .ok();
             fs::copy(&transaction.index, &transaction.temporary)
                 .map_err(|_| failure("INDEX_COPY", "No se pudo preparar un index temporal."))?;
+            if let Some(modified) = modified
+                && let Ok(file) = fs::OpenOptions::new()
+                    .write(true)
+                    .open(&transaction.temporary)
+            {
+                let _ = file.set_modified(modified);
+            }
         }
         Ok(transaction)
     }
@@ -1084,9 +1094,17 @@ pub fn stage_files(
             ));
         }
     }
+    let mut input = Vec::new();
     for path in paths {
-        write_git(repo, &transaction.temporary, &["add", "--", path], None)?;
+        input.extend_from_slice(path.as_bytes());
+        input.push(0);
     }
+    write_git(
+        repo,
+        &transaction.temporary,
+        &["add", "--pathspec-from-file=-", "--pathspec-file-nul"],
+        Some(input),
+    )?;
     checked(repo, token, trusted, true)?;
     transaction.install()?;
     Ok(outcome(repo, trusted, None))
@@ -1411,6 +1429,45 @@ mod tests {
             "posterior\n"
         );
         assert!(!f.0.path.join(".git/index.lock").exists());
+    }
+    #[test]
+    fn stage_multiple_files_handles_same_size_racy_git_mtime() {
+        let f = Fixture::new();
+        f.git(&["config", "core.trustctime", "false"]);
+        f.base();
+        f.file("eliminar.txt", "eliminar\n");
+        f.git(&["add", "--all"]);
+        f.git(&["commit", "-m", "archivos base"]);
+
+        let index_mtime = fs::metadata(f.0.path.join(".git/index"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        f.modified();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(f.0.path.join("archivo ü.txt"))
+            .unwrap()
+            .set_modified(index_mtime)
+            .unwrap();
+        fs::remove_file(f.0.path.join("eliminar.txt")).unwrap();
+        f.file("nuevo ü.txt", "nuevo\n");
+        std::thread::sleep(Duration::from_millis(20));
+
+        let state = f.state();
+        let selected = vec![
+            "eliminar.txt".to_string(),
+            "archivo ü.txt".to_string(),
+            "nuevo ü.txt".to_string(),
+        ];
+        stage_files(&f.0, &state.token, &selected, true).unwrap();
+        let staged = f
+            .git(&["diff", "--cached", "--name-only", "-z"])
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .map(str::to_string)
+            .collect::<HashSet<_>>();
+        assert_eq!(staged, selected.into_iter().collect());
     }
     #[test]
     fn stage_multiple_files_rejects_invalid_or_stale_selection_atomically() {

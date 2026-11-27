@@ -52,6 +52,14 @@ Mejoras orientadas a extender la disponibilidad de RavenGit y optimizar flujos d
 
 ---
 
+## 🧭 Próximas mejoras (post-2.0.0)
+
+- [ ] **Sincronización opcional de etiquetas (tags) en Fetch:**
+  - Opción explícita en Fetch / Remotos (o acción dedicada en Etiquetas) para descargar tags remotos sin cambiar el comportamiento seguro por defecto (`--no-tags`).
+  - Garantizar que nunca sobrescriba etiquetas locales existentes ni realice `--prune-tags` implícito.
+
+---
+
 ## Contribuciones y Sugerencias
 
 ¿Tienes alguna idea o necesidad para el roadmap?

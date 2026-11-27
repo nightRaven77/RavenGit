@@ -2,8 +2,10 @@ export type HistoryPreferences = {
   inspectorOpen: boolean;
   inspectorSize: number;
   authorWidth: number;
+  showAuthor: boolean;
   showDate: boolean;
   showHash: boolean;
+  refsWidth: number;
   scope: string;
   query: string;
   selectedCommit: string | null;

@@ -220,3 +220,16 @@ it("si no hay refs remotas no declara que el commit sea privado y permite reinte
     screen.getByText(/Sin cambios preparados: sólo se reemplaza el mensaje/),
   ).toBeTruthy();
 });
+
+it("advierte de inmediato al abrir si HEAD ya está publicado en referencias remotas", async () => {
+  mount();
+  const warning = await screen.findByText(
+    /Commit presente en referencias remotas/,
+  );
+  expect(warning).toBeTruthy();
+  expect(
+    screen.getByRole("region", { name: "Advertencia de commit publicado" })
+      .textContent,
+  ).toContain("origin/main");
+  expect(screen.queryByRole("button", { name: "Confirmar amend" })).toBeNull();
+});

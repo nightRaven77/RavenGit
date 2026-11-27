@@ -2,6 +2,7 @@
 // App integration uses simulated IPC; these tests never execute Git.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -14,9 +15,32 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import App from "./App";
 import { operationEvent } from "./operations";
+const tauriEventListeners = vi.hoisted(
+  () => new Map<string, Set<(event: { payload: unknown }) => void>>(),
+);
+function emitTauriEvent(name: string, payload: unknown) {
+  for (const listener of tauriEventListeners.get(name) ?? []) {
+    listener({ payload });
+  }
+}
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
   isTauri: () => true,
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(
+    (name: string, handler: (event: { payload: unknown }) => void) => {
+      let set = tauriEventListeners.get(name);
+      if (!set) {
+        set = new Set();
+        tauriEventListeners.set(name, set);
+      }
+      set.add(handler);
+      return Promise.resolve(() => {
+        set?.delete(handler);
+      });
+    },
+  ),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(),
@@ -77,8 +101,10 @@ const preferences = {
   inspectorOpen: true,
   inspectorSize: 38,
   authorWidth: 160,
+  showAuthor: true,
   showDate: true,
   showHash: false,
+  refsWidth: 176,
   scope: "all",
   query: "",
   selectedCommit: null,
@@ -139,7 +165,10 @@ it("ofrece publicar una etiqueta creada sin conectar hasta revisar el destino", 
   await userEvent.click(
     screen.getByRole("button", { name: "Etiquetar commit…" }),
   );
-  await userEvent.type(screen.getByLabelText("Nombre de etiqueta"), "v1");
+  await userEvent.type(
+    await screen.findByLabelText("Nombre de etiqueta"),
+    "v1",
+  );
   await userEvent.click(
     screen.getByRole("button", { name: "Revisar etiqueta" }),
   );
@@ -279,6 +308,13 @@ it("la búsqueda respeta la ventana virtual con diez mil coincidencias y no mues
   expect(document.querySelector(".history-table-header")).not.toBeNull();
 });
 beforeEach(() => {
+  try {
+    window.localStorage?.clear?.();
+  } catch {
+    // Node/jsdom without localStorage backing file.
+  }
+  delete document.documentElement.dataset.theme;
+  delete document.documentElement.dataset.graphPalette;
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
   };
@@ -288,8 +324,78 @@ beforeEach(() => {
   dialog.mockReset();
   dialog.mockResolvedValue("/fixture/repo");
   api.mockReset();
+  tauriEventListeners.clear();
   Element.prototype.scrollTo = vi.fn();
-  api.mockImplementation(async (command) => {
+  api.mockImplementation(async (command, args) => {
+    if (command === "read_app_settings")
+      return {
+        version: 1,
+        theme: "obsidian",
+        graphPalette: "kraken",
+        external: {
+          preferredEditorId: "antigravity",
+          preferredTerminalId: "terminal",
+          customEditorPath: null,
+          customEditorName: null,
+        },
+      };
+    if (command === "save_app_settings")
+      return (args as { settings: unknown }).settings;
+    if (command === "read_external_apps")
+      return {
+        editors: [
+          {
+            id: "antigravity",
+            name: "Antigravity IDE",
+            kind: "editor",
+            command: "/Applications/Antigravity.app",
+            custom: false,
+          },
+          {
+            id: "vscode",
+            name: "Visual Studio Code",
+            kind: "editor",
+            command: "/Applications/Visual Studio Code.app",
+            custom: false,
+          },
+        ],
+        terminals: [
+          {
+            id: "terminal",
+            name: "Terminal",
+            kind: "terminal",
+            command: "Terminal",
+            custom: false,
+          },
+        ],
+        explorer: {
+          id: "finder",
+          name: "Finder",
+          kind: "explorer",
+          command: "open",
+          custom: false,
+        },
+        preferences: {
+          preferredEditorId: "antigravity",
+          preferredTerminalId: "terminal",
+          customEditorPath: null,
+          customEditorName: null,
+        },
+      };
+    if (command === "open_in_external") {
+      const payload = args as { kind: string; appId?: string | null };
+      return {
+        appId: payload.appId ?? payload.kind,
+        appName:
+          payload.kind === "explorer"
+            ? "Finder"
+            : payload.kind === "terminal"
+              ? "Terminal"
+              : "Antigravity IDE",
+        kind: payload.kind,
+        message: `Abierto en ${payload.kind === "explorer" ? "Finder" : payload.kind === "terminal" ? "Terminal" : "Antigravity IDE"}`,
+      };
+    }
     if (command === "get_default_repository_directory")
       return "/fixture/default";
     if (command === "open_repository") return structuredClone(repo);
@@ -299,6 +405,8 @@ beforeEach(() => {
     )
       return structuredClone(repositoryLibrary);
     if (command === "save_history_preferences") return null;
+    if (command === "read_commit_files")
+      return { hash, parent: null, parentCount: 0, files: [] };
     if (command === "read_commit_diff")
       return { hash, text: "diff fixture", parent: null, parentCount: 0 };
     if (command === "read_changes")
@@ -312,6 +420,55 @@ beforeEach(() => {
         trusted: false,
       };
     if (command === "read_remotes") return structuredClone(remotes);
+    if (command === "check_git_environment")
+      return {
+        os: "macos",
+        gitAvailable: true,
+        gitVersion: "git version 2.47.0",
+        lfsAvailable: false,
+        lfsVersion: null,
+        gixEnabled: true,
+      };
+    if (command === "read_undo_state")
+      return {
+        canUndo: false,
+        canRedo: false,
+        undoCount: 0,
+        redoCount: 0,
+        nextUndo: null,
+        nextRedo: null,
+        recentUndo: [],
+      };
+    if (command === "read_snapshots")
+      return {
+        snapshots: [],
+        totalBytes: 0,
+        count: 0,
+      };
+    if (command === "read_lfs_status")
+      return {
+        installed: false,
+        version: null,
+        configured: false,
+        trackedPatterns: [],
+        files: [],
+        locks: [],
+        cacheBytes: 0,
+        trusted: true,
+      };
+    if (command === "read_submodules")
+      return {
+        submodules: [],
+        trusted: true,
+      };
+    if (command === "read_image_diff")
+      return {
+        path: "asset.png",
+        oldPath: null,
+        mime: "image/png",
+        before: null,
+        after: null,
+      };
     if (command === "read_branches")
       return {
         token: "branches",
@@ -357,6 +514,49 @@ beforeEach(() => {
         message: "Push confirmado",
         warning: null,
         state: structuredClone(remotes),
+      };
+    if (command === "read_worktree_summary")
+      return {
+        trusted: false,
+        staged: 0,
+        unstaged: 0,
+        untracked: 0,
+        conflicts: 0,
+        total: 0,
+        operation: null,
+      };
+    if (command === "watch_repository") return null;
+    if (command === "check_git_environment")
+      return {
+        os: "macos",
+        gitAvailable: true,
+        gitVersion: "git version 2.45.0",
+        lfsAvailable: true,
+        lfsVersion: "git-lfs/3.5.1",
+        gixEnabled: true,
+      };
+    if (command === "read_worktrees")
+      return {
+        trusted: true,
+        currentPath: repo.path,
+        branches: [repo.branch ?? "main"],
+        restriction: null,
+        worktrees: [
+          {
+            path: repo.path,
+            name: repo.name,
+            head: repo.head,
+            branch: repo.branch,
+            detached: false,
+            bare: false,
+            main: true,
+            current: true,
+            locked: false,
+            lockReason: null,
+            prunable: false,
+            prunableReason: null,
+          },
+        ],
       };
     if (command === "record_activity") return null;
     throw new Error(command);
@@ -986,4 +1186,1685 @@ it("tras mover la carpeta activa a Papelera limpia la selección y conserva el a
   expect(
     api.mock.calls.filter(([command]) => command === "trash_repository"),
   ).toHaveLength(1);
+});
+
+it("permite abrir el repositorio activo en editor, terminal y explorador desde el encabezado", async () => {
+  await opened();
+  const header = document.querySelector("header.command-bar")!;
+  const editorButton = await within(header as HTMLElement).findByRole(
+    "button",
+    {
+      name: "Abrir en editor: Antigravity IDE",
+    },
+  );
+  await userEvent.click(editorButton);
+  expect(api).toHaveBeenCalledWith("open_in_external", {
+    id: repo.id,
+    kind: "editor",
+    appId: "antigravity",
+  });
+  expect(await screen.findByText("Abierto en Antigravity IDE")).toBeTruthy();
+
+  await userEvent.click(
+    within(header as HTMLElement).getByRole("button", {
+      name: "Abrir en terminal: Terminal",
+    }),
+  );
+  expect(api).toHaveBeenCalledWith("open_in_external", {
+    id: repo.id,
+    kind: "terminal",
+    appId: "terminal",
+  });
+
+  await userEvent.click(
+    within(header as HTMLElement).getByRole("button", {
+      name: "Abrir en explorador de archivos",
+    }),
+  );
+  expect(api).toHaveBeenCalledWith("open_in_external", {
+    id: repo.id,
+    kind: "explorer",
+    appId: null,
+  });
+});
+
+it("aplica y persiste cambios de tema y paleta del grafo desde Apariencia en el encabezado y Herramientas", async () => {
+  render(<App />);
+  const header = document.querySelector("header.command-bar")!;
+  await userEvent.click(
+    within(header as HTMLElement).getByRole("button", { name: "Apariencia" }),
+  );
+  await screen.findByRole("heading", { name: "Apariencia y colores" });
+
+  await userEvent.click(
+    screen.getByRole("button", { name: /Abismo Esmeralda/ }),
+  );
+  expect(document.documentElement.dataset.theme).toBe("emerald-abyss");
+
+  await userEvent.click(screen.getByRole("button", { name: /Neón Eléctrico/ }));
+  expect(document.documentElement.dataset.graphPalette).toBe("neon");
+  expect(api).toHaveBeenCalledWith("save_app_settings", {
+    settings: {
+      version: 1,
+      theme: "emerald-abyss",
+      graphPalette: "neon",
+      external: {
+        preferredEditorId: "antigravity",
+        preferredTerminalId: "terminal",
+        customEditorPath: null,
+        customEditorName: null,
+      },
+    },
+  });
+
+  await userEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+  await userEvent.click(
+    screen.getByText("Herramientas", { selector: "summary" }),
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Apariencia y colores…" }),
+  );
+  await screen.findByRole("heading", { name: "Apariencia y colores" });
+});
+
+it("lista archivos del commit, solicita diff por archivo individual y abre menús contextuales y Paleta", async () => {
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") {
+      return {
+        ...structuredClone(repo),
+        refs: [{ name: "refs/heads/main", hash, kind: "branch" }],
+      };
+    }
+    if (command === "read_commit_files") {
+      return {
+        hash,
+        parent: null,
+        parentCount: 0,
+        files: [
+          {
+            path: "src/nuevo.ts",
+            oldPath: null,
+            status: "A",
+            additions: 12,
+            deletions: 0,
+            binary: false,
+          },
+        ],
+      };
+    }
+    if (command === "read_commit_diff") {
+      const payload = args as { path?: string };
+      return {
+        hash,
+        text: payload.path
+          ? "@@ -0,0 +1 @@\n+export const ok = true;\n"
+          : "diff completo",
+        parent: null,
+        parentCount: 0,
+      };
+    }
+    return fallback(command, args);
+  });
+
+  await opened();
+  const fileBtn = await screen.findByRole("button", {
+    name: /src\/nuevo\.ts/,
+  });
+  await userEvent.click(fileBtn);
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("read_commit_diff", {
+      id: repo.id,
+      hash,
+      parentIndex: 0,
+      path: "src/nuevo.ts",
+    }),
+  );
+  expect(
+    await screen.findByText(
+      (_, node) =>
+        node?.tagName === "SPAN" &&
+        node.classList.contains("diff-line") &&
+        Boolean(node.textContent?.includes("export const ok = true;")),
+    ),
+  ).toBeTruthy();
+
+  // Menú contextual en fila del grafo
+  const row = screen.getByRole("button", { name: /Base\. Fixture\./ });
+  fireEvent.contextMenu(row, { clientX: 50, clientY: 60 });
+  const menu = await screen.findByRole("menu", {
+    name: /Acciones del commit/,
+  });
+  expect(
+    within(menu).getByRole("menuitem", { name: "Copiar hash completo" }),
+  ).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  expect(screen.queryByRole("menu")).toBeNull();
+
+  // Menú contextual en referencia del sidebar
+  const sidebarSections = document.querySelector(
+    ".sidebar-sections",
+  ) as HTMLElement;
+  const branchBtn = within(sidebarSections).getByRole("button", {
+    name: /^main/,
+  });
+  fireEvent.contextMenu(branchBtn, { clientX: 40, clientY: 120 });
+  const refMenu = await screen.findByRole("menu", { name: "Acciones de main" });
+  expect(
+    within(refMenu).getByRole("menuitem", {
+      name: "Filtrar historial por main",
+    }),
+  ).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+
+  // Paleta de comandos vía Ctrl+K y atajos globales Ctrl+1 / Ctrl+2 / Ctrl+,
+  fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+  const palette = await screen.findByRole("dialog", {
+    name: "Paleta de comandos",
+  });
+  expect(palette).toBeTruthy();
+  await userEvent.click(
+    within(palette).getByRole("option", { name: /Ir a Cambios locales/ }),
+  );
+  expect(
+    screen
+      .getByRole("region", { name: "Cambios locales" })
+      .hasAttribute("hidden"),
+  ).toBe(false);
+
+  fireEvent.keyDown(window, { key: "2", ctrlKey: true });
+  expect(
+    screen
+      .getByRole("region", { name: "Historial del repositorio" })
+      .hasAttribute("hidden"),
+  ).toBe(false);
+
+  fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+  await screen.findByRole("heading", { name: "Apariencia y colores" });
+});
+
+it("agrupa ramas con prefijo en el sidebar, permite redimensionar el inspector y copiar hash desde cabecera", async () => {
+  const fallback = api.getMockImplementation()!;
+  const hashA = "a".repeat(40);
+  const hashB = "b".repeat(40);
+  const groupedRepo = {
+    ...repo,
+    head: hashA,
+    branch: "feature/auth",
+    refs: [
+      { name: "refs/heads/main", hash: hashA, kind: "branch" as const },
+      { name: "refs/heads/feature/auth", hash: hashA, kind: "branch" as const },
+      { name: "refs/heads/feature/ui", hash: hashB, kind: "branch" as const },
+    ],
+    page: {
+      commits: [
+        {
+          hash: hashA,
+          parents: [hashB],
+          author: "Ada",
+          date: "2026-04-11T08:00:00Z",
+          subject: "feat: login",
+        },
+        {
+          hash: hashB,
+          parents: [],
+          author: "Ada",
+          date: "2026-04-10T08:00:00Z",
+          subject: "base",
+        },
+      ],
+      nextOffset: null,
+      generation: 1,
+    },
+  };
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") return structuredClone(groupedRepo);
+    if (command === "read_commit_files") {
+      return { hash: hashA, parent: hashB, parentCount: 1, files: [] };
+    }
+    return fallback(command, args);
+  });
+
+  await opened();
+
+  // Agrupación visual de ramas locales con `/` conservando nombre accesible y clic
+  const sidebarSections = document.querySelector(
+    ".sidebar-sections",
+  ) as HTMLElement;
+  const authBranchBtn = within(sidebarSections).getByRole("button", {
+    name: /^feature\/auth/,
+  });
+  const uiBranchBtn = within(sidebarSections).getByRole("button", {
+    name: /^feature\/ui/,
+  });
+  expect(authBranchBtn.closest("details.branch-folder")).toBeTruthy();
+  await userEvent.click(uiBranchBtn);
+  expect(uiBranchBtn.getAttribute("title")).toContain("feature/ui");
+
+  // Separador vertical redimensionable por teclado
+  const mainShell = document.querySelector(
+    "main.workspace-shell",
+  ) as HTMLElement;
+  const separator = screen.getByRole("separator", {
+    name: "Redimensionar panel de detalle",
+  });
+  expect(separator.getAttribute("aria-valuenow")).toBe("38");
+  fireEvent.keyDown(separator, { key: "ArrowLeft" });
+  expect(separator.getAttribute("aria-valuenow")).toBe("40");
+  expect(mainShell.style.getPropertyValue("--inspector-size")).toBe("40%");
+  fireEvent.keyDown(separator, { key: "ArrowRight" });
+  expect(separator.getAttribute("aria-valuenow")).toBe("38");
+
+  // Barra compacta de historial unificada con alcance, búsqueda, Ir a HEAD, Vista y toggle inspector
+  expect(screen.getByRole("combobox", { name: "Mostrar" })).toBeTruthy();
+  expect(
+    screen.getByRole("textbox", { name: "Buscar en commits cargados" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Ir a HEAD" })).toBeTruthy();
+  expect(screen.getByText("Vista", { selector: "summary" })).toBeTruthy();
+
+  // Botón de copia rápida del hash en la cabecera del inspector
+  const copyHashBtn = screen.getByRole("button", {
+    name: /Copiar hash completo/,
+  });
+  await userEvent.click(copyHashBtn);
+  expect(await screen.findByText(/Hash copiado/)).toBeTruthy();
+});
+
+it("gestiona múltiples pestañas independientes, persiste el estado y actualiza la rama en la barra aunque el filtro quede obsoleto", async () => {
+  const fallback = api.getMockImplementation()!;
+  let currentBranch = "feat/vieja";
+  let filterDropped = false;
+  const repoA = {
+    ...repo,
+    id: "repo-a",
+    path: "/fixture/repo-a",
+    name: "Repo Alpha",
+    branch: currentBranch,
+    refs: [
+      { name: "refs/heads/main", hash, kind: "branch" as const },
+      { name: "refs/heads/feat/vieja", hash, kind: "branch" as const },
+    ],
+  };
+  const repoB = {
+    ...repo,
+    id: "repo-b",
+    path: "/fixture/repo-b",
+    name: "Repo Beta",
+    branch: "develop",
+    refs: [{ name: "refs/heads/develop", hash, kind: "branch" as const }],
+  };
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") {
+      const p = (args as { path: string }).path;
+      return structuredClone(p === repoB.path ? repoB : repoA);
+    }
+    if (command === "close_repository") return;
+    if (command === "check_git_environment")
+      return {
+        os: "macos",
+        gitAvailable: true,
+        gitVersion: "git version 2.47.0",
+        lfsAvailable: false,
+        lfsVersion: null,
+        gixEnabled: true,
+      };
+    if (command === "read_undo_state")
+      return {
+        canUndo: false,
+        canRedo: false,
+        undoCount: 0,
+        redoCount: 0,
+        nextUndo: null,
+        nextRedo: null,
+        recentUndo: [],
+      };
+    if (command === "read_snapshots")
+      return {
+        snapshots: [],
+        totalBytes: 0,
+        count: 0,
+      };
+    if (command === "read_lfs_status")
+      return {
+        installed: false,
+        version: null,
+        configured: false,
+        trackedPatterns: [],
+        files: [],
+        locks: [],
+        cacheBytes: 0,
+        trusted: true,
+      };
+    if (command === "read_submodules")
+      return {
+        submodules: [],
+        trusted: true,
+      };
+    if (command === "read_image_diff")
+      return {
+        path: "asset.png",
+        oldPath: null,
+        mime: "image/png",
+        before: null,
+        after: null,
+      };
+    if (command === "read_branches") {
+      return {
+        rebaseRecord: false,
+        operation: null,
+        token: "br-token",
+        trusted: true,
+        current: currentBranch,
+        head: hash,
+        branches: [
+          { name: currentBranch, hash },
+          { name: "main", hash },
+        ],
+        restriction: null,
+      };
+    }
+    if (command === "edit_branch") {
+      currentBranch = "feat/nueva";
+      filterDropped = true;
+      return {
+        message: "Rama feat/vieja renombrada a feat/nueva.",
+        warning: null,
+      };
+    }
+    if (command === "refresh_repository") {
+      const payload = args as { id: string; scope?: string };
+      if (
+        payload.id === repoA.id &&
+        filterDropped &&
+        payload.scope === "refs/heads/feat/vieja"
+      ) {
+        throw {
+          code: "INVALID_SCOPE",
+          message: "La rama seleccionada ya no existe.",
+        };
+      }
+      if (payload.id === repoB.id) return structuredClone(repoB);
+      return {
+        ...structuredClone(repoA),
+        branch: currentBranch,
+        refs: [
+          { name: "refs/heads/main", hash, kind: "branch" as const },
+          {
+            name: `refs/heads/${currentBranch}`,
+            hash,
+            kind: "branch" as const,
+          },
+        ],
+      };
+    }
+    return fallback(command, args);
+  });
+
+  // Abrir Repo Alpha y comprobar rama inicial en barra
+  dialog.mockResolvedValueOnce(repoA.path);
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /Repo Alpha/ });
+  expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+    "feat/vieja",
+  );
+
+  // Abrir Repo Beta en segunda pestaña y cambiar de vista
+  dialog.mockResolvedValueOnce(repoB.path);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /Repo Beta/ });
+  expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+    "develop",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Cambios" }));
+
+  // Volver a Repo Alpha conserva vista Historial
+  await userEvent.click(screen.getByRole("tab", { name: /Repo Alpha/ }));
+  expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+    "feat/vieja",
+  );
+  expect(
+    screen
+      .getByRole("region", { name: "Historial del repositorio" })
+      .hasAttribute("hidden"),
+  ).toBe(false);
+
+  // Filtrar historial por la rama actual y luego renombrarla -> refresh hace fallback a "all" y actualiza .toolbar-branch
+  await userEvent.selectOptions(
+    screen.getByRole("combobox", { name: "Mostrar" }),
+    "refs/heads/feat/vieja",
+  );
+  await userEvent.click(
+    within(document.querySelector(".header-toolbar") as HTMLElement).getByRole(
+      "button",
+      { name: "Rama" },
+    ),
+  );
+  const renameBtn = await screen.findByRole("button", {
+    name: "Renombrar feat/vieja",
+  });
+  await userEvent.click(renameBtn);
+  const renameInput = screen.getByLabelText(
+    "Nuevo nombre de la rama seleccionada",
+  );
+  await userEvent.type(renameInput, "feat/nueva");
+  await userEvent.click(screen.getByRole("button", { name: "Renombrar rama" }));
+  await waitFor(() =>
+    expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+      "feat/nueva",
+    ),
+  );
+
+  // Cerrar Repo Alpha con Ctrl+W invoca close_repository y activa Repo Beta
+  fireEvent.keyDown(window, { key: "w", ctrlKey: true });
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("close_repository", { id: repoA.id }),
+  );
+  await waitFor(() =>
+    expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+      "develop",
+    ),
+  );
+});
+
+it("vigila sólo la pestaña activa, muestra fila WIP en el grafo y refresca en silencio al cambiar el repo", async () => {
+  const fallback = api.getMockImplementation()!;
+  let repoABranch = "main";
+  let repoBBranch = "main";
+  const repoA = {
+    ...repo,
+    id: "watch-repo-a",
+    path: "/fixture/watch-a",
+    name: "Watch Alpha",
+    branch: repoABranch,
+    refs: [{ name: "refs/heads/main", hash, kind: "branch" as const }],
+  };
+  const repoB = {
+    ...repo,
+    id: "watch-repo-b",
+    path: "/fixture/watch-b",
+    name: "Watch Beta",
+    branch: repoBBranch,
+    refs: [{ name: "refs/heads/main", hash, kind: "branch" as const }],
+  };
+  const dirtySummary = {
+    trusted: true,
+    staged: 1,
+    unstaged: 2,
+    untracked: 1,
+    conflicts: 0,
+    total: 4,
+    operation: null,
+  };
+  const cleanSummary = {
+    trusted: true,
+    staged: 0,
+    unstaged: 0,
+    untracked: 0,
+    conflicts: 0,
+    total: 0,
+    operation: null,
+  };
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") {
+      const p = (args as { path: string }).path;
+      return structuredClone(p === repoB.path ? repoB : repoA);
+    }
+    if (command === "read_worktree_summary") {
+      const id = (args as { id: string }).id;
+      return id === repoB.id ? dirtySummary : cleanSummary;
+    }
+    if (command === "refresh_repository") {
+      const { id } = args as { id: string };
+      if (id === repoB.id) {
+        return {
+          ...structuredClone(repoB),
+          branch: repoBBranch,
+          refs: [
+            {
+              name: `refs/heads/${repoBBranch}`,
+              hash,
+              kind: "branch" as const,
+            },
+          ],
+        };
+      }
+      return {
+        ...structuredClone(repoA),
+        branch: repoABranch,
+        refs: [
+          { name: `refs/heads/${repoABranch}`, hash, kind: "branch" as const },
+        ],
+      };
+    }
+    return fallback(command, args);
+  });
+
+  dialog.mockResolvedValueOnce(repoA.path);
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /Watch Alpha/ });
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("watch_repository", { id: repoA.id }),
+  );
+
+  // Abrir Watch Beta mueve el watcher sólo a repoB y muestra fila WIP + badge sucio
+  dialog.mockResolvedValueOnce(repoB.path);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  const tabB = await screen.findByRole("tab", { name: /Watch Beta/ });
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("watch_repository", { id: repoB.id }),
+  );
+  const wipButton = await screen.findByRole("button", {
+    name: /Cambios sin commitear \(4\)/,
+  });
+  expect(within(wipButton).getByText("1 preparados")).toBeTruthy();
+  expect(within(wipButton).getByText("2 sin preparar")).toBeTruthy();
+  expect(within(wipButton).getByText("1 nuevos")).toBeTruthy();
+  expect(tabB.querySelector(".repo-tab-dirty")?.textContent).toBe("4");
+
+  // Click en fila WIP navega a la vista Cambios
+  await userEvent.click(wipButton);
+  expect(
+    screen
+      .getByRole("region", { name: "Cambios locales" })
+      .hasAttribute("hidden"),
+  ).toBe(false);
+
+  await userEvent.click(screen.getByRole("button", { name: /^Historial/ }));
+
+  // Evento externo de repoA (en segundo plano) se ignora mientras repoB está activo
+  const refreshCountBefore = api.mock.calls.filter(
+    ([cmd, payload]) =>
+      cmd === "refresh_repository" &&
+      (payload as { id?: string } | undefined)?.id === repoB.id,
+  ).length;
+  repoBBranch = "feat/live";
+  await act(async () => {
+    emitTauriEvent("ravengit://repo-changed", { id: repoA.id, kind: "git" });
+  });
+  expect(
+    api.mock.calls.filter(
+      ([cmd, payload]) =>
+        cmd === "refresh_repository" &&
+        (payload as { id?: string } | undefined)?.id === repoB.id,
+    ).length,
+  ).toBe(refreshCountBefore);
+
+  // Evento externo sobre pestaña activa refresca silenciosamente y actualiza .toolbar-branch
+  await act(async () => {
+    emitTauriEvent("ravengit://repo-changed", { id: repoB.id, kind: "git" });
+  });
+  await waitFor(() =>
+    expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+      "feat/live",
+    ),
+  );
+
+  // Cambiar a Watch Alpha actualiza el watcher a repoA y sincroniza repoA en segundo plano
+  repoABranch = "hotfix/focus";
+  await userEvent.click(screen.getByRole("tab", { name: /Watch Alpha/ }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("watch_repository", { id: repoA.id }),
+  );
+  await waitFor(() =>
+    expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+      "hotfix/focus",
+    ),
+  );
+});
+
+it("lista worktrees en el sidebar y permite abrir un worktree enlazado en nueva pestaña", async () => {
+  const fallback = api.getMockImplementation()!;
+  const mainRepo = {
+    ...repo,
+    id: "wt-main",
+    path: "/fixture/wt-main",
+    name: "Repo Principal",
+    branch: "main",
+    refs: [{ name: "refs/heads/main", hash, kind: "branch" as const }],
+  };
+  const linkedRepo = {
+    ...repo,
+    id: "wt-linked",
+    path: "/fixture/wt-linked",
+    name: "wt-linked",
+    branch: "feat/worktree",
+    refs: [
+      { name: "refs/heads/main", hash, kind: "branch" as const },
+      { name: "refs/heads/feat/worktree", hash, kind: "branch" as const },
+    ],
+  };
+
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") {
+      const p = (args as { path: string }).path;
+      return structuredClone(p === linkedRepo.path ? linkedRepo : mainRepo);
+    }
+    if (command === "read_worktrees") {
+      const id = (args as { id: string }).id;
+      const onLinked = id === linkedRepo.id;
+      return {
+        trusted: true,
+        currentPath: onLinked ? linkedRepo.path : mainRepo.path,
+        branches: ["main", "feat/worktree"],
+        restriction: null,
+        worktrees: [
+          {
+            path: mainRepo.path,
+            name: mainRepo.name,
+            head: hash,
+            branch: "main",
+            detached: false,
+            bare: false,
+            main: true,
+            current: !onLinked,
+            locked: false,
+            lockReason: null,
+            prunable: false,
+            prunableReason: null,
+          },
+          {
+            path: linkedRepo.path,
+            name: linkedRepo.name,
+            head: hash,
+            branch: "feat/worktree",
+            detached: false,
+            bare: false,
+            main: false,
+            current: onLinked,
+            locked: false,
+            lockReason: null,
+            prunable: false,
+            prunableReason: null,
+          },
+        ],
+      };
+    }
+    return fallback(command, args);
+  });
+
+  dialog.mockResolvedValueOnce(mainRepo.path);
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /Repo Principal/ });
+
+  const wtButton = await screen.findByRole("button", {
+    name: /wt-linked/,
+  });
+  await userEvent.click(wtButton);
+
+  await screen.findByRole("tab", { name: /wt-linked/ });
+  expect(api).toHaveBeenCalledWith("open_repository", {
+    path: linkedRepo.path,
+  });
+  expect(document.querySelector(".toolbar-branch")?.textContent).toBe(
+    "feat/worktree",
+  );
+});
+
+it("solicita autorización al abrir un repositorio no autorizado, recuerda solo lectura en la sesión y permite autorizar desde la barra de estado", async () => {
+  const fallback = api.getMockImplementation()!;
+  let repoTrusted = false;
+  const untrustedRepo = {
+    ...repo,
+    id: "repo-untrusted",
+    path: "/fixture/untrusted",
+    name: "Repo Nuevo",
+    trusted: false,
+  };
+  const otherRepo = {
+    ...repo,
+    id: "repo-trusted",
+    path: "/fixture/trusted",
+    name: "Repo Confiable",
+    trusted: true,
+  };
+
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") {
+      const p = (args as { path: string }).path;
+      return structuredClone(p === otherRepo.path ? otherRepo : untrustedRepo);
+    }
+    if (command === "authorize_repository") {
+      repoTrusted = true;
+      return {
+        token: "auth",
+        entries: [],
+        head: hash,
+        branch: "main",
+        author: null,
+        operation: null,
+        trusted: true,
+      };
+    }
+    if (command === "read_worktree_summary") {
+      const id = (args as { id: string }).id;
+      if (id === untrustedRepo.id && repoTrusted) {
+        return {
+          trusted: true,
+          staged: 1,
+          unstaged: 0,
+          untracked: 0,
+          conflicts: 0,
+          total: 1,
+          operation: null,
+        };
+      }
+      return {
+        trusted: id === otherRepo.id,
+        staged: 0,
+        unstaged: 0,
+        untracked: 0,
+        conflicts: 0,
+        total: 0,
+        operation: null,
+      };
+    }
+    return fallback(command, args);
+  });
+
+  dialog.mockResolvedValueOnce(untrustedRepo.path);
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+
+  // Aparece el modal automático mostrando nombre y ruta del repositorio
+  const trustModal = await screen.findByRole("dialog");
+  expect(
+    within(trustModal).getByText("¿Autorizar operaciones en Repo Nuevo?"),
+  ).toBeTruthy();
+  expect(within(trustModal).getByText("/fixture/untrusted")).toBeTruthy();
+
+  // Continuar en solo lectura no autoriza y muestra el botón en la barra de estado
+  await userEvent.click(
+    screen.getByRole("button", { name: "Continuar en solo lectura" }),
+  );
+  expect(api).not.toHaveBeenCalledWith("authorize_repository", {
+    id: untrustedRepo.id,
+  });
+  expect(
+    await screen.findByRole("button", {
+      name: "Solo lectura · Autorizar…",
+    }),
+  ).toBeTruthy();
+
+  // Abrir otra pestaña confiable y volver a Repo Nuevo no vuelve a abrir el modal automáticamente
+  dialog.mockResolvedValueOnce(otherRepo.path);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /Repo Confiable/ });
+  await userEvent.click(screen.getByRole("tab", { name: /Repo Nuevo/ }));
+  expect(
+    screen.queryByText("¿Autorizar operaciones en Repo Nuevo?"),
+  ).toBeNull();
+
+  // Autorizar desde la barra de estado abre el modal, autoriza y habilita la fila WIP
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Solo lectura · Autorizar…" }),
+  );
+  expect(
+    await screen.findByText("¿Autorizar operaciones en Repo Nuevo?"),
+  ).toBeTruthy();
+  await userEvent.click(
+    screen.getByRole("button", { name: "Autorizar este repositorio" }),
+  );
+
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("authorize_repository", {
+      id: untrustedRepo.id,
+    }),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Solo lectura · Autorizar…" }),
+  ).toBeNull();
+  expect(
+    await screen.findByRole("button", {
+      name: /Cambios sin commitear \(1\)/,
+    }),
+  ).toBeTruthy();
+});
+
+it("abre Búsqueda avanzada y salta al inspector para un commit fuera de los primeros cargados", async () => {
+  const fallback = api.getMockImplementation()!;
+  const remoteCommit = {
+    hash: "f".repeat(40),
+    parents: [],
+    author: "Historial Profundo",
+    date: "2024-05-01T09:00:00Z",
+    subject: "commit histórico lejano",
+  };
+  api.mockImplementation(async (command, args) => {
+    if (command === "search_history") {
+      return {
+        commits: [remoteCommit],
+        nextOffset: null,
+        truncated: false,
+      };
+    }
+    if (command === "read_search_match_diff") {
+      return {
+        hash: remoteCommit.hash,
+        text: "diff --git a/old.ts b/old.ts\n--- a/old.ts\n+++ b/old.ts\n@@ -1 +1 @@\n+export const legacy = true;",
+      };
+    }
+    if (command === "read_commit_files") {
+      const { hash: targetHash } = args as { hash: string };
+      return { hash: targetHash, parent: null, parentCount: 0, files: [] };
+    }
+    if (command === "read_commit_diff") {
+      const { hash: targetHash } = args as { hash: string };
+      return {
+        hash: targetHash,
+        text:
+          targetHash === remoteCommit.hash
+            ? "diff --git a/old.ts b/old.ts\n+export const legacy = true;"
+            : "diff fixture",
+        parent: null,
+        parentCount: 0,
+      };
+    }
+    return fallback(command, args);
+  });
+
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Búsqueda avanzada…" }),
+  );
+  const dialogEl = await screen.findByRole("dialog");
+  await userEvent.type(within(dialogEl).getByLabelText("Mensaje"), "histórico");
+  await userEvent.click(
+    within(dialogEl).getByRole("button", { name: "Buscar" }),
+  );
+
+  expect(
+    await within(dialogEl).findByRole("heading", {
+      name: "commit histórico lejano",
+    }),
+  ).toBeTruthy();
+  await userEvent.click(
+    within(dialogEl).getByRole("button", { name: "Ir al commit" }),
+  );
+
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("read_commit_diff", {
+      id: repo.id,
+      hash: remoteCommit.hash,
+      parentIndex: 0,
+    }),
+  );
+  const inspector = document.getElementById("commit-inspector") as HTMLElement;
+  expect(
+    await within(inspector).findByRole("heading", {
+      name: "commit histórico lejano",
+    }),
+  ).toBeTruthy();
+  expect(
+    within(inspector).getAllByText("Historial Profundo").length,
+  ).toBeGreaterThan(0);
+});
+
+it("permite comparar dos commits con Shift+Click y abrir Historial (--follow) y Blame desde archivos del inspector", async () => {
+  const fallback = api.getMockImplementation()!;
+  const commitOld = {
+    hash: "c".repeat(40),
+    parents: [],
+    author: "Alice",
+    date: "2026-01-05T10:00:00Z",
+    subject: "commit antiguo",
+  };
+  const commitNew = {
+    hash: "d".repeat(40),
+    parents: [commitOld.hash],
+    author: "Bob",
+    date: "2026-02-05T10:00:00Z",
+    subject: "commit reciente",
+  };
+  const rangeRepo = {
+    ...repo,
+    head: commitNew.hash,
+    page: {
+      commits: [commitNew, commitOld],
+      nextOffset: null,
+      generation: "range-gen",
+    },
+  };
+
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") return structuredClone(rangeRepo);
+    if (command === "read_commit_files") {
+      const { hash: targetHash } = args as { hash: string };
+      return {
+        hash: targetHash,
+        parent: commitOld.hash,
+        parentCount: 1,
+        files: [
+          {
+            path: "src/modulo.ts",
+            oldPath: null,
+            status: "M",
+            additions: 3,
+            deletions: 1,
+            binary: false,
+          },
+        ],
+      };
+    }
+    if (command === "read_range_files") {
+      return {
+        base: commitOld.hash,
+        target: commitNew.hash,
+        files: [
+          {
+            path: "src/modulo.ts",
+            oldPath: null,
+            status: "M",
+            additions: 3,
+            deletions: 1,
+            binary: false,
+          },
+        ],
+      };
+    }
+    if (command === "read_range_diff") {
+      return {
+        base: commitOld.hash,
+        target: commitNew.hash,
+        text: "diff --git a/src/modulo.ts b/src/modulo.ts\n+export const range = true;",
+      };
+    }
+    if (command === "read_file_history") {
+      return {
+        path: "src/modulo.ts",
+        entries: [
+          {
+            commit: commitNew,
+            path: "src/modulo.ts",
+            oldPath: null,
+            status: "M",
+          },
+        ],
+        nextOffset: null,
+      };
+    }
+    if (command === "read_file_blame") {
+      return {
+        path: "src/modulo.ts",
+        commit: commitNew.hash,
+        lines: [
+          {
+            lineNumber: 1,
+            hash: commitOld.hash,
+            author: "Alice",
+            date: "2026-01-05",
+            summary: "commit antiguo",
+            content: "export const base = 1;",
+          },
+        ],
+      };
+    }
+    return fallback(command, args);
+  });
+
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  // Shift+Click entre commit reciente (seleccionado) y commit antiguo abre CompareDialog
+  const oldRow = await screen.findByRole("button", { name: /commit antiguo/ });
+  fireEvent.click(oldRow, { shiftKey: true });
+
+  const compareModal = await screen.findByRole("dialog");
+  expect(
+    within(compareModal).getByRole("heading", {
+      name: new RegExp(
+        `Comparar ${commitOld.hash.slice(0, 8)} → ${commitNew.hash.slice(0, 8)}`,
+      ),
+    }),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("read_range_diff", {
+      id: rangeRepo.id,
+      base: commitOld.hash,
+      target: commitNew.hash,
+      path: null,
+      oldPath: null,
+      ignoreWhitespace: false,
+      contextLines: 3,
+    }),
+  );
+  await userEvent.click(
+    within(compareModal).getByRole("button", {
+      name: "Cerrar comparación de commits",
+    }),
+  );
+
+  // Botones Historial y Blame en el archivo del Inspector abren sus respectivos modales
+  const historyBtn = await screen.findByRole("button", {
+    name: "Historial del archivo",
+  });
+  await userEvent.click(historyBtn);
+  const fhModal = await screen.findByRole("dialog");
+  expect(
+    within(fhModal).getByRole("heading", {
+      name: "Historial de src/modulo.ts",
+    }),
+  ).toBeTruthy();
+  await userEvent.click(
+    within(fhModal).getByRole("button", {
+      name: "Cerrar historial de archivo",
+    }),
+  );
+
+  const blameBtn = await screen.findByRole("button", {
+    name: "Blame del archivo",
+  });
+  await userEvent.click(blameBtn);
+  const blameModal = await screen.findByRole("dialog");
+  expect(
+    within(blameModal).getByRole("heading", { name: "Blame de src/modulo.ts" }),
+  ).toBeTruthy();
+  expect(
+    await within(blameModal).findByText("export const base = 1;"),
+  ).toBeTruthy();
+});
+
+it("carga historial progresivamente con scroll infinito y abre guía automática si falta Git CLI", async () => {
+  const fallback = api.getMockImplementation()!;
+  let envCheckCalls = 0;
+  const pageTwoCommit = {
+    hash: "e".repeat(40),
+    parents: [],
+    author: "Scroll Infinito",
+    date: "2026-01-01T00:00:00Z",
+    subject: "commit de pagina 2",
+  };
+  const paginatedRepo = {
+    ...repo,
+    page: {
+      ...repo.page,
+      nextOffset: 200,
+    },
+  };
+
+  api.mockImplementation(async (command, args) => {
+    if (command === "check_git_environment") {
+      envCheckCalls += 1;
+      if (envCheckCalls === 1) {
+        return {
+          os: "windows",
+          gitAvailable: false,
+          gitVersion: null,
+          lfsAvailable: false,
+          lfsVersion: null,
+          gixEnabled: true,
+        };
+      }
+      return {
+        os: "windows",
+        gitAvailable: true,
+        gitVersion: "git version 2.47.1.windows.1",
+        lfsAvailable: false,
+        lfsVersion: null,
+        gixEnabled: true,
+      };
+    }
+    if (command === "open_repository") return structuredClone(paginatedRepo);
+    if (command === "read_history") {
+      return {
+        commits: [pageTwoCommit],
+        nextOffset: null,
+        generation: paginatedRepo.page.generation,
+      };
+    }
+    return fallback(command, args);
+  });
+
+  render(<App />);
+
+  // Al iniciar sin Git CLI se abre automáticamente el diagnóstico con guía Windows
+  const envDialog = await screen.findByRole("dialog");
+  expect(
+    within(envDialog).getByRole("heading", { name: "Entorno y motor Git" }),
+  ).toBeTruthy();
+  expect(within(envDialog).getByText("Instalar Git en Windows")).toBeTruthy();
+
+  await userEvent.click(
+    within(envDialog).getByRole("button", { name: "Volver a comprobar" }),
+  );
+  expect(
+    await within(envDialog).findByText("git version 2.47.1.windows.1"),
+  ).toBeTruthy();
+  await userEvent.click(
+    within(envDialog).getByRole("button", { name: "Cerrar" }),
+  );
+
+  // Abrir repo con nextOffset y simular scroll cerca del final dispara read_history
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  const historyScroll = document.querySelector(
+    ".history-scroll",
+  ) as HTMLElement;
+  Object.defineProperty(historyScroll, "clientHeight", {
+    value: 400,
+    configurable: true,
+  });
+  Object.defineProperty(historyScroll, "scrollHeight", {
+    value: 1000,
+    configurable: true,
+  });
+  Object.defineProperty(historyScroll, "scrollTop", {
+    value: 450,
+    configurable: true,
+    writable: true,
+  });
+  fireEvent.scroll(historyScroll);
+
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("read_history", {
+      id: repo.id,
+      offset: 200,
+      generation: paginatedRepo.page.generation,
+      scope: "all",
+    }),
+  );
+  expect(await screen.findByText("commit de pagina 2")).toBeTruthy();
+});
+
+it("abre Snapshots locales y dispara vista previa de Undo con Cmd/Ctrl+Z solo fuera de inputs", async () => {
+  const undoEntry = {
+    id: "u1",
+    timestamp: 1700000000,
+    kind: "commit",
+    label: "Commit: prueba",
+    before: { branch: "main", head: "111111111111" },
+    after: { branch: "main", head: hash },
+    movesRefs: true,
+  };
+  const baseUndoState = {
+    canUndo: true,
+    canRedo: false,
+    undoCount: 1,
+    redoCount: 0,
+    nextUndo: undoEntry,
+    nextRedo: null,
+    recentUndo: [undoEntry],
+  };
+
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "read_undo_state") return baseUndoState;
+    if (command === "preview_undo") {
+      return {
+        token: "undo-preview-1",
+        direction: (args as { direction: string }).direction,
+        entry: undoEntry,
+        currentBranch: "main",
+        currentHead: hash,
+        targetBranch: "main",
+        targetHead: "111111111111",
+        requiresConfirmation: true,
+        summary: "Deshacer «Commit: prueba» conservando los cambios (--mixed).",
+        warning: null,
+      };
+    }
+    if (command === "confirm_undo") {
+      return {
+        direction: "undo",
+        message: "Operación deshecha: Commit: prueba.",
+        state: {
+          canUndo: false,
+          canRedo: true,
+          undoCount: 0,
+          redoCount: 1,
+          nextUndo: null,
+          nextRedo: undoEntry,
+          recentUndo: [],
+        },
+      };
+    }
+    return fallback(command, args);
+  });
+
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  // Ctrl/Cmd+Z dentro de un input NO debe disparar preview_undo
+  const searchBox = screen.getByPlaceholderText(/Buscar mensaje/i);
+  searchBox.focus();
+  fireEvent.keyDown(searchBox, { key: "z", ctrlKey: true });
+  expect(api).not.toHaveBeenCalledWith("preview_undo", expect.anything());
+
+  // Abrir Snapshots locales desde el sidebar
+  await userEvent.click(
+    screen.getByRole("button", { name: "Snapshots locales…" }),
+  );
+  const snapDialog = await screen.findByRole("dialog");
+  expect(
+    within(snapDialog).getByRole("heading", { name: "Snapshots locales" }),
+  ).toBeTruthy();
+  await userEvent.click(
+    within(snapDialog).getByRole("button", { name: "Cerrar" }),
+  );
+
+  // Ctrl/Cmd+Z fuera de inputs abre UndoDialog con vista previa y confirmación
+  fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("preview_undo", {
+      id: repo.id,
+      direction: "undo",
+    }),
+  );
+  const undoDialog = await screen.findByRole("dialog");
+  expect(
+    within(undoDialog).getByRole("heading", { name: "Deshacer operación" }),
+  ).toBeTruthy();
+
+  await userEvent.click(
+    within(undoDialog).getByRole("button", { name: "Confirmar deshacer" }),
+  );
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("confirm_undo", {
+      id: repo.id,
+      token: "undo-preview-1",
+    }),
+  );
+});
+
+it("muestra ImageDiffViewer al seleccionar una imagen en el inspector de commits y cambia de modo", async () => {
+  const pngBefore =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  const pngAfter =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "read_commit_files") {
+      return {
+        hash,
+        parent: null,
+        parentCount: 1,
+        files: [
+          {
+            path: "assets/logo.png",
+            oldPath: null,
+            status: "M",
+            additions: null,
+            deletions: null,
+            binary: true,
+          },
+        ],
+      };
+    }
+    if (command === "read_image_diff") {
+      return {
+        path: "assets/logo.png",
+        oldPath: null,
+        mime: "image/png",
+        before: {
+          label: "Padre 1111111",
+          dataUrl: pngBefore,
+          mime: "image/png",
+          bytes: 512,
+          isLfsPointer: false,
+          tooLarge: false,
+        },
+        after: {
+          label: `Commit ${hash.slice(0, 7)}`,
+          dataUrl: pngAfter,
+          mime: "image/png",
+          bytes: 1024,
+          isLfsPointer: false,
+          tooLarge: false,
+        },
+      };
+    }
+    return fallback(command, args);
+  });
+
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  const fileButton = await screen.findByRole("button", {
+    name: /assets\/logo\.png/i,
+  });
+  await userEvent.click(fileButton);
+
+  expect(await screen.findByAltText("Padre 1111111")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Cortina" }));
+  expect(screen.getByLabelText("Posición de cortina")).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "Onion-skin" }));
+  expect(screen.getByLabelText("Opacidad de capa nueva")).toBeTruthy();
+});
+
+it("abre Git LFS y Submódulos desde el sidebar y navega entre ambas pestañas", async () => {
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Git LFS y Submódulos…" }),
+  );
+  const dialog = await screen.findByRole("dialog");
+  expect(
+    within(dialog).getByRole("heading", { name: "Git LFS y Submódulos" }),
+  ).toBeTruthy();
+  expect(
+    await within(dialog).findByText(
+      /No se detectaron archivos o punteros Git LFS/i,
+    ),
+  ).toBeTruthy();
+
+  await userEvent.click(
+    within(dialog).getByRole("tab", { name: /Submódulos/ }),
+  );
+  expect(
+    await within(dialog).findByText(/no tiene submódulos Git configurados/i),
+  ).toBeTruthy();
+});
+
+it("renderiza el grafo estilo Tributary por defecto y permite cambiar a Compacto desde Apariencia", async () => {
+  const branchedRepo = {
+    ...structuredClone(repo),
+    refs: [
+      { name: "refs/heads/main", hash, kind: "branch" },
+      { name: "refs/remotes/origin/main", hash, kind: "remote" },
+    ],
+  };
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") return branchedRepo;
+    return fallback(command, args);
+  });
+
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+  await screen.findByRole("tab", { name: /RavenGit Fixture/ });
+
+  expect(
+    screen.getByText("Rama / Tag", { selector: ".table-heading span" }),
+  ).toBeTruthy();
+  expect(document.documentElement.dataset.graphStyle).toBe("tributary");
+  expect(document.querySelector(".commit-row.tributary")).toBeTruthy();
+  expect(document.querySelector("svg.graph-cell text")?.textContent).toBe("FI");
+
+  const header = document.querySelector("header.command-bar")!;
+  await userEvent.click(
+    within(header as HTMLElement).getByRole("button", { name: "Apariencia" }),
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: /Compacto \(Puntos\)/ }),
+  );
+
+  expect(document.documentElement.dataset.graphStyle).toBe("compact");
+  expect(document.querySelector(".commit-row.tributary")).toBeNull();
+  expect(api).toHaveBeenCalledWith("save_app_settings", {
+    settings: expect.objectContaining({ graphStyle: "compact" }),
+  });
+});
+
+it("colapsa remotos sincronizados, muestra separadores temporales y persiste showAuthor y refsWidth", async () => {
+  const olderHash = "b".repeat(40);
+  const nowIso = new Date().toISOString();
+  const olderIso = new Date(Date.now() - 20 * 86_400_000).toISOString();
+  const multiDateRepo = {
+    ...structuredClone(repo),
+    refs: [
+      { name: "refs/heads/main", hash, kind: "branch" },
+      { name: "refs/remotes/origin/main", hash, kind: "remote" },
+    ],
+    page: {
+      ...structuredClone(repo.page),
+      commits: [
+        {
+          hash,
+          parents: [olderHash],
+          author: "Fixture Author",
+          date: nowIso,
+          subject: "Base",
+        },
+        {
+          hash: olderHash,
+          parents: [],
+          author: "Second Author",
+          date: olderIso,
+          subject: "Inicial",
+        },
+      ],
+    },
+  };
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") return multiDateRepo;
+    return fallback(command, args);
+  });
+
+  await opened();
+
+  // Rama sincronizada con origin/main se colapsa en una píldora con icono dual
+  const refsCol = document.querySelector(".commit-refs-col") as HTMLElement;
+  expect(refsCol).toBeTruthy();
+  expect(refsCol.querySelector(".ref-dual-sync")).toBeTruthy();
+  expect(within(refsCol).queryByText("origin/main")).toBeNull();
+
+  // Separadores temporales visibles en Tributary
+  expect(screen.getByRole("separator", { name: "Hoy" })).toBeTruthy();
+  expect(screen.getByRole("separator", { name: "Anterior" })).toBeTruthy();
+
+  // Abrir menú Vista, ocultar Autor y redimensionar Rama / Tag
+  await userEvent.click(screen.getByText("Vista", { selector: "summary" }));
+  const authorCheckbox = screen.getByRole("checkbox", { name: "Autor" });
+  expect((authorCheckbox as HTMLInputElement).checked).toBe(true);
+  await userEvent.click(authorCheckbox);
+  expect(document.querySelector(".history-author")).toBeNull();
+
+  const refsSlider = screen.getByRole("slider", {
+    name: "Ancho de Rama / Tag",
+  });
+  fireEvent.change(refsSlider, { target: { value: "240" } });
+  const historyPanel = document.getElementById("history-content")!;
+  expect(historyPanel.style.getPropertyValue("--refs-col-width")).toBe("240px");
+
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("save_history_preferences", {
+      id: repo.id,
+      preferences: expect.objectContaining({
+        showAuthor: false,
+        refsWidth: 240,
+      }),
+    }),
+  );
+
+  // Cambiar a Compacto oculta los separadores temporales
+  const header = document.querySelector("header.command-bar")!;
+  await userEvent.click(
+    within(header as HTMLElement).getByRole("button", { name: "Apariencia" }),
+  );
+  await userEvent.click(
+    await screen.findByRole("button", { name: /Compacto \(Puntos\)/ }),
+  );
+  expect(screen.queryByRole("separator", { name: "Hoy" })).toBeNull();
+});
+
+it("abre y cierra Atajos de teclado con ? sólo fuera de campos editables", async () => {
+  await opened();
+
+  const searchBox = screen.getByRole("textbox", {
+    name: "Buscar en commits cargados",
+  });
+  searchBox.focus();
+  await userEvent.keyboard("?");
+  expect(
+    screen.queryByRole("heading", { name: "Atajos de teclado" }),
+  ).toBeNull();
+
+  searchBox.blur();
+  fireEvent.keyDown(document.body, { key: "?" });
+  expect(
+    await screen.findByRole("heading", { name: "Atajos de teclado" }),
+  ).toBeTruthy();
+
+  fireEvent.keyDown(document.body, { key: "?" });
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("heading", { name: "Atajos de teclado" }),
+    ).toBeNull(),
+  );
+});
+
+it("alterna Modo Simple en un clic, simplifica la interfaz y persiste simpleMode", async () => {
+  await opened();
+
+  const toggleBtn = screen.getByRole("button", { name: "Activar Modo Simple" });
+  expect(toggleBtn.textContent).toBe("Completo");
+  expect(
+    screen.getByText("Herramientas", { selector: "summary" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Stash" })).toBeTruthy();
+
+  await userEvent.click(toggleBtn);
+
+  expect(document.documentElement.dataset.simpleMode).toBe("true");
+  expect(
+    screen.getByRole("button", { name: "Modo Simple activo" }).textContent,
+  ).toBe("Simple");
+  expect(
+    screen.queryByText("Herramientas", { selector: "summary" }),
+  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Stash" })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Búsqueda avanzada…" }),
+  ).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Modo Simple · Cambiar a Completo" }),
+  ).toBeTruthy();
+  expect(api).toHaveBeenCalledWith("save_app_settings", {
+    settings: expect.objectContaining({ simpleMode: true }),
+  });
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Modo Simple activo" }),
+  );
+  expect(document.documentElement.dataset.simpleMode).toBe("false");
+  expect(
+    screen.getByText("Herramientas", { selector: "summary" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Stash" })).toBeTruthy();
+  expect(api).toHaveBeenCalledWith("save_app_settings", {
+    settings: expect.objectContaining({ simpleMode: false }),
+  });
+});
+
+it("consulta PRs/MRs sólo de forma explícita opt-in y muestra badge #42 en la rama del grafo", async () => {
+  const branchedRepo = {
+    ...structuredClone(repo),
+    refs: [{ name: "refs/heads/main", hash, kind: "branch" }],
+  };
+  const fallback = api.getMockImplementation()!;
+  api.mockImplementation(async (command, args) => {
+    if (command === "open_repository") return branchedRepo;
+    if (command === "read_forge_info") {
+      return {
+        trusted: true,
+        provider: "github",
+        remoteName: "origin",
+        host: "github.com",
+        repoSlug: "nightRaven77/RavenGit",
+        webUrl: "https://github.com/nightRaven77/RavenGit",
+        cliName: "gh",
+        cliAvailable: true,
+        currentBranch: "main",
+        createPrUrl:
+          "https://github.com/nightRaven77/RavenGit/compare/main?expand=1",
+      };
+    }
+    if (command === "fetch_pull_requests") {
+      return {
+        provider: "github",
+        repoSlug: "nightRaven77/RavenGit",
+        fetchedAt: 1_795_650_000,
+        items: [
+          {
+            number: 42,
+            title: "feat: modo simple y PR opt-in",
+            state: "open",
+            headBranch: "main",
+            baseBranch: "develop",
+            author: "erick",
+            url: "https://github.com/nightRaven77/RavenGit/pull/42",
+            updatedAt: "2026-11-25T18:00:00Z",
+          },
+        ],
+      };
+    }
+    return fallback(command, args);
+  });
+
+  await opened();
+  expect(
+    api.mock.calls.some(([command]) => command === "fetch_pull_requests"),
+  ).toBe(false);
+
+  await userEvent.click(screen.getByRole("button", { name: "PR / MR" }));
+  const fetchBtn = await screen.findByRole("button", {
+    name: "Consultar PRs / MRs",
+  });
+  await userEvent.click(fetchBtn);
+
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("fetch_pull_requests", { id: repo.id }),
+  );
+  expect(await screen.findByText("feat: modo simple y PR opt-in")).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+
+  const prPill = document.querySelector(".ref.ref-pr");
+  expect(prPill).toBeTruthy();
+  expect(prPill?.textContent).toBe("#42");
+});
+
+it("abre la Guía rápida desde la pantalla de bienvenida y enlaza con Atajos de teclado", async () => {
+  render(<App />);
+
+  await userEvent.click(screen.getByRole("button", { name: "Guía rápida" }));
+  expect(
+    await screen.findByRole("heading", { name: "Guía rápida de RavenGit" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("region", { name: "Espacio local y autorización" }),
+  ).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "Ver atajos (?)" }));
+  expect(
+    await screen.findByRole("heading", { name: "Atajos de teclado" }),
+  ).toBeTruthy();
+  expect(
+    screen.queryByRole("heading", { name: "Guía rápida de RavenGit" }),
+  ).toBeNull();
+});
+
+it("abre la Guía rápida desde la barra superior al tener un repositorio abierto", async () => {
+  await opened();
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Guía rápida de RavenGit" }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Guía rápida de RavenGit" }),
+  ).toBeTruthy();
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Cerrar guía rápida" }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("heading", { name: "Guía rápida de RavenGit" }),
+    ).toBeNull(),
+  );
 });

@@ -7,12 +7,14 @@ use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 const RESTORE_DIR_NAME: &str = "ravengit-restore";
 const MAX_FILE_SIZE: usize = 64 * 1024 * 1024;
+static BACKUP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -284,6 +286,88 @@ pub fn preview(repo: &Repository, path: &str, is_redo: bool, trusted: bool) -> R
     })
 }
 
+fn next_backup_id(path: &str) -> Result<String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| error("TIME", "Error de reloj de sistema."))?
+        .as_nanos() as u64;
+    let seq = BACKUP_SEQ.fetch_add(1, Ordering::Relaxed);
+    Ok(format!(
+        "ravengit-restore-{}-{timestamp}-{seq}",
+        slugify(path)
+    ))
+}
+
+fn write_backup_entry(
+    root: &Path,
+    backup_id: &str,
+    path: &str,
+    current_bytes: &[u8],
+    target_bytes: &[u8],
+    is_redo: bool,
+) -> Result<()> {
+    let backup_dir = root.join(backup_id);
+    fs::create_dir_all(&backup_dir).map_err(|_| {
+        error(
+            "RESTORE_IO",
+            "No se pudo crear la carpeta de copia de seguridad.",
+        )
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&backup_dir, fs::Permissions::from_mode(0o700));
+    }
+    let backup_content_path = backup_dir.join("backup_content");
+    let mut bf = File::create(&backup_content_path)
+        .map_err(|_| error("BACKUP_WRITE", "No se pudo guardar el archivo de respaldo."))?;
+    bf.write_all(current_bytes)
+        .and_then(|_| bf.sync_all())
+        .map_err(|_| {
+            error(
+                "BACKUP_WRITE",
+                "No se pudo escribir el archivo de respaldo.",
+            )
+        })?;
+
+    let meta = BackupMetadata {
+        id: backup_id.to_string(),
+        path: path.to_string(),
+        original_sha256: hash_bytes(current_bytes),
+        target_sha256: hash_bytes(target_bytes),
+        is_redo,
+        timestamp: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| error("TIME", "Error de reloj de sistema."))?
+            .as_secs(),
+    };
+    let meta_json = serde_json::to_string_pretty(&meta).map_err(|_| {
+        error(
+            "BACKUP_WRITE",
+            "No se pudieron serializar los metadatos de respaldo.",
+        )
+    })?;
+    fs::write(backup_dir.join("metadata.json"), meta_json).map_err(|_| {
+        error(
+            "BACKUP_WRITE",
+            "No se pudieron escribir los metadatos de respaldo.",
+        )
+    })?;
+    Ok(())
+}
+
+pub(crate) fn record_backup(
+    repo: &Repository,
+    path: &str,
+    original: &[u8],
+    target: &[u8],
+) -> Result<String> {
+    let root = restore_root(repo)?;
+    let backup_id = next_backup_id(path)?;
+    write_backup_entry(&root, &backup_id, path, original, target, false)?;
+    Ok(backup_id)
+}
+
 pub fn execute(repo: &Repository, plan: Plan, trusted: bool) -> Result<Outcome> {
     if !trusted {
         return Err(error(
@@ -303,13 +387,6 @@ pub fn execute(repo: &Repository, plan: Plan, trusted: bool) -> Result<Outcome> 
 
     let full = changes::validated_path(repo, &plan.path)?;
     let root = restore_root(repo)?;
-    let backup_dir = root.join(&plan.backup_id);
-    fs::create_dir_all(&backup_dir).map_err(|_| {
-        error(
-            "RESTORE_IO",
-            "No se pudo crear la carpeta de copia de seguridad.",
-        )
-    })?;
 
     let current_bytes = if full.exists() {
         fs::read(&full).map_err(|_| error("FILE_READ", "No se pudo leer el archivo original."))?
@@ -318,42 +395,14 @@ pub fn execute(repo: &Repository, plan: Plan, trusted: bool) -> Result<Outcome> 
     };
     let target_bytes = plan.target_content.as_bytes();
 
-    // Guardar copia de seguridad
-    let backup_content_path = backup_dir.join("backup_content");
-    let mut bf = File::create(&backup_content_path)
-        .map_err(|_| error("BACKUP_WRITE", "No se pudo guardar el archivo de respaldo."))?;
-    bf.write_all(&current_bytes)
-        .and_then(|_| bf.sync_all())
-        .map_err(|_| {
-            error(
-                "BACKUP_WRITE",
-                "No se pudo escribir el archivo de respaldo.",
-            )
-        })?;
-
-    let meta = BackupMetadata {
-        id: plan.backup_id.clone(),
-        path: plan.path.clone(),
-        original_sha256: hash_bytes(&current_bytes),
-        target_sha256: hash_bytes(target_bytes),
-        is_redo: plan.is_redo,
-        timestamp: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| error("TIME", "Error de reloj de sistema."))?
-            .as_secs(),
-    };
-    let meta_json = serde_json::to_string_pretty(&meta).map_err(|_| {
-        error(
-            "BACKUP_WRITE",
-            "No se pudieron serializar los metadatos de respaldo.",
-        )
-    })?;
-    fs::write(backup_dir.join("metadata.json"), meta_json).map_err(|_| {
-        error(
-            "BACKUP_WRITE",
-            "No se pudieron escribir los metadatos de respaldo.",
-        )
-    })?;
+    write_backup_entry(
+        &root,
+        &plan.backup_id,
+        &plan.path,
+        &current_bytes,
+        target_bytes,
+        plan.is_redo,
+    )?;
 
     // Escribir archivo de destino en el árbol de trabajo
     if target_bytes.is_empty() && !plan.is_redo {

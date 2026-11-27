@@ -109,12 +109,13 @@ const releaseNotesRel = `docs/releases/${targetVersion}.md`;
 if (!existsSync(getPath(releaseNotesRel))) {
   const notesTemplate = `# RavenGit ${targetVersion}
 
-Entrega estable para Windows x64 y macOS Apple Silicon.
+Entrega estable para Windows x64, macOS Apple Silicon y Linux x64.
 
 ## Distribución
 
 - Windows: el workflow solicita firma Authenticode para el ejecutable y el instalador mediante SignPath (integración vía API directa / PowerShell).
 - macOS: el workflow genera un DMG arm64 con firma ad hoc. La notarización de Apple sigue pendiente de credenciales y configuración de Developer ID.
+- Linux: el workflow genera paquetes \`.deb\` y \`.AppImage\` en \`ubuntu-22.04\` mediante \`npm run release:build:linux\`.
 
 Los artefactos incluyen licencia, sumas SHA-256 y un manifiesto de entrega. Esta nota no sustituye la validación por plataforma ni publica un release automáticamente.
 `;

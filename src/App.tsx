@@ -1,116 +1,175 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  ArrowRightIcon,
   CommitIcon,
   ExclamationTriangleIcon,
-  FileTextIcon,
-  OpenInNewWindowIcon,
   MagnifyingGlassIcon,
-  LockClosedIcon,
+  OpenInNewWindowIcon,
 } from "@radix-ui/react-icons";
-import { layoutGraph, graphPixelWidth, type GraphRow } from "./graph";
-import type { CommitDiff, HistoryPage, Snapshot } from "./types";
+import { layoutGraph, graphPixelWidth } from "./graph";
+import CommitInspector from "./CommitInspector";
+import { CommitRow, HistoryTimeSeparator, WipRow } from "./HistoryRow";
+import Sidebar from "./Sidebar";
+import StatusBar from "./StatusBar";
+import {
+  COMPACT_ROW_HEIGHT,
+  DEFAULT_REFS_COL_WIDTH,
+  MAX_OPEN_TABS,
+  MAX_REFS_COL_WIDTH,
+  MIN_REFS_COL_WIDTH,
+  TRIBUTARY_GROUP_HEIGHT,
+  TRIBUTARY_ROW_HEIGHT,
+  defaultTabEntry,
+  errorText,
+  refName,
+  short,
+  type RepoView,
+  type TabEntry,
+} from "./appHelpers";
+import type {
+  Commit,
+  CommitDiff,
+  CommitFile,
+  CommitFiles,
+  EnvironmentStatus,
+  GitRef,
+  HistoryPage,
+  ImageDiff,
+  PullRequestItem,
+  RepoChangedEvent,
+  Snapshot,
+  UndoOutcome,
+  UndoPlan,
+  UndoState,
+  WorktreeItem,
+  WorktreeSummary,
+  WorktreesState,
+} from "./types";
+import "./themes.css";
 import "./App.css";
+import "./styles/panels.css";
+import "./styles/dialogs.css";
+import "./styles/tributary.css";
 import "./workspace.css";
-import AuthorAvatar from "./AuthorAvatar";
-import LibraryDialog from "./LibraryDialog";
-import InitializeDialog from "./InitializeDialog";
+import {
+  DEFAULT_APP_SETTINGS,
+  DEFAULT_SNAPSHOT_PREFERENCES,
+  THEMES,
+  applyAppearance,
+  isGraphPaletteId,
+  isGraphStyleId,
+  isThemeId,
+  loadCachedAppearance,
+  resolveGraphColors,
+  type AppSettings,
+  type ExternalAppsState,
+  type ExternalPreferences,
+  type GraphPaletteId,
+  type GraphStyleId,
+  type SnapshotPreferences,
+  type ThemeId,
+} from "./themes";
+import OpenExternalMenu from "./OpenExternalMenu";
 import type { RepositoryLibrary, HistoryPreferences } from "./library";
 import ChangesPanel from "./ChangesPanel";
-import RemotesPanel from "./RemotesPanel";
-import PushPanel from "./PushPanel";
 import OperationNotice, { type OperationResult } from "./OperationNotice";
-import PullPanel from "./PullPanel";
 import CommandBar from "./CommandBar";
-import BranchesPanel from "./BranchesPanel";
-import DiffViewer from "./DiffViewer";
-import StashDialog from "./StashDialog";
-import ConflictRestoreDialog from "./ConflictRestoreDialog";
-import ReplayDialog, { type ReplayTarget } from "./ReplayDialog";
-import TagDialog from "./TagDialog";
-import TagPublishDialog from "./TagPublishDialog";
-import ActivityDialog from "./ActivityDialog";
+
+const RemotesPanel = lazy(() => import("./RemotesPanel"));
+const PushPanel = lazy(() => import("./PushPanel"));
+const PullPanel = lazy(() => import("./PullPanel"));
+const BranchesPanel = lazy(() => import("./BranchesPanel"));
+import TrustDialog from "./TrustDialog";
+import { isImageAssetPath } from "./ImageDiffViewer";
+import type { ReplayTarget } from "./ReplayDialog";
+import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
+import CommandPalette, { type PaletteCommand } from "./CommandPalette";
+
+const AppearanceDialog = lazy(() => import("./AppearanceDialog"));
+const BlameDialog = lazy(() => import("./BlameDialog"));
+const CompareDialog = lazy(() => import("./CompareDialog"));
+const EnvironmentDialog = lazy(() => import("./EnvironmentDialog"));
+const FileHistoryDialog = lazy(() => import("./FileHistoryDialog"));
+const LibraryDialog = lazy(() => import("./LibraryDialog"));
+const InitializeDialog = lazy(() => import("./InitializeDialog"));
+const LfsSubmodulesDialog = lazy(() => import("./LfsSubmodulesDialog"));
+const SnapshotsDialog = lazy(() => import("./SnapshotsDialog"));
+const UndoDialog = lazy(() => import("./UndoDialog"));
+const StashDialog = lazy(() => import("./StashDialog"));
+const WorktreeDialog = lazy(() => import("./WorktreeDialog"));
+const ConflictRestoreDialog = lazy(() => import("./ConflictRestoreDialog"));
+const ReplayDialog = lazy(() => import("./ReplayDialog"));
+const SearchDialog = lazy(() => import("./SearchDialog"));
+const TagDialog = lazy(() => import("./TagDialog"));
+const TagPublishDialog = lazy(() => import("./TagPublishDialog"));
+const ActivityDialog = lazy(() => import("./ActivityDialog"));
+const ShortcutsDialog = lazy(() => import("./ShortcutsDialog"));
+const QuickGuideDialog = lazy(() => import("./QuickGuideDialog"));
+const PullRequestsDialog = lazy(() => import("./PullRequestsDialog"));
+import { buildTributaryItems } from "./historyGroups";
 import {
   operationEvent,
   type OperationKey,
   type OperationReport,
   type OperationStatus,
 } from "./operations";
-function formatCommitDate(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? "Sin fecha"
-    : date.toLocaleDateString("es-MX", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      });
-}
-const rowHeight = 42;
-const colors = [
-  "#52b7ff",
-  "#62d6a7",
-  "#ff667d",
-  "#d8b46a",
-  "#b1a2f5",
-  "#7bcaca",
-];
-const short = (s: string) => s.slice(0, 8);
-const refName = (s: string) => s.replace(/^refs\/(heads|remotes|tags)\//, "");
-function errorText(error: unknown): string {
-  if (typeof error === "object" && error && "message" in error)
-    return String(error.message);
-  return "No se pudo completar la lectura. Vuelve a intentarlo.";
-}
-function GraphCell({ row, width }: { row: GraphRow; width: number }) {
-  const x = (lane: number) => 18 + lane * 20;
-  return (
-    <svg width={width} height={rowHeight} aria-hidden="true">
-      {row.segments.map((s, i) => {
-        const start = s.kind === "parent" ? 21 : 0,
-          end = s.kind === "incoming" ? 21 : 42;
-        const d =
-          s.from === s.to
-            ? `M ${x(s.from)} ${start} V ${end}`
-            : `M ${x(s.from)} ${start} C ${x(s.from)} ${(start + end) / 2}, ${x(s.to)} ${(start + end) / 2}, ${x(s.to)} ${end}`;
-        return (
-          <path
-            key={i}
-            d={d}
-            fill="none"
-            stroke={
-              colors[(s.kind === "incoming" ? s.to : s.from) % colors.length]
-            }
-            strokeWidth="2"
-            opacity={s.kind === "through" ? 0.55 : 1}
-          />
-        );
-      })}
-      <circle
-        cx={x(row.lane)}
-        cy="21"
-        r="5"
-        fill="#0b0f17"
-        stroke={colors[row.lane % colors.length]}
-        strokeWidth="2.5"
-      />
-    </svg>
-  );
-}
+
 function App() {
-  const [repo, setRepo] = useState<Snapshot | null>(null);
+  const [theme, setTheme] = useState<ThemeId>(
+    () => loadCachedAppearance().theme,
+  );
+  const [graphPalette, setGraphPalette] = useState<GraphPaletteId>(
+    () => loadCachedAppearance().graphPalette,
+  );
+  const [graphStyle, setGraphStyle] = useState<GraphStyleId>(
+    () => loadCachedAppearance().graphStyle,
+  );
+  const [simpleMode, setSimpleMode] = useState<boolean>(
+    () => loadCachedAppearance().simpleMode,
+  );
+  const [externalPreferences, setExternalPreferences] =
+    useState<ExternalPreferences>(DEFAULT_APP_SETTINGS.external);
+  const [externalApps, setExternalApps] = useState<ExternalAppsState | null>(
+    null,
+  );
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [tabs, setTabs] = useState<TabEntry[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const tabsRef = useRef<TabEntry[]>([]);
+  const activeTabIdRef = useRef<string | null>(null);
+  const tabsTouchedRef = useRef(false);
+  const snapshotsTouchedRef = useRef(false);
+  const graphStyleTouchedRef = useRef(false);
+  const simpleModeTouchedRef = useRef(false);
+  const startupRestoredRef = useRef(false);
+  const lastFocusRefreshRef = useRef(0);
+  tabsRef.current = tabs;
+  activeTabIdRef.current = activeTabId;
+  const activeTab = useMemo(
+    () => tabs.find((item) => item.snapshot.id === activeTabId) ?? null,
+    [tabs, activeTabId],
+  );
+  const repo = activeTab?.snapshot ?? null;
+  const wip = activeTab?.wip ?? null;
+  const worktrees = activeTab?.worktrees?.worktrees ?? [];
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [preferencesRepo, setPreferencesRepo] = useState<string | null>(null);
   const [preferenceSave, setPreferenceSave] = useState<
     "pending" | "saved" | "failed"
   >("saved");
   const [saveAttempt, setSaveAttempt] = useState(0);
-  const [view, setView] = useState<
-    "history" | "changes" | "remotes" | "push" | "branches" | "pull"
-  >("history");
+  const [view, setView] = useState<RepoView>("history");
   const [lastSyncView, setLastSyncView] = useState<"remotes" | "pull" | "push">(
     "remotes",
   );
@@ -130,14 +189,71 @@ function App() {
   );
   const [activityOpen, setActivityOpen] = useState(false);
   const [stashOpen, setStashOpen] = useState(false);
+  const [worktreeOpen, setWorktreeOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
+  const [trustPromptRepoId, setTrustPromptRepoId] = useState<string | null>(
+    null,
+  );
+  const dismissedTrustIdsRef = useRef<Set<string>>(new Set());
+  const [searchDialogMode, setSearchDialogMode] = useState<
+    "history" | "code" | null
+  >(null);
+  const [externalCommit, setExternalCommit] = useState<Commit | null>(null);
+  const [fileHistoryTarget, setFileHistoryTarget] = useState<{
+    path: string;
+    revision: string | null;
+  } | null>(null);
+  const [blameTarget, setBlameTarget] = useState<{
+    path: string;
+    revision: string | null;
+  } | null>(null);
+  const [comparePair, setComparePair] = useState<{
+    base: Commit;
+    target: Commit;
+  } | null>(null);
+  const [compareAnchor, setCompareAnchor] = useState<Commit | null>(null);
+  const [envStatus, setEnvStatus] = useState<EnvironmentStatus | null>(null);
+  const [envChecking, setEnvChecking] = useState(false);
+  const [envDialogOpen, setEnvDialogOpen] = useState(false);
+  const [snapshotPrefs, setSnapshotPrefs] = useState<SnapshotPreferences>(
+    DEFAULT_SNAPSHOT_PREFERENCES,
+  );
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  const [lfsSubmodulesOpen, setLfsSubmodulesOpen] = useState(false);
+  const [undoState, setUndoState] = useState<UndoState | null>(null);
+  const [undoPlan, setUndoPlan] = useState<UndoPlan | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoError, setUndoError] = useState("");
   const [changesRevision, setChangesRevision] = useState(0);
   const [replay, setReplay] = useState<ReplayTarget | null | undefined>(
     undefined,
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [parentIndex, setParentIndex] = useState(0);
+  const [commitFiles, setCommitFiles] = useState<CommitFile[] | null>(null);
+  const [filesBusy, setFilesBusy] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<CommitFile | null>(null);
+  const [commitIgnoreWhitespace, setCommitIgnoreWhitespace] = useState(false);
+  const [commitContextLines, setCommitContextLines] = useState(3);
   const [diff, setDiff] = useState<CommitDiff | null>(null);
+  const [commitImageDiff, setCommitImageDiff] = useState<ImageDiff | null>(
+    null,
+  );
+  const [preferTextForImage, setPreferTextForImage] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [quickGuideOpen, setQuickGuideOpen] = useState(false);
+  const [prDialogOpen, setPrDialogOpen] = useState(false);
+  const [pullRequestsByRepo, setPullRequestsByRepo] = useState<
+    Record<string, PullRequestItem[]>
+  >({});
+  const [branchPreselect, setBranchPreselect] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    label: string;
+    items: ContextMenuItem[];
+  } | null>(null);
   const [busy, setBusy] = useState(false),
     [loadingMore, setLoadingMore] = useState(false),
     [diffBusy, setDiffBusy] = useState(false);
@@ -150,21 +266,832 @@ function App() {
   const [historyScope, setHistoryScope] = useState("all");
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorSize, setInspectorSize] = useState(38);
+  const [draggingSplit, setDraggingSplit] = useState(false);
   const [authorWidth, setAuthorWidth] = useState(160);
+  const [showAuthor, setShowAuthor] = useState(true);
   const [showHash, setShowHash] = useState(false);
   const [showDate, setShowDate] = useState(true);
+  const [refsWidth, setRefsWidth] = useState(DEFAULT_REFS_COL_WIDTH);
+  const [draggingRefsCol, setDraggingRefsCol] = useState(false);
   const request = useRef(0),
-    diffRequest = useRef(0);
+    filesRequest = useRef(0),
+    diffRequest = useRef(0),
+    imageDiffRequest = useRef(0);
+  const mainShellRef = useRef<HTMLElement>(null);
+  const splitResizeCleanup = useRef<(() => void) | null>(null);
+  const refsResizeCleanup = useRef<(() => void) | null>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const restoreSelectionPosition = useRef(false);
   const tableHeading = useRef<HTMLDivElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
+  const writingRef = useRef(writing);
+  const historyScopeRef = useRef(historyScope);
+  writingRef.current = writing;
+  historyScopeRef.current = historyScope;
   const commits = repo?.page.commits ?? [];
+  const isTributary = graphStyle === "tributary";
+  const activeRowHeight = isTributary
+    ? TRIBUTARY_ROW_HEIGHT
+    : COMPACT_ROW_HEIGHT;
   const rows = useMemo(() => layoutGraph(commits), [commits]);
-  const graphWidth = useMemo(() => graphPixelWidth(rows), [rows]);
-  const historyColumns = `${graphWidth}px minmax(240px,1fr) ${authorWidth}px${showDate ? " 90px" : ""}${showHash ? " 80px" : ""}`;
-  const historyMinWidth =
-    graphWidth + 240 + authorWidth + (showDate ? 90 : 0) + (showHash ? 80 : 0);
+  const graphWidth = useMemo(
+    () => graphPixelWidth(rows, graphStyle),
+    [rows, graphStyle],
+  );
+  const graphColors = useMemo(
+    () => resolveGraphColors(graphPalette, theme),
+    [graphPalette, theme],
+  );
+  useEffect(() => {
+    applyAppearance(theme, graphPalette, graphStyle, simpleMode);
+  }, [theme, graphPalette, graphStyle, simpleMode]);
+  useEffect(
+    () => () => {
+      splitResizeCleanup.current?.();
+      refsResizeCleanup.current?.();
+    },
+    [],
+  );
+  function startRefsResize(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    refsResizeCleanup.current?.();
+    setDraggingRefsCol(true);
+    const startX = event.clientX;
+    const startWidth = refsWidth;
+    const move = (ev: PointerEvent) => {
+      const nextWidth = Math.round(startWidth + (ev.clientX - startX));
+      setRefsWidth(
+        Math.max(MIN_REFS_COL_WIDTH, Math.min(MAX_REFS_COL_WIDTH, nextWidth)),
+      );
+    };
+    const stop = () => {
+      setDraggingRefsCol(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      refsResizeCleanup.current = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    refsResizeCleanup.current = stop;
+  }
+  function startInspectorResize(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    splitResizeCleanup.current?.();
+    setDraggingSplit(true);
+    const move = (ev: PointerEvent) => {
+      const rect = mainShellRef.current?.getBoundingClientRect();
+      if (!rect || rect.width <= 0) return;
+      const pct = Math.round(((rect.right - ev.clientX) / rect.width) * 100);
+      setInspectorSize(Math.max(30, Math.min(60, pct)));
+    };
+    const stop = () => {
+      setDraggingSplit(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      splitResizeCleanup.current = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    splitResizeCleanup.current = stop;
+  }
+  useEffect(() => {
+    if (!isTauri()) return;
+    let active = true;
+    void invoke<AppSettings>("read_app_settings")
+      .then((loaded) => {
+        if (!active || !loaded) return;
+        const resolvedTheme = isThemeId(loaded.theme) ? loaded.theme : theme;
+        const resolvedPalette = isGraphPaletteId(loaded.graphPalette)
+          ? loaded.graphPalette
+          : graphPalette;
+        const resolvedExternal = loaded.external ?? externalPreferences;
+        const resolvedSnapshots = loaded.snapshots ?? snapshotPrefs;
+        const resolvedStyle = isGraphStyleId(loaded.graphStyle)
+          ? loaded.graphStyle
+          : graphStyle;
+        if (isThemeId(loaded.theme)) setTheme(loaded.theme);
+        if (isGraphPaletteId(loaded.graphPalette))
+          setGraphPalette(loaded.graphPalette);
+        if (isGraphStyleId(loaded.graphStyle)) {
+          graphStyleTouchedRef.current = true;
+          setGraphStyle(loaded.graphStyle);
+        }
+        if (typeof loaded.simpleMode === "boolean") {
+          simpleModeTouchedRef.current = true;
+          setSimpleMode(loaded.simpleMode);
+        }
+        if (loaded.external) setExternalPreferences(loaded.external);
+        if (loaded.snapshots) {
+          snapshotsTouchedRef.current = true;
+          setSnapshotPrefs(loaded.snapshots);
+        }
+        if (
+          !startupRestoredRef.current &&
+          Array.isArray(loaded.openTabs) &&
+          loaded.openTabs.length > 0
+        ) {
+          startupRestoredRef.current = true;
+          void restoreStartupTabs(
+            loaded.openTabs,
+            loaded.activeTab ?? null,
+            resolvedTheme,
+            resolvedPalette,
+            resolvedExternal,
+            resolvedSnapshots,
+            resolvedStyle,
+          );
+        }
+      })
+      .catch(() => {});
+    void invoke<ExternalAppsState>("read_external_apps")
+      .then((detected) => {
+        if (active && detected) setExternalApps(detected);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+  async function reloadExternalApps() {
+    if (!isTauri()) return;
+    const detected = await invoke<ExternalAppsState>("read_external_apps");
+    if (detected) setExternalApps(detected);
+  }
+  async function persistSettings(next: AppSettings) {
+    if (!isTauri()) return;
+    await invoke<AppSettings>("save_app_settings", { settings: next });
+  }
+  function buildSettingsPayload(
+    nextTheme: ThemeId,
+    nextPalette: GraphPaletteId,
+    nextExternal: ExternalPreferences,
+    tabList: TabEntry[],
+    currentId: string | null,
+    nextSnapshots = snapshotPrefs,
+    nextStyle = graphStyle,
+    nextSimpleMode = simpleMode,
+  ): AppSettings {
+    const payload: AppSettings = {
+      version: 1,
+      theme: nextTheme,
+      graphPalette: nextPalette,
+      external: nextExternal,
+    };
+    if (graphStyleTouchedRef.current) {
+      payload.graphStyle = nextStyle;
+    }
+    if (simpleModeTouchedRef.current) {
+      payload.simpleMode = nextSimpleMode;
+    }
+    if (snapshotsTouchedRef.current) {
+      payload.snapshots = nextSnapshots;
+    }
+    if (tabList.length > 0 || tabsTouchedRef.current) {
+      payload.openTabs = tabList.map((item) => item.snapshot.path);
+      payload.activeTab =
+        tabList.find((item) => item.snapshot.id === currentId)?.snapshot.path ??
+        null;
+    }
+    return payload;
+  }
+  function persistTabState(
+    nextTabs: TabEntry[],
+    nextActiveId: string | null,
+    overrideTheme = theme,
+    overridePalette = graphPalette,
+    overrideExternal = externalPreferences,
+    overrideSnapshots = snapshotPrefs,
+    overrideStyle = graphStyle,
+  ) {
+    if (!isTauri()) return;
+    void persistSettings(
+      buildSettingsPayload(
+        overrideTheme,
+        overridePalette,
+        overrideExternal,
+        nextTabs,
+        nextActiveId,
+        overrideSnapshots,
+        overrideStyle,
+      ),
+    ).catch(() => {});
+  }
+  function snapshotCurrentUi(list: TabEntry[], currentId: string | null) {
+    if (!currentId) return list;
+    return list.map((item) =>
+      item.snapshot.id === currentId
+        ? {
+            ...item,
+            view,
+            lastSyncView,
+            selected,
+            historyScope,
+            query,
+            inspectorOpen,
+            inspectorSize,
+            authorWidth,
+            showAuthor,
+            showDate,
+            showHash,
+            refsWidth,
+            preferencesRepo,
+            branchPreselect,
+          }
+        : item,
+    );
+  }
+  function resetTransientInspectorState() {
+    setSelectedFile(null);
+    setCommitFiles(null);
+    setDiff(null);
+    setCommitImageDiff(null);
+    setPreferTextForImage(false);
+    setDiffError("");
+    setParentIndex(0);
+    setContextMenu(null);
+    setPaletteOpen(false);
+    setShortcutsOpen(false);
+    setQuickGuideOpen(false);
+    setStashOpen(false);
+    setRestoreOpen(false);
+    setReplay(undefined);
+    setTagTarget(null);
+    setTagPublication(undefined);
+    setSearchDialogMode(null);
+    setExternalCommit(null);
+    setFileHistoryTarget(null);
+    setBlameTarget(null);
+    setComparePair(null);
+    setCompareAnchor(null);
+    setSnapshotsOpen(false);
+    setLfsSubmodulesOpen(false);
+    setUndoPlan(null);
+    setUndoError("");
+  }
+  function applyTabUi(tab: TabEntry | null) {
+    resetTransientInspectorState();
+    setError("");
+    setNotice("");
+    if (!tab) {
+      setView("history");
+      setLastSyncView("remotes");
+      setSelected(null);
+      setHistoryScope("all");
+      setQuery("");
+      setInspectorOpen(true);
+      setInspectorSize(38);
+      setAuthorWidth(160);
+      setShowAuthor(true);
+      setShowDate(true);
+      setShowHash(false);
+      setRefsWidth(DEFAULT_REFS_COL_WIDTH);
+      setPreferencesRepo(null);
+      setBranchPreselect(null);
+      return;
+    }
+    restoreSelectionPosition.current = !!tab.selected;
+    setView(tab.view);
+    setLastSyncView(tab.lastSyncView);
+    setSelected(tab.selected);
+    setHistoryScope(tab.historyScope);
+    setQuery(tab.query);
+    setInspectorOpen(tab.inspectorOpen);
+    setInspectorSize(tab.inspectorSize);
+    setAuthorWidth(tab.authorWidth);
+    setShowAuthor(tab.showAuthor);
+    setShowDate(tab.showDate);
+    setShowHash(tab.showHash);
+    setRefsWidth(tab.refsWidth);
+    setPreferencesRepo(tab.preferencesRepo);
+    setBranchPreselect(tab.branchPreselect);
+  }
+  async function refreshWip(targetId: string) {
+    if (!isTauri()) return;
+    try {
+      const summary = await invoke<WorktreeSummary>("read_worktree_summary", {
+        id: targetId,
+      });
+      setTabs((list) => {
+        const nextList = list.map((item) =>
+          item.snapshot.id === targetId ? { ...item, wip: summary } : item,
+        );
+        tabsRef.current = nextList;
+        return nextList;
+      });
+    } catch {
+      // Silencioso: no interrumpir la sesión si falla la lectura rápida de estado.
+    }
+  }
+  async function refreshWorktrees(targetId: string) {
+    if (!isTauri()) return;
+    try {
+      const wtState = await invoke<WorktreesState>("read_worktrees", {
+        id: targetId,
+      });
+      setTabs((list) => {
+        const nextList = list.map((item) =>
+          item.snapshot.id === targetId
+            ? { ...item, worktrees: wtState }
+            : item,
+        );
+        tabsRef.current = nextList;
+        return nextList;
+      });
+    } catch {
+      // Silencioso: no interrumpir si la lectura de worktrees falla puntualmente.
+    }
+  }
+  async function refreshTabBackground(targetId: string, scope: string) {
+    if (!isTauri()) return;
+    try {
+      let effectiveScope = scope;
+      let next: Snapshot;
+      try {
+        next = await invoke<Snapshot>("refresh_repository", {
+          id: targetId,
+          scope: effectiveScope,
+        });
+      } catch (err) {
+        const code =
+          typeof err === "object" && err && "code" in err
+            ? String((err as { code?: unknown }).code)
+            : "";
+        if (code === "INVALID_SCOPE" && effectiveScope !== "all") {
+          effectiveScope = "all";
+          next = await invoke<Snapshot>("refresh_repository", {
+            id: targetId,
+            scope: "all",
+          });
+        } else {
+          return;
+        }
+      }
+      setTabs((list) => {
+        const nextList = list.map((item) =>
+          item.snapshot.id === targetId
+            ? { ...item, snapshot: next, historyScope: effectiveScope }
+            : item,
+        );
+        tabsRef.current = nextList;
+        return nextList;
+      });
+      if (activeTabIdRef.current === targetId) {
+        setHistoryScope(effectiveScope);
+        setSelected((current) =>
+          next.page.commits.some((c) => c.hash === current)
+            ? current
+            : ((next.page.commits.some((c) => c.hash === next.head)
+                ? next.head
+                : null) ??
+              next.page.commits[0]?.hash ??
+              null),
+        );
+        setParentIndex(0);
+        setChangesRevision((value) => value + 1);
+      }
+    } catch {
+      // Silencioso al refrescar pestaña al cambiar el foco.
+    }
+  }
+  async function recheckEnvironment(autoOpenIfMissing = false) {
+    if (!isTauri()) return;
+    setEnvChecking(true);
+    try {
+      const status = await invoke<EnvironmentStatus>("check_git_environment");
+      setEnvStatus(status);
+      if (autoOpenIfMissing && !status.gitAvailable) {
+        setEnvDialogOpen(true);
+      }
+    } catch {
+      // Silencioso si el comando de entorno no está disponible en mocks antiguos.
+    } finally {
+      setEnvChecking(false);
+    }
+  }
+  useEffect(() => {
+    void recheckEnvironment(true);
+  }, []);
+  async function refreshUndoState(targetId: string) {
+    if (!isTauri()) return;
+    try {
+      const next = await invoke<UndoState>("read_undo_state", { id: targetId });
+      if (activeTabIdRef.current === targetId && next) {
+        setUndoState(next);
+      }
+    } catch {
+      // Silencioso cuando un entorno de prueba no implementa el historial de undo.
+    }
+  }
+  useEffect(() => {
+    if (!activeTabId) {
+      setUndoState(null);
+      return;
+    }
+    void refreshUndoState(activeTabId);
+  }, [activeTabId]);
+  async function openUndoPreview(direction: "undo" | "redo") {
+    if (!repo || writing || undoBusy) return;
+    setUndoBusy(true);
+    setUndoError("");
+    try {
+      const plan = await invoke<UndoPlan>("preview_undo", {
+        id: repo.id,
+        direction,
+      });
+      setUndoPlan(plan);
+    } catch (reason) {
+      const code =
+        typeof reason === "object" && reason && "code" in reason
+          ? String((reason as { code?: unknown }).code)
+          : "";
+      if (code === "NO_UNDO" || code === "NO_REDO") {
+        setNotice(errorText(reason));
+      } else {
+        setError(errorText(reason));
+      }
+    } finally {
+      setUndoBusy(false);
+    }
+  }
+  async function confirmUndoPlan() {
+    if (!repo || !undoPlan || undoBusy) return;
+    setUndoBusy(true);
+    setUndoError("");
+    setWriting(true);
+    try {
+      const outcome = await invoke<UndoOutcome>("confirm_undo", {
+        id: repo.id,
+        token: undoPlan.token,
+      });
+      setUndoState(outcome.state);
+      setUndoPlan(null);
+      setNotice(outcome.message);
+      await refresh();
+    } catch (reason) {
+      setUndoError(errorText(reason));
+    } finally {
+      setWriting(false);
+      setUndoBusy(false);
+    }
+  }
+  async function saveSnapshotPreferences(nextSnapshots: SnapshotPreferences) {
+    snapshotsTouchedRef.current = true;
+    setSnapshotPrefs(nextSnapshots);
+    await persistSettings(
+      buildSettingsPayload(
+        theme,
+        graphPalette,
+        externalPreferences,
+        tabsRef.current,
+        activeTabIdRef.current,
+        nextSnapshots,
+      ),
+    );
+  }
+  useEffect(() => {
+    if (
+      !isTauri() ||
+      !repo ||
+      !repo.trusted ||
+      !snapshotPrefs.autoEnabled ||
+      (wip?.total ?? 0) <= 0
+    ) {
+      return;
+    }
+    const intervalMs = Math.max(1, snapshotPrefs.intervalMinutes) * 60_000;
+    const targetRepoId = repo.id;
+    const timer = window.setInterval(() => {
+      if (writingRef.current || activeTabIdRef.current !== targetRepoId) return;
+      void invoke("create_snapshot", {
+        id: targetRepoId,
+        label: null,
+        trigger: "auto",
+      }).catch(() => {});
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [
+    repo?.id,
+    repo?.trusted,
+    snapshotPrefs.autoEnabled,
+    snapshotPrefs.intervalMinutes,
+    wip?.total,
+  ]);
+  function activateTab(nextId: string) {
+    if (nextId === activeTabIdRef.current || writing || busy || loadingMore)
+      return;
+    const target = tabsRef.current.find((item) => item.snapshot.id === nextId);
+    if (!target) return;
+    const persisted = snapshotCurrentUi(
+      tabsRef.current,
+      activeTabIdRef.current,
+    );
+    tabsTouchedRef.current = true;
+    tabsRef.current = persisted;
+    activeTabIdRef.current = nextId;
+    setTabs(persisted);
+    setActiveTabId(nextId);
+    applyTabUi(target);
+    persistTabState(persisted, nextId);
+    if (isTauri()) {
+      void refreshWip(nextId);
+      void refreshWorktrees(nextId);
+      void refreshTabBackground(nextId, target.historyScope);
+    }
+  }
+  function updateRepoTrust(targetId: string, nextTrusted: boolean) {
+    if (nextTrusted) {
+      dismissedTrustIdsRef.current.delete(targetId);
+    }
+    setTabs((list) => {
+      const nextList = list.map((item) =>
+        item.snapshot.id === targetId
+          ? { ...item, snapshot: { ...item.snapshot, trusted: nextTrusted } }
+          : item,
+      );
+      tabsRef.current = nextList;
+      return nextList;
+    });
+    if (activeTabIdRef.current === targetId) {
+      setChangesRevision((value) => value + 1);
+    }
+    void refreshWip(targetId);
+    void refreshWorktrees(targetId);
+  }
+  async function closeTab(targetId: string) {
+    if (writing || busy || loadingMore) return;
+    const currentTabs = tabsRef.current;
+    const index = currentTabs.findIndex(
+      (item) => item.snapshot.id === targetId,
+    );
+    if (index < 0) return;
+    try {
+      await invoke("close_repository", { id: targetId });
+    } catch (reason) {
+      setError(errorText(reason));
+      return;
+    }
+    const remaining = currentTabs.filter(
+      (item) => item.snapshot.id !== targetId,
+    );
+    const closingActive = targetId === activeTabIdRef.current;
+    const nextActive = closingActive
+      ? (remaining[Math.min(index, remaining.length - 1)] ?? null)
+      : (remaining.find(
+          (item) => item.snapshot.id === activeTabIdRef.current,
+        ) ?? null);
+    const nextActiveId = nextActive?.snapshot.id ?? null;
+    dismissedTrustIdsRef.current.delete(targetId);
+    setTrustPromptRepoId((current) => (current === targetId ? null : current));
+    setPullRequestsByRepo((current) => {
+      if (!(targetId in current)) return current;
+      const next = { ...current };
+      delete next[targetId];
+      return next;
+    });
+    tabsTouchedRef.current = true;
+    tabsRef.current = remaining;
+    activeTabIdRef.current = nextActiveId;
+    setTabs(remaining);
+    setActiveTabId(nextActiveId);
+    if (closingActive) {
+      applyTabUi(nextActive);
+    }
+    persistTabState(remaining, nextActiveId);
+  }
+  function reorderTabs(fromId: string, toId: string) {
+    if (fromId === toId || writing || busy || loadingMore) return;
+    const list = [...tabsRef.current];
+    const fromIdx = list.findIndex((item) => item.snapshot.id === fromId);
+    const toIdx = list.findIndex((item) => item.snapshot.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    tabsTouchedRef.current = true;
+    tabsRef.current = list;
+    setTabs(list);
+    persistTabState(list, activeTabIdRef.current);
+  }
+  async function restoreStartupTabs(
+    paths: string[],
+    preferredPath: string | null,
+    resolvedTheme: ThemeId,
+    resolvedPalette: GraphPaletteId,
+    resolvedExternal: ExternalPreferences,
+    resolvedSnapshots: SnapshotPreferences,
+    resolvedStyle: GraphStyleId,
+  ) {
+    const openedList: TabEntry[] = [];
+    const failedPaths: string[] = [];
+    for (const targetPath of paths.slice(0, MAX_OPEN_TABS)) {
+      if (tabsRef.current.some((item) => item.snapshot.path === targetPath)) {
+        continue;
+      }
+      try {
+        let next = await invoke<Snapshot>("open_repository", {
+          path: targetPath,
+        });
+        let saved: HistoryPreferences | undefined;
+        let remembered = false;
+        try {
+          const library = await invoke<RepositoryLibrary>(
+            "remember_repository",
+            { id: next.id },
+          );
+          saved = library.repositories.find(
+            (entry) => entry.path === next.path,
+          )?.preferences;
+          remembered = true;
+        } catch {
+          // Optional library metadata failure should not prevent restoring the tab.
+        }
+        let restoredScope = saved?.scope ?? "all";
+        if (restoredScope !== "all") {
+          const available =
+            restoredScope === "HEAD"
+              ? !!next.head
+              : next.refs.some((ref) => ref.name === restoredScope);
+          if (available) {
+            try {
+              next = await invoke<Snapshot>("refresh_repository", {
+                id: next.id,
+                scope: restoredScope,
+              });
+            } catch {
+              restoredScope = "all";
+            }
+          } else {
+            restoredScope = "all";
+          }
+        }
+        const entry = defaultTabEntry(next);
+        entry.historyScope = restoredScope;
+        entry.inspectorOpen = saved?.inspectorOpen ?? true;
+        entry.inspectorSize = saved?.inspectorSize ?? 38;
+        entry.authorWidth = saved?.authorWidth ?? 160;
+        entry.showAuthor = saved?.showAuthor ?? true;
+        entry.showDate = saved?.showDate ?? true;
+        entry.showHash = saved?.showHash ?? false;
+        entry.refsWidth = saved?.refsWidth ?? DEFAULT_REFS_COL_WIDTH;
+        entry.query = saved?.query ?? "";
+        entry.preferencesRepo = remembered ? next.id : null;
+        entry.selected =
+          (next.page.commits.some((c) => c.hash === saved?.selectedCommit)
+            ? saved!.selectedCommit
+            : null) ??
+          (next.page.commits.some((c) => c.hash === next.head)
+            ? next.head
+            : null) ??
+          next.page.commits[0]?.hash ??
+          null;
+        openedList.push(entry);
+      } catch {
+        failedPaths.push(targetPath);
+      }
+    }
+    if (!openedList.length) {
+      if (failedPaths.length) {
+        setNotice(
+          "No se pudieron restaurar las pestañas anteriores porque sus carpetas no están disponibles.",
+        );
+      }
+      return;
+    }
+    const merged = [...tabsRef.current];
+    for (const entry of openedList) {
+      if (!merged.some((item) => item.snapshot.id === entry.snapshot.id)) {
+        merged.push(entry);
+      }
+    }
+    const target =
+      merged.find((item) => item.snapshot.path === preferredPath) ??
+      openedList[0];
+    tabsTouchedRef.current = true;
+    tabsRef.current = merged;
+    activeTabIdRef.current = target.snapshot.id;
+    setTabs(merged);
+    setActiveTabId(target.snapshot.id);
+    applyTabUi(target);
+    persistTabState(
+      merged,
+      target.snapshot.id,
+      resolvedTheme,
+      resolvedPalette,
+      resolvedExternal,
+      resolvedSnapshots,
+      resolvedStyle,
+    );
+    void refreshWip(target.snapshot.id);
+    void refreshWorktrees(target.snapshot.id);
+    if (failedPaths.length) {
+      setNotice(
+        `No se restauraron ${failedPaths.length} pestañas porque sus rutas ya no están disponibles.`,
+      );
+    }
+  }
+  function changeAppearance(nextTheme: ThemeId, nextPalette: GraphPaletteId) {
+    setTheme(nextTheme);
+    setGraphPalette(nextPalette);
+    applyAppearance(nextTheme, nextPalette, graphStyle, simpleMode);
+    void persistSettings(
+      buildSettingsPayload(
+        nextTheme,
+        nextPalette,
+        externalPreferences,
+        tabsRef.current,
+        activeTabIdRef.current,
+      ),
+    ).catch((reason) =>
+      setNotice(
+        `No se pudo guardar la apariencia en disco: ${errorText(reason)}`,
+      ),
+    );
+  }
+  function changeGraphStyle(nextStyle: GraphStyleId) {
+    graphStyleTouchedRef.current = true;
+    setGraphStyle(nextStyle);
+    applyAppearance(theme, graphPalette, nextStyle, simpleMode);
+    void persistSettings(
+      buildSettingsPayload(
+        theme,
+        graphPalette,
+        externalPreferences,
+        tabsRef.current,
+        activeTabIdRef.current,
+        snapshotPrefs,
+        nextStyle,
+      ),
+    ).catch((reason) =>
+      setNotice(
+        `No se pudo guardar el estilo del grafo en disco: ${errorText(reason)}`,
+      ),
+    );
+  }
+  function toggleSimpleMode() {
+    simpleModeTouchedRef.current = true;
+    const nextSimpleMode = !simpleMode;
+    setSimpleMode(nextSimpleMode);
+    applyAppearance(theme, graphPalette, graphStyle, nextSimpleMode);
+    void persistSettings(
+      buildSettingsPayload(
+        theme,
+        graphPalette,
+        externalPreferences,
+        tabsRef.current,
+        activeTabIdRef.current,
+        snapshotPrefs,
+        graphStyle,
+        nextSimpleMode,
+      ),
+    ).catch((reason) =>
+      setNotice(
+        `No se pudo guardar el modo de interfaz en disco: ${errorText(reason)}`,
+      ),
+    );
+  }
+  async function saveExternalPreferences(nextExternal: ExternalPreferences) {
+    setExternalPreferences(nextExternal);
+    setExternalApps((current) =>
+      current ? { ...current, preferences: nextExternal } : current,
+    );
+    await persistSettings(
+      buildSettingsPayload(
+        theme,
+        graphPalette,
+        nextExternal,
+        tabsRef.current,
+        activeTabIdRef.current,
+      ),
+    );
+    await reloadExternalApps();
+  }
+  const effectiveShowHash = !simpleMode && showHash;
+  const activePullRequests = repo ? (pullRequestsByRepo[repo.id] ?? []) : [];
+  const pullRequestsByBranch = useMemo(() => {
+    const map = new Map<string, PullRequestItem>();
+    for (const item of activePullRequests) {
+      if (!map.has(item.headBranch)) map.set(item.headBranch, item);
+    }
+    return map;
+  }, [activePullRequests]);
+  const historyColumns = isTributary
+    ? `${refsWidth}px ${graphWidth}px minmax(260px,1fr)${showAuthor ? ` ${authorWidth}px` : ""}${showDate ? " 108px" : ""}${effectiveShowHash ? " 80px" : ""}`
+    : `${graphWidth}px minmax(240px,1fr)${showAuthor ? ` ${authorWidth}px` : ""}${showDate ? " 90px" : ""}${effectiveShowHash ? " 80px" : ""}`;
+  const historyMinWidth = isTributary
+    ? refsWidth +
+      graphWidth +
+      260 +
+      (showAuthor ? authorWidth : 0) +
+      (showDate ? 108 : 0) +
+      (effectiveShowHash ? 80 : 0)
+    : graphWidth +
+      240 +
+      (showAuthor ? authorWidth : 0) +
+      (showDate ? 90 : 0) +
+      (effectiveShowHash ? 80 : 0);
   const searchIndex = useMemo(
     () =>
       commits.map((commit) =>
@@ -233,15 +1160,72 @@ function App() {
         : [],
     [searchIndex, normalizedQuery],
   );
+  const tributaryLayout = useMemo(
+    () => (isTributary && !query ? buildTributaryItems(commits, rows) : null),
+    [isTributary, query, commits, rows],
+  );
+  const wipMarker = useMemo(() => {
+    if (!wip?.trusted || wip.total <= 0) return null;
+    const headIdx = Math.max(
+      0,
+      commits.findIndex((c) => c.hash === repo?.head),
+    );
+    const lane = rows[headIdx]?.lane ?? 0;
+    const x = isTributary
+      ? 26 + lane * 34
+      : graphWidth > 20
+        ? 16
+        : Math.floor(graphWidth / 2);
+    const color = isTributary
+      ? (graphColors[(rows[headIdx]?.color ?? 0) % graphColors.length] ??
+        "var(--accent-text)")
+      : "var(--accent-text)";
+    return { x, color };
+  }, [wip, commits, repo?.head, rows, isTributary, graphWidth, graphColors]);
   const virtual = useVirtualizer({
-    count: query ? visible.length : commits.length,
-    getItemKey: (index) =>
-      query ? `search-${commits[visible[index]].hash}` : commits[index].hash,
+    count: query
+      ? visible.length
+      : tributaryLayout
+        ? tributaryLayout.items.length
+        : commits.length,
+    getItemKey: (index) => {
+      if (query) return `search-${commits[visible[index]].hash}`;
+      if (tributaryLayout) {
+        const entry = tributaryLayout.items[index];
+        return entry?.kind === "group"
+          ? `group-${entry.id}`
+          : commits[entry.commitIndex].hash;
+      }
+      return commits[index].hash;
+    },
     getScrollElement: () => scroll.current,
-    estimateSize: () => (query ? 64 : rowHeight),
+    estimateSize: (index) => {
+      if (query) return 64;
+      if (tributaryLayout && typeof index === "number") {
+        return tributaryLayout.items[index]?.kind === "group"
+          ? TRIBUTARY_GROUP_HEIGHT
+          : TRIBUTARY_ROW_HEIGHT;
+      }
+      return activeRowHeight;
+    },
     overscan: 12,
   });
-  const active = commits.find((c) => c.hash === selected);
+  useEffect(() => {
+    virtual.measure?.();
+  }, [activeRowHeight, tributaryLayout, virtual]);
+  function scrollToCommitIndex(
+    commitIndex: number,
+    align: "auto" | "center" = "auto",
+  ) {
+    const itemIndex =
+      !query && tributaryLayout
+        ? (tributaryLayout.commitToItemIndex[commitIndex] ?? commitIndex)
+        : commitIndex;
+    virtual.scrollToIndex(itemIndex, { align });
+  }
+  const active =
+    commits.find((c) => c.hash === selected) ??
+    (externalCommit?.hash === selected ? externalCommit : null);
   const branches = repo?.refs.filter((r) => r.kind === "branch") ?? [];
   const remotes = repo?.refs.filter((r) => r.kind === "remote") ?? [];
   const tags = repo?.refs.filter((r) => r.kind === "tag") ?? [];
@@ -258,25 +1242,40 @@ function App() {
     if (index < 0) return;
     const frame = requestAnimationFrame(() => {
       restoreSelectionPosition.current = false;
-      virtual.scrollToIndex(index, { align: "center" });
+      scrollToCommitIndex(index, "center");
     });
     return () => cancelAnimationFrame(frame);
   }, [repo?.id, view, preferencesRepo]);
   function select(hash: string) {
     setSelected(hash);
     setParentIndex(0);
+    setSelectedFile(null);
   }
   function currentPreferences(): HistoryPreferences {
     return {
       inspectorOpen,
       inspectorSize,
       authorWidth,
+      showAuthor,
       showDate,
       showHash,
+      refsWidth,
       scope: historyScope,
       query,
       selectedCommit: selected || null,
     };
+  }
+  async function openRepositoryPath(path: string) {
+    const existing = tabsRef.current.find(
+      (item) => item.snapshot.path === path,
+    );
+    if (existing) {
+      if (existing.snapshot.id !== activeTabIdRef.current) {
+        activateTab(existing.snapshot.id);
+      }
+      return true;
+    }
+    return choose(path);
   }
   async function choose(knownPath?: string) {
     if (!isTauri()) {
@@ -313,6 +1312,17 @@ function App() {
       }
       setPreferencesRepo(null);
       let next = await invoke<Snapshot>("open_repository", { path });
+      const existing = tabsRef.current.find(
+        (item) =>
+          item.snapshot.id === next.id || item.snapshot.path === next.path,
+      );
+      if (!existing && tabsRef.current.length >= MAX_OPEN_TABS) {
+        void invoke("close_repository", { id: next.id }).catch(() => {});
+        setNotice(
+          `Ya hay ${MAX_OPEN_TABS} pestañas abiertas. Cierra una antes de abrir otro repositorio.`,
+        );
+        return false;
+      }
       let saved: HistoryPreferences | undefined;
       let remembered = false;
       try {
@@ -364,29 +1374,76 @@ function App() {
         setNotice(
           "La selección guardada está fuera de los primeros 200 commits. Se seleccionó un commit disponible.",
         );
-      restoreSelectionPosition.current = !!saved?.selectedCommit;
-      setTagTarget(null);
-      setTagPublication(undefined);
-      setRepo(next);
-      setHistoryScope(restoredScope);
-      setInspectorOpen(saved?.inspectorOpen ?? true);
-      setInspectorSize(saved?.inspectorSize ?? 38);
-      setAuthorWidth(saved?.authorWidth ?? 160);
-      setShowDate(saved?.showDate ?? true);
-      setShowHash(saved?.showHash ?? false);
-      select(
+      const selectedHash =
         (next.page.commits.some((c) => c.hash === saved?.selectedCommit)
           ? saved!.selectedCommit
           : null) ??
-          (next.page.commits.some((c) => c.hash === next.head)
-            ? next.head
-            : null) ??
-          next.page.commits[0]?.hash ??
-          "",
+        (next.page.commits.some((c) => c.hash === next.head)
+          ? next.head
+          : null) ??
+        next.page.commits[0]?.hash ??
+        "";
+      const nextEntry: TabEntry = {
+        ...(existing ?? defaultTabEntry(next)),
+        snapshot: next,
+        historyScope: restoredScope,
+        inspectorOpen: saved?.inspectorOpen ?? existing?.inspectorOpen ?? true,
+        inspectorSize: saved?.inspectorSize ?? existing?.inspectorSize ?? 38,
+        authorWidth: saved?.authorWidth ?? existing?.authorWidth ?? 160,
+        showAuthor: saved?.showAuthor ?? existing?.showAuthor ?? true,
+        showDate: saved?.showDate ?? existing?.showDate ?? true,
+        showHash: saved?.showHash ?? existing?.showHash ?? false,
+        refsWidth:
+          saved?.refsWidth ?? existing?.refsWidth ?? DEFAULT_REFS_COL_WIDTH,
+        query: saved?.query ?? existing?.query ?? "",
+        selected: selectedHash,
+        preferencesRepo: remembered ? next.id : null,
+        branchPreselect: null,
+      };
+      const updatedList = snapshotCurrentUi(
+        tabsRef.current,
+        activeTabIdRef.current,
       );
-      setQuery(saved?.query ?? "");
+      const nextTabs = existing
+        ? updatedList.map((item) =>
+            item.snapshot.id === nextEntry.snapshot.id ||
+            item.snapshot.path === nextEntry.snapshot.path
+              ? nextEntry
+              : item,
+          )
+        : [...updatedList, nextEntry];
+      tabsTouchedRef.current = true;
+      tabsRef.current = nextTabs;
+      activeTabIdRef.current = next.id;
+      setTabs(nextTabs);
+      setActiveTabId(next.id);
+      resetTransientInspectorState();
+      restoreSelectionPosition.current = !!saved?.selectedCommit;
+      setView(nextEntry.view);
+      setLastSyncView(nextEntry.lastSyncView);
+      setBranchPreselect(null);
+      setHistoryScope(restoredScope);
+      setInspectorOpen(nextEntry.inspectorOpen);
+      setInspectorSize(nextEntry.inspectorSize);
+      setAuthorWidth(nextEntry.authorWidth);
+      setShowAuthor(nextEntry.showAuthor);
+      setShowDate(nextEntry.showDate);
+      setShowHash(nextEntry.showHash);
+      setRefsWidth(nextEntry.refsWidth);
+      select(selectedHash);
+      setQuery(nextEntry.query);
       setPreferencesRepo(remembered ? next.id : null);
       scroll.current?.scrollTo({ top: 0, left: 0 });
+      persistTabState(nextTabs, next.id);
+      void refreshWip(next.id);
+      void refreshWorktrees(next.id);
+      void refreshUndoState(next.id);
+      if (
+        next.trusted === false &&
+        !dismissedTrustIdsRef.current.has(next.id)
+      ) {
+        setTrustPromptRepoId(next.id);
+      }
       return true;
     } catch (e) {
       if (token === request.current) {
@@ -428,8 +1485,10 @@ function App() {
     inspectorOpen,
     inspectorSize,
     authorWidth,
+    showAuthor,
     showDate,
     showHash,
+    refsWidth,
     historyScope,
     query,
     selected,
@@ -438,67 +1497,163 @@ function App() {
     nextScope = historyScope,
     resetPosition = false,
     locateHead = false,
+    silent = false,
   ) {
     if (!repo) return false;
+    const targetId = repo.id;
     const token = ++request.current;
-    setBusy(true);
-    setError("");
-    setNotice("");
+    if (!silent) {
+      setBusy(true);
+      setError("");
+      setNotice("");
+    }
     try {
-      const next = await invoke<Snapshot>("refresh_repository", {
-        id: repo.id,
-        scope: nextScope,
-      });
-      if (token !== request.current) return false;
-      setRepo(next);
-      setHistoryScope(nextScope);
-      if (resetPosition) {
-        setQuery("");
-        scroll.current?.scrollTo({ top: 0, left: 0 });
+      let effectiveScope = nextScope;
+      let next: Snapshot;
+      try {
+        next = await invoke<Snapshot>("refresh_repository", {
+          id: targetId,
+          scope: effectiveScope,
+        });
+      } catch (err) {
+        const code =
+          typeof err === "object" && err && "code" in err
+            ? String((err as { code?: unknown }).code)
+            : "";
+        if (code === "INVALID_SCOPE" && effectiveScope !== "all") {
+          effectiveScope = "all";
+          next = await invoke<Snapshot>("refresh_repository", {
+            id: targetId,
+            scope: "all",
+          });
+        } else {
+          throw err;
+        }
       }
-      setSelected((current) =>
-        locateHead && next.page.commits.some((c) => c.hash === next.head)
-          ? next.head
-          : next.page.commits.some((c) => c.hash === current)
-            ? current
-            : ((next.page.commits.some((c) => c.hash === next.head)
-                ? next.head
-                : null) ??
-              next.page.commits[0]?.hash ??
-              null),
+      if (token !== request.current) return false;
+      setTabs((list) =>
+        list.map((item) =>
+          item.snapshot.id === targetId
+            ? { ...item, snapshot: next, historyScope: effectiveScope }
+            : item,
+        ),
       );
-      setParentIndex(0);
+      if (activeTabIdRef.current === targetId) {
+        setHistoryScope(effectiveScope);
+        if (resetPosition) {
+          setQuery("");
+          scroll.current?.scrollTo({ top: 0, left: 0 });
+        }
+        setSelected((current) =>
+          locateHead && next.page.commits.some((c) => c.hash === next.head)
+            ? next.head
+            : next.page.commits.some((c) => c.hash === current)
+              ? current
+              : ((next.page.commits.some((c) => c.hash === next.head)
+                  ? next.head
+                  : null) ??
+                next.page.commits[0]?.hash ??
+                null),
+        );
+        setParentIndex(0);
+        setChangesRevision((value) => value + 1);
+      }
+      void refreshWip(targetId);
+      void refreshWorktrees(targetId);
+      void refreshUndoState(targetId);
       return true;
     } catch (e) {
-      if (token === request.current) setError(errorText(e));
+      if (!silent && token === request.current) setError(errorText(e));
       return false;
     } finally {
-      if (token === request.current) setBusy(false);
+      if (!silent && token === request.current) setBusy(false);
     }
   }
+  useEffect(() => {
+    if (!isTauri()) return;
+    void invoke("watch_repository", { id: activeTabId ?? null }).catch(
+      () => {},
+    );
+  }, [activeTabId]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    return () => {
+      void invoke("watch_repository", { id: null }).catch(() => {});
+    };
+  }, []);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<RepoChangedEvent>("ravengit://repo-changed", ({ payload }) => {
+      if (disposed || !payload || payload.id !== activeTabIdRef.current) return;
+      if (writingRef.current) return;
+      if (payload.kind === "worktree") {
+        void refreshWip(payload.id);
+        setChangesRevision((value) => value + 1);
+      } else {
+        void refreshTabBackground(payload.id, historyScopeRef.current);
+        void refreshWip(payload.id);
+        void refreshWorktrees(payload.id);
+        void refreshUndoState(payload.id);
+      }
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+  useEffect(() => {
+    if (view === "history" && activeTabId && isTauri()) {
+      void refreshWip(activeTabId);
+    }
+  }, [view, activeTabId]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    const onFocus = () => {
+      if (!activeTabIdRef.current || writing || busy || loadingMore) return;
+      const now = Date.now();
+      if (now - lastFocusRefreshRef.current < 1500) return;
+      lastFocusRefreshRef.current = now;
+      void refresh(historyScope, false, false, true);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [repo?.id, historyScope, writing, busy, loadingMore]);
   async function more() {
     if (!repo || repo.page.nextOffset === null) return;
+    const targetId = repo.id;
     const token = request.current;
     setLoadingMore(true);
     setError("");
     try {
       const page = await invoke<HistoryPage>("read_history", {
-        id: repo.id,
+        id: targetId,
         offset: repo.page.nextOffset,
         generation: repo.page.generation,
         scope: historyScope,
       });
       if (token !== request.current) return;
-      setRepo((current) =>
-        current?.id === repo.id
-          ? {
-              ...current,
-              page: {
-                ...page,
-                commits: [...current.page.commits, ...page.commits],
-              },
-            }
-          : current,
+      setTabs((list) =>
+        list.map((item) =>
+          item.snapshot.id === targetId
+            ? {
+                ...item,
+                snapshot: {
+                  ...item.snapshot,
+                  page: {
+                    ...page,
+                    commits: [...item.snapshot.page.commits, ...page.commits],
+                  },
+                },
+              }
+            : item,
+        ),
       );
     } catch (e) {
       if (token === request.current) setError(errorText(e));
@@ -506,6 +1661,45 @@ function App() {
       setLoadingMore(false);
     }
   }
+  useEffect(() => {
+    const token = ++filesRequest.current;
+    setCommitFiles(null);
+    if (!repo || !selected || view !== "history" || !inspectorOpen) {
+      setFilesBusy(false);
+      return;
+    }
+    setFilesBusy(true);
+    invoke<CommitFiles>("read_commit_files", {
+      id: repo.id,
+      hash: selected,
+      parentIndex,
+    })
+      .then((value) => {
+        if (token !== filesRequest.current) return;
+        setCommitFiles(value.files);
+        setSelectedFile((current) =>
+          current
+            ? (value.files.find((item) => item.path === current.path) ?? null)
+            : null,
+        );
+      })
+      .catch(() => {
+        if (token === filesRequest.current) setCommitFiles(null);
+      })
+      .finally(() => {
+        if (token === filesRequest.current) setFilesBusy(false);
+      });
+    return () => {
+      filesRequest.current++;
+    };
+  }, [
+    repo?.id,
+    repo?.page.generation,
+    selected,
+    parentIndex,
+    view,
+    inspectorOpen,
+  ]);
   useEffect(() => {
     const token = ++diffRequest.current;
     setDiff(null);
@@ -515,11 +1709,18 @@ function App() {
       return;
     }
     setDiffBusy(true);
-    invoke<CommitDiff>("read_commit_diff", {
+    const payload: Record<string, unknown> = {
       id: repo.id,
       hash: selected,
       parentIndex,
-    })
+    };
+    if (selectedFile) {
+      payload.path = selectedFile.path;
+      if (selectedFile.oldPath) payload.oldPath = selectedFile.oldPath;
+    }
+    if (commitIgnoreWhitespace) payload.ignoreWhitespace = true;
+    if (commitContextLines !== 3) payload.contextLines = commitContextLines;
+    invoke<CommitDiff>("read_commit_diff", payload)
       .then((value) => {
         if (token === diffRequest.current) setDiff(value);
       })
@@ -537,19 +1738,666 @@ function App() {
     repo?.page.generation,
     selected,
     parentIndex,
+    selectedFile?.path,
+    selectedFile?.oldPath,
+    commitIgnoreWhitespace,
+    commitContextLines,
+    view,
+    inspectorOpen,
+  ]);
+  useEffect(() => {
+    const token = ++imageDiffRequest.current;
+    setCommitImageDiff(null);
+    setPreferTextForImage(false);
+    if (
+      !repo ||
+      !selected ||
+      !selectedFile ||
+      !isImageAssetPath(selectedFile.path) ||
+      view !== "history" ||
+      !inspectorOpen
+    ) {
+      return;
+    }
+    invoke<ImageDiff>("read_image_diff", {
+      id: repo.id,
+      source: {
+        kind: "commit",
+        hash: selected,
+        parentIndex,
+        path: selectedFile.path,
+        oldPath: selectedFile.oldPath ?? null,
+      },
+    })
+      .then((value) => {
+        if (token === imageDiffRequest.current) setCommitImageDiff(value);
+      })
+      .catch(() => {
+        if (token === imageDiffRequest.current) setCommitImageDiff(null);
+      });
+    return () => {
+      imageDiffRequest.current++;
+    };
+  }, [
+    repo?.id,
+    selected,
+    parentIndex,
+    selectedFile?.path,
+    selectedFile?.oldPath,
     view,
     inspectorOpen,
   ]);
   useEffect(() => {
     function key(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "o") {
+      const hasModalDialog = !!document.querySelector("dialog[open]");
+      const target = e.target as HTMLElement | null;
+      const inEditable =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+
+      if (
+        e.key === "?" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !inEditable
+      ) {
+        if (shortcutsOpen) {
+          e.preventDefault();
+          setShortcutsOpen(false);
+          return;
+        }
+        if (hasModalDialog || paletteOpen) return;
+        e.preventDefault();
+        setContextMenu(null);
+        setShortcutsOpen(true);
+        return;
+      }
+
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.altKey) return;
+      const lower = e.key.toLowerCase();
+
+      if (lower === "k") {
+        if (hasModalDialog && !paletteOpen) return;
+        e.preventDefault();
+        setContextMenu(null);
+        if (!writing) setPaletteOpen((open) => !open);
+        return;
+      }
+      if (hasModalDialog || paletteOpen) return;
+
+      if (e.key === "Tab" && e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (tabsRef.current.length > 1 && !writing && !busy && !loadingMore) {
+          e.preventDefault();
+          const idx = tabsRef.current.findIndex(
+            (item) => item.snapshot.id === activeTabIdRef.current,
+          );
+          const step = e.shiftKey ? -1 : 1;
+          const nextIdx =
+            (Math.max(0, idx) + step + tabsRef.current.length) %
+            tabsRef.current.length;
+          activateTab(tabsRef.current[nextIdx].snapshot.id);
+        }
+        return;
+      }
+
+      if (lower === "o" || lower === "t") {
         e.preventDefault();
         if (!busy && !loadingMore && !writing) void choose();
+      } else if (lower === "w") {
+        if (!activeTabIdRef.current) return;
+        e.preventDefault();
+        if (!busy && !loadingMore && !writing) {
+          void closeTab(activeTabIdRef.current);
+        }
+      } else if (e.key === ",") {
+        e.preventDefault();
+        if (!writing) setAppearanceOpen(true);
+      } else if (lower === "r") {
+        if (!repo) return;
+        e.preventDefault();
+        if (!busy && !loadingMore && !writing) void refresh();
+      } else if (lower === "f") {
+        if (!repo) return;
+        e.preventDefault();
+        if (e.shiftKey) {
+          setSearchDialogMode("history");
+        } else {
+          setView("history");
+          requestAnimationFrame(() => searchInput.current?.focus());
+        }
+      } else if (
+        !inEditable &&
+        (e.key === "1" || e.key === "2" || e.key === "3")
+      ) {
+        if (e.key === "1" && repo && !writing) {
+          e.preventDefault();
+          setView("changes");
+        } else if (e.key === "2" && !writing) {
+          e.preventDefault();
+          setView("history");
+        } else if (e.key === "3" && repo && !writing) {
+          e.preventDefault();
+          goSync(lastSyncView);
+        }
+      } else if (!inEditable && repo && !writing) {
+        if (lower === "z" && !e.shiftKey) {
+          e.preventDefault();
+          void openUndoPreview("undo");
+        } else if (
+          (lower === "z" && e.shiftKey) ||
+          (lower === "y" && !e.shiftKey)
+        ) {
+          e.preventDefault();
+          void openUndoPreview("redo");
+        }
       }
     }
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   });
+  function copyText(value: string, label: string) {
+    if (!navigator.clipboard?.writeText) {
+      setNotice(`${label}: ${value}`);
+      return;
+    }
+    void navigator.clipboard
+      .writeText(value)
+      .then(() => setNotice(`${label}: ${value}`))
+      .catch(() => setError("No se pudo copiar al portapapeles."));
+  }
+  function openCommitContextMenu(
+    commit: Snapshot["page"]["commits"][number],
+    x: number,
+    y: number,
+  ) {
+    setContextMenu({
+      x,
+      y,
+      label: `Acciones del commit ${short(commit.hash)}`,
+      items: [
+        {
+          id: "inspect",
+          label: "Abrir detalle en inspector",
+          onSelect: () => {
+            setView("history");
+            setInspectorOpen(true);
+            select(commit.hash);
+          },
+        },
+        {
+          id: "tag",
+          label: "Etiquetar commit…",
+          disabled: writing,
+          onSelect: () => setTagTarget(commit.hash),
+        },
+        {
+          id: "cherry-pick",
+          label: "Cherry-pick…",
+          disabled: writing,
+          onSelect: () =>
+            setReplay({ kind: "cherryPick", commit: commit.hash }),
+        },
+        {
+          id: "revert",
+          label: "Revertir commit…",
+          disabled: writing,
+          onSelect: () => setReplay({ kind: "revert", commit: commit.hash }),
+        },
+        {
+          id: "parent",
+          label: "Ir al padre 1",
+          separatorBefore: true,
+          disabled: commit.parents.length === 0,
+          onSelect: () => {
+            if (commit.parents[0]) jump(commit.parents[0]);
+          },
+        },
+        ...(active && active.hash !== commit.hash
+          ? [
+              {
+                id: "compare-with-active",
+                label: `Comparar con seleccionado (${short(active.hash)})…`,
+                separatorBefore: true,
+                onSelect: () => openOrderedComparison(active, commit),
+              },
+            ]
+          : []),
+        {
+          id: "compare-anchor",
+          label: "Marcar para comparar con otro commit…",
+          onSelect: () => setCompareAnchor(commit),
+        },
+        {
+          id: "copy-hash",
+          label: "Copiar hash completo",
+          separatorBefore: true,
+          onSelect: () => copyText(commit.hash, "Hash copiado"),
+        },
+        {
+          id: "copy-short",
+          label: `Copiar hash corto (${short(commit.hash)})`,
+          onSelect: () => copyText(short(commit.hash), "Hash corto copiado"),
+        },
+        {
+          id: "branches",
+          label: "Gestionar ramas…",
+          separatorBefore: true,
+          disabled: writing,
+          onSelect: () => setView("branches"),
+        },
+      ],
+    });
+  }
+  function openRefContextMenu(refItem: GitRef, x: number, y: number) {
+    const label = refName(refItem.name);
+    const items: ContextMenuItem[] = [
+      {
+        id: "locate",
+        label: "Localizar en historial",
+        onSelect: () => jump(refItem.hash),
+      },
+    ];
+    if (refItem.kind === "branch" || refItem.kind === "remote") {
+      items.push({
+        id: "filter",
+        label: `Filtrar historial por ${label}`,
+        disabled: busy || loadingMore || writing,
+        onSelect: () => void refresh(refItem.name, true),
+      });
+    }
+    if (refItem.kind === "branch") {
+      items.push({
+        id: "manage",
+        label: "Gestionar en Ramas…",
+        disabled: writing,
+        onSelect: () => {
+          setBranchPreselect(label);
+          setView("branches");
+        },
+      });
+    }
+    items.push({
+      id: "copy-ref",
+      label: "Copiar nombre de referencia",
+      separatorBefore: true,
+      onSelect: () => copyText(label, "Referencia copiada"),
+    });
+    setContextMenu({
+      x,
+      y,
+      label: `Acciones de ${label}`,
+      items,
+    });
+  }
+  function openWorktreeContextMenu(wt: WorktreeItem, x: number, y: number) {
+    if (!repo) return;
+    const launchWt = (kind: "editor" | "terminal" | "explorer") => {
+      void invoke<{ message: string }>("open_worktree_external", {
+        id: repo.id,
+        path: wt.path,
+        kind,
+      })
+        .then((res) => setNotice(res.message))
+        .catch((reason) => setError(errorText(reason)));
+    };
+    setContextMenu({
+      x,
+      y,
+      label: `Acciones del worktree ${wt.name}`,
+      items: [
+        {
+          id: "wt-tab",
+          label: "Abrir en pestaña",
+          disabled: writing || wt.current || wt.prunable,
+          onSelect: () => void openRepositoryPath(wt.path),
+        },
+        {
+          id: "wt-editor",
+          label: "Abrir en editor",
+          disabled: writing || wt.prunable,
+          onSelect: () => launchWt("editor"),
+        },
+        {
+          id: "wt-terminal",
+          label: "Abrir en terminal",
+          disabled: writing || wt.prunable,
+          onSelect: () => launchWt("terminal"),
+        },
+        {
+          id: "wt-explorer",
+          label: "Mostrar en carpeta",
+          disabled: writing || wt.prunable,
+          onSelect: () => launchWt("explorer"),
+        },
+        {
+          id: "wt-manage",
+          label: "Gestionar worktrees…",
+          separatorBefore: true,
+          disabled: writing,
+          onSelect: () => setWorktreeOpen(true),
+        },
+      ],
+    });
+  }
+  const launchExternal = (kind: "editor" | "terminal" | "explorer") => {
+    if (!repo) return;
+    const appId =
+      kind === "editor"
+        ? (externalApps?.preferences.preferredEditorId ??
+          externalApps?.editors[0]?.id ??
+          null)
+        : kind === "terminal"
+          ? (externalApps?.preferences.preferredTerminalId ??
+            externalApps?.terminals[0]?.id ??
+            null)
+          : null;
+    void invoke<{ message: string }>("open_in_external", {
+      id: repo.id,
+      kind,
+      appId,
+    })
+      .then((res) => setNotice(res.message))
+      .catch((reason) => setError(errorText(reason)));
+  };
+  const paletteCommands = useMemo<PaletteCommand[]>(
+    () => [
+      {
+        id: "view-changes",
+        category: "Navegación",
+        label: "Ir a Cambios locales",
+        shortcut: "⌘1",
+        disabled: !repo || writing,
+        onSelect: () => setView("changes"),
+      },
+      {
+        id: "view-history",
+        category: "Navegación",
+        label: "Ir a Historial y grafo",
+        shortcut: "⌘2",
+        disabled: writing,
+        onSelect: () => setView("history"),
+      },
+      {
+        id: "view-branches",
+        category: "Navegación",
+        label: "Ir a Ramas, Merge y Rebase",
+        disabled: !repo || writing,
+        onSelect: () => setView("branches"),
+      },
+      {
+        id: "view-remotes",
+        category: "Navegación",
+        label: "Ir a Remotos y Fetch",
+        shortcut: "⌘3",
+        disabled: !repo || writing,
+        onSelect: () => goSync("remotes"),
+      },
+      {
+        id: "view-pull",
+        category: "Navegación",
+        label: "Ir a Pull",
+        disabled: !repo || writing,
+        onSelect: () => goSync("pull"),
+      },
+      {
+        id: "view-push",
+        category: "Navegación",
+        label: "Ir a Publicar (Push)",
+        disabled: !repo || writing,
+        onSelect: () => goSync("push"),
+      },
+      {
+        id: "toggle-inspector",
+        category: "Navegación",
+        label: inspectorOpen
+          ? "Ocultar detalle del commit"
+          : "Mostrar detalle del commit",
+        disabled: view !== "history",
+        onSelect: () => setInspectorOpen((open) => !open),
+      },
+      {
+        id: "search-history",
+        category: "Historial",
+        label: "Buscar en commits cargados",
+        shortcut: "⌘F",
+        disabled: !repo,
+        onSelect: () => {
+          setView("history");
+          requestAnimationFrame(() => searchInput.current?.focus());
+        },
+      },
+      {
+        id: "search-deep",
+        category: "Historial",
+        label: "Búsqueda profunda en todo el historial…",
+        shortcut: "⌘⇧F",
+        disabled: !repo || writing,
+        onSelect: () => setSearchDialogMode("history"),
+      },
+      {
+        id: "search-code",
+        category: "Historial",
+        label: "Buscar texto o símbolo en código (-S / -G)…",
+        disabled: !repo || writing,
+        onSelect: () => setSearchDialogMode("code"),
+      },
+      {
+        id: "refresh-repo",
+        category: "Git",
+        label: "Actualizar historial y referencias",
+        shortcut: "⌘R",
+        disabled: !repo || busy || loadingMore || writing,
+        onSelect: () => void refresh(),
+      },
+      {
+        id: "stash",
+        category: "Git",
+        label: "Abrir Stash",
+        disabled: !repo || writing,
+        onSelect: () => setStashOpen(true),
+      },
+      {
+        id: "worktrees",
+        category: "Git",
+        label: "Worktrees…",
+        disabled: !repo || writing,
+        onSelect: () => setWorktreeOpen(true),
+      },
+      {
+        id: "authorize-repo",
+        category: "Git",
+        label: "Autorizar repositorio actual…",
+        disabled: !repo || repo.trusted !== false || writing,
+        onSelect: () => {
+          if (repo) setTrustPromptRepoId(repo.id);
+        },
+      },
+      {
+        id: "tag-head",
+        category: "Git",
+        label: "Etiquetar commit seleccionado o HEAD",
+        disabled: !repo || !(selected ?? repo.head) || writing,
+        onSelect: () => {
+          const target = selected ?? repo?.head;
+          if (target) setTagTarget(target);
+        },
+      },
+      {
+        id: "replay",
+        category: "Git",
+        label: "Operaciones de commit (Cherry-pick / Revert)",
+        disabled: !repo || writing,
+        onSelect: () => setReplay(null),
+      },
+      {
+        id: "open-editor",
+        category: "Abrir en",
+        label: "Abrir repositorio en editor",
+        disabled: !repo || writing,
+        onSelect: () => launchExternal("editor"),
+      },
+      {
+        id: "open-terminal",
+        category: "Abrir en",
+        label: "Abrir repositorio en terminal",
+        disabled: !repo || writing,
+        onSelect: () => launchExternal("terminal"),
+      },
+      {
+        id: "open-explorer",
+        category: "Abrir en",
+        label: "Abrir repositorio en explorador de archivos",
+        disabled: !repo || writing,
+        onSelect: () => launchExternal("explorer"),
+      },
+      {
+        id: "open-repo",
+        category: "Aplicación",
+        label: "Abrir repositorio local…",
+        shortcut: "⌘O",
+        disabled: busy || loadingMore || writing,
+        onSelect: () => void choose(),
+      },
+      {
+        id: "new-tab-repo",
+        category: "Pestañas",
+        label: "Abrir repositorio en nueva pestaña…",
+        shortcut: "⌘T",
+        disabled: busy || loadingMore || writing,
+        onSelect: () => void choose(),
+      },
+      {
+        id: "close-tab-repo",
+        category: "Pestañas",
+        label: "Cerrar pestaña actual",
+        shortcut: "⌘W",
+        disabled: !activeTabId || busy || loadingMore || writing,
+        onSelect: () => {
+          if (activeTabId) void closeTab(activeTabId);
+        },
+      },
+      {
+        id: "library",
+        category: "Aplicación",
+        label: "Biblioteca de repositorios…",
+        disabled: busy || loadingMore || writing,
+        onSelect: () => setLibraryOpen(true),
+      },
+      {
+        id: "appearance",
+        category: "Aplicación",
+        label: "Apariencia y colores…",
+        shortcut: "⌘,",
+        disabled: writing,
+        onSelect: () => setAppearanceOpen(true),
+      },
+      {
+        id: "activity",
+        category: "Aplicación",
+        label: "Actividad y diagnóstico…",
+        disabled: writing,
+        onSelect: () => setActivityOpen(true),
+      },
+      {
+        id: "snapshots",
+        category: "Seguridad",
+        label: "Snapshots locales…",
+        disabled: !repo || writing,
+        onSelect: () => setSnapshotsOpen(true),
+      },
+      {
+        id: "lfs-submodules",
+        category: "Repositorio",
+        label: "Git LFS y Submódulos…",
+        disabled: !repo || writing,
+        onSelect: () => setLfsSubmodulesOpen(true),
+      },
+      {
+        id: "undo-op",
+        category: "Seguridad",
+        label: undoState?.nextUndo
+          ? `Deshacer última operación (${undoState.nextUndo.label})`
+          : "Deshacer última operación",
+        shortcut: "⌘Z",
+        disabled: !repo || writing || undoBusy || !undoState?.canUndo,
+        onSelect: () => void openUndoPreview("undo"),
+      },
+      {
+        id: "redo-op",
+        category: "Seguridad",
+        label: undoState?.nextRedo
+          ? `Rehacer operación (${undoState.nextRedo.label})`
+          : "Rehacer operación",
+        shortcut: "⇧⌘Z",
+        disabled: !repo || writing || undoBusy || !undoState?.canRedo,
+        onSelect: () => void openUndoPreview("redo"),
+      },
+      {
+        id: "environment",
+        category: "Aplicación",
+        label: "Entorno y motor Git…",
+        disabled: writing,
+        onSelect: () => setEnvDialogOpen(true),
+      },
+      {
+        id: "shortcuts",
+        category: "Aplicación",
+        label: "Atajos de teclado…",
+        shortcut: "?",
+        keywords: ["keyboard", "teclas", "ayuda", "cheatsheet"],
+        onSelect: () => setShortcutsOpen(true),
+      },
+      {
+        id: "quick-guide",
+        category: "Aplicación",
+        label: "Guía rápida de RavenGit…",
+        keywords: [
+          "manual",
+          "ayuda",
+          "tutorial",
+          "tour",
+          "empezar",
+          "primeros pasos",
+        ],
+        onSelect: () => setQuickGuideOpen(true),
+      },
+      {
+        id: "toggle-simple-mode",
+        category: "Aplicación",
+        label: simpleMode ? "Cambiar a Modo Completo" : "Activar Modo Simple",
+        keywords: ["simple", "guiado", "avanzado", "interfaz"],
+        disabled: busy || loadingMore || writing,
+        onSelect: toggleSimpleMode,
+      },
+      {
+        id: "pull-requests",
+        category: "Repositorio",
+        label: "Pull Requests / MRs (GitHub / GitLab)…",
+        keywords: ["pr", "mr", "github", "gitlab", "review"],
+        disabled: !repo || writing,
+        onSelect: () => setPrDialogOpen(true),
+      },
+    ],
+    [
+      repo,
+      writing,
+      busy,
+      loadingMore,
+      inspectorOpen,
+      view,
+      lastSyncView,
+      selected,
+      externalApps,
+      undoState,
+      undoBusy,
+      simpleMode,
+    ],
+  );
   function jump(hash: string) {
     const index = commits.findIndex((c) => c.hash === hash);
     if (index < 0) {
@@ -561,171 +2409,432 @@ function App() {
     setView("history");
     setQuery("");
     select(hash);
-    virtual.scrollToIndex(index, { align: "center" });
+    scrollToCommitIndex(index, "center");
   }
-  const commitRow = (index: number, style?: React.CSSProperties) => {
-    const c = commits[index];
-    const refs = repo?.refs.filter((r) => r.hash === c.hash) ?? [];
-    return (
-      <button
-        key={c.hash}
-        type="button"
-        className={`commit-row ${selected === c.hash ? "selected" : ""}`}
-        style={{
-          ...style,
-          gridTemplateColumns: historyColumns,
-        }}
-        onClick={() => select(c.hash)}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-            e.preventDefault();
-            const next = Math.max(
-              0,
-              Math.min(
-                commits.length - 1,
-                index + (e.key === "ArrowDown" ? 1 : -1),
-              ),
-            );
-            select(commits[next].hash);
-            virtual.scrollToIndex(next, { align: "auto" });
-          }
-        }}
-        aria-pressed={selected === c.hash}
-        aria-label={`${c.subject}. ${c.author}. Commit ${short(c.hash)}. ${c.parents.length} padres.`}
-      >
-        <GraphCell row={rows[index]} width={graphWidth} />
-        <span className="commit-subject">
-          <span className="inline-refs">
-            {c.hash === repo?.head && <span className="ref head">HEAD</span>}
-            {refs.map((r) => (
-              <span className={`ref ${r.kind}`} key={r.name} title={r.name}>
-                {refName(r.name)}
-              </span>
-            ))}
-          </span>
-          <span className="truncate">{c.subject || "(sin mensaje)"}</span>
-        </span>
-        <span className="history-author" title={c.author}>
-          <AuthorAvatar name={c.author} />
-          <span className="truncate">{c.author || "Autor desconocido"}</span>
-        </span>
-        {showDate && (
-          <time className="history-date" dateTime={c.date} title={c.date}>
-            {formatCommitDate(c.date)}
-          </time>
-        )}
-        {showHash && <code className="hash">{short(c.hash)}</code>}
-      </button>
-    );
-  };
+  function jumpToSearchedCommit(commit: Commit) {
+    setView("history");
+    setInspectorOpen(true);
+    setExternalCommit(commit);
+    const index = commits.findIndex((c) => c.hash === commit.hash);
+    if (index >= 0) {
+      setQuery("");
+      select(commit.hash);
+      scrollToCommitIndex(index, "center");
+    } else {
+      select(commit.hash);
+      setNotice(
+        `Inspeccionando ${short(commit.hash)} desde búsqueda profunda (fuera de los primeros ${commits.length} commits cargados).`,
+      );
+    }
+  }
+  async function jumpToCommitHash(targetHash: string) {
+    const localMatch = commits.find((c) => c.hash === targetHash);
+    if (localMatch) {
+      jump(localMatch.hash);
+      return;
+    }
+    if (!repo) return;
+    try {
+      const res = await invoke<{ commits: Commit[] }>("search_history", {
+        id: repo.id,
+        query: { hash: targetHash, scope: "all", limit: 1 },
+      });
+      const found = res.commits[0];
+      if (found) {
+        jumpToSearchedCommit(found);
+      } else {
+        setNotice(
+          `No se encontró el commit ${short(targetHash)} en el historial local.`,
+        );
+      }
+    } catch (reason) {
+      setError(errorText(reason));
+    }
+  }
+  function openOrderedComparison(first: Commit, second: Commit) {
+    const firstIdx = commits.findIndex((c) => c.hash === first.hash);
+    const secondIdx = commits.findIndex((c) => c.hash === second.hash);
+    if (firstIdx >= 0 && secondIdx >= 0 && firstIdx < secondIdx) {
+      setComparePair({ base: second, target: first });
+    } else {
+      setComparePair({ base: first, target: second });
+    }
+  }
+  const commitRow = (index: number, style?: React.CSSProperties) => (
+    <CommitRow
+      key={commits[index].hash}
+      commit={commits[index]}
+      index={index}
+      row={rows[index]}
+      style={style}
+      commitsLength={commits.length}
+      graphWidth={graphWidth}
+      activeRowHeight={activeRowHeight}
+      graphColors={graphColors}
+      graphStyle={graphStyle}
+      isTributary={isTributary}
+      historyColumns={historyColumns}
+      selected={selected}
+      active={active}
+      compareAnchor={compareAnchor}
+      repoHead={repo?.head ?? null}
+      repoBranch={repo?.branch ?? null}
+      repoRefs={repo?.refs ?? []}
+      pullRequestsByBranch={pullRequestsByBranch}
+      showAuthor={showAuthor}
+      showDate={showDate}
+      showHash={effectiveShowHash}
+      onClearCompareAnchor={() => setCompareAnchor(null)}
+      onOpenOrderedComparison={openOrderedComparison}
+      onSelectCommit={select}
+      onOpenContextMenu={openCommitContextMenu}
+      onOpenPullRequests={() => setPrDialogOpen(true)}
+      onStepCommit={(next) => {
+        select(commits[next].hash);
+        scrollToCommitIndex(next, "auto");
+      }}
+    />
+  );
   return (
     <main
+      ref={mainShellRef}
       className="app-shell workspace-shell"
       data-history={view === "history"}
       data-inspector={inspectorOpen}
       style={{ "--inspector-size": `${inspectorSize}%` } as React.CSSProperties}
     >
-      {libraryOpen && (
-        <LibraryDialog
-          onLock={setWriting}
-          onDeleted={(path) => {
-            if (path === repo?.path) {
-              setRepo(null);
-              setPreferencesRepo(null);
-              setSelected(null);
-              setDiff(null);
-              setView("history");
-              setStashOpen(false);
-              setReplay(undefined);
+      <Suspense fallback={null}>
+        {libraryOpen && (
+          <LibraryDialog
+            onLock={setWriting}
+            onDeleted={(path) => {
+              const currentTabs = tabsRef.current;
+              const remaining = currentTabs.filter(
+                (item) => item.snapshot.path !== path,
+              );
+              if (remaining.length !== currentTabs.length) {
+                const removedActive = activeTab?.snapshot.path === path;
+                const nextActive = removedActive
+                  ? (remaining[remaining.length - 1] ?? null)
+                  : (remaining.find(
+                      (item) => item.snapshot.id === activeTabIdRef.current,
+                    ) ?? null);
+                const nextActiveId = nextActive?.snapshot.id ?? null;
+                tabsTouchedRef.current = true;
+                tabsRef.current = remaining;
+                activeTabIdRef.current = nextActiveId;
+                setTabs(remaining);
+                setActiveTabId(nextActiveId);
+                if (removedActive) applyTabUi(nextActive);
+                persistTabState(remaining, nextActiveId);
+              }
+              setNotice(
+                "Carpeta movida a la Papelera del sistema. No se eliminó el repositorio remoto.",
+              );
+            }}
+            currentPath={repo?.path}
+            onOpen={choose}
+            onClose={() => setLibraryOpen(false)}
+            onForgot={(path) => {
+              if (path === repo?.path) setPreferencesRepo(null);
+            }}
+          />
+        )}
+        {activityOpen && (
+          <ActivityDialog onClose={() => setActivityOpen(false)} />
+        )}
+        {appearanceOpen && (
+          <AppearanceDialog
+            theme={theme}
+            graphPalette={graphPalette}
+            graphStyle={graphStyle}
+            onChange={changeAppearance}
+            onChangeGraphStyle={changeGraphStyle}
+            onClose={() => setAppearanceOpen(false)}
+          />
+        )}
+        {paletteOpen && (
+          <CommandPalette
+            commands={paletteCommands}
+            onClose={() => setPaletteOpen(false)}
+          />
+        )}
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            label={contextMenu.label}
+            items={contextMenu.items}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
+        {repo && tagTarget && (
+          <TagDialog
+            key={`tag-${repo.id}`}
+            repoId={repo.id}
+            commit={tagTarget}
+            head={repo.head}
+            onPublish={(name) => {
               setTagTarget(null);
-              setTagPublication(undefined);
+              setTagPublication(name);
+            }}
+            onClose={() => setTagTarget(null)}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        )}
+        {repo && tagPublication !== undefined && (
+          <TagPublishDialog
+            key={`tag-publish-${repo.id}`}
+            repoId={repo.id}
+            initialTag={tagPublication ?? undefined}
+            onClose={() => setTagPublication(undefined)}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        )}
+        {creation && (
+          <InitializeDialog
+            key={`creation:${creation}`}
+            mode={creation}
+            onClose={() => setCreation(null)}
+            onLock={setWriting}
+            onOpen={choose}
+          />
+        )}
+        {repo && restoreOpen && (
+          <ConflictRestoreDialog
+            key={`restore:${repo.id}`}
+            repoId={repo.id}
+            onClose={() => {
+              setRestoreOpen(false);
+              setChangesRevision((value) => value + 1);
+            }}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        )}
+        {repo && stashOpen && (
+          <StashDialog
+            key={`stash:${repo.id}`}
+            repoId={repo.id}
+            onClose={() => setStashOpen(false)}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        )}
+        {repo && worktreeOpen && (
+          <WorktreeDialog
+            key={`worktrees:${repo.id}`}
+            repoId={repo.id}
+            repoPath={repo.path}
+            repoName={repo.name}
+            openTabPaths={tabs.map((item) => item.snapshot.path)}
+            onClose={() => setWorktreeOpen(false)}
+            onLock={setWriting}
+            onUpdated={() => refresh()}
+            onOpenInTab={(targetPath) => openRepositoryPath(targetPath)}
+            onAuthorize={() => setTrustPromptRepoId(repo.id)}
+          />
+        )}
+        {envDialogOpen && (
+          <EnvironmentDialog
+            status={envStatus}
+            checking={envChecking}
+            onRecheck={() => recheckEnvironment(false)}
+            onClose={() => setEnvDialogOpen(false)}
+          />
+        )}
+        {repo && snapshotsOpen && (
+          <SnapshotsDialog
+            key={`snapshots:${repo.id}`}
+            repoId={repo.id}
+            repoName={repo.name}
+            trusted={repo.trusted !== false}
+            preferences={snapshotPrefs}
+            onSavePreferences={saveSnapshotPreferences}
+            onAuthorize={() => {
+              setSnapshotsOpen(false);
+              setTrustPromptRepoId(repo.id);
+            }}
+            onRestored={async () => {
+              await refresh();
+            }}
+            onLock={setWriting}
+            onClose={() => setSnapshotsOpen(false)}
+          />
+        )}
+        {repo && lfsSubmodulesOpen && (
+          <LfsSubmodulesDialog
+            key={`lfs-sub:${repo.id}`}
+            repoId={repo.id}
+            repoName={repo.name}
+            trusted={repo.trusted !== false}
+            onAuthorize={() => {
+              setLfsSubmodulesOpen(false);
+              setTrustPromptRepoId(repo.id);
+            }}
+            onUpdated={async () => {
+              await refresh();
+            }}
+            onLock={setWriting}
+            onClose={() => setLfsSubmodulesOpen(false)}
+          />
+        )}
+        {repo && undoPlan && (
+          <UndoDialog
+            key={`undo:${undoPlan.token}`}
+            plan={undoPlan}
+            undoCount={undoState?.undoCount ?? 0}
+            redoCount={undoState?.redoCount ?? 0}
+            busy={undoBusy}
+            error={undoError}
+            onConfirm={confirmUndoPlan}
+            onClose={() => {
+              setUndoPlan(null);
+              setUndoError("");
+            }}
+          />
+        )}
+        {repo && trustPromptRepoId === repo.id && (
+          <TrustDialog
+            key={`trust:${repo.id}`}
+            repoId={repo.id}
+            repoName={repo.name}
+            repoPath={repo.path}
+            onAuthorized={() => {
+              updateRepoTrust(repo.id, true);
+              setTrustPromptRepoId(null);
+              setNotice(
+                "Repositorio autorizado. Operaciones locales habilitadas.",
+              );
+            }}
+            onReadOnly={() => {
+              dismissedTrustIdsRef.current.add(repo.id);
+              setTrustPromptRepoId(null);
+            }}
+            onLock={setWriting}
+          />
+        )}
+        {repo && searchDialogMode && (
+          <SearchDialog
+            key={`search:${repo.id}:${searchDialogMode}`}
+            repoId={repo.id}
+            repoName={repo.name}
+            currentScope={historyScope}
+            branches={branches.map((ref) => ref.name)}
+            initialMode={searchDialogMode}
+            initialQuery={query}
+            onClose={() => setSearchDialogMode(null)}
+            onJumpToCommit={jumpToSearchedCommit}
+          />
+        )}
+        {repo && fileHistoryTarget && (
+          <FileHistoryDialog
+            key={`fh:${repo.id}:${fileHistoryTarget.path}:${fileHistoryTarget.revision ?? "HEAD"}`}
+            repoId={repo.id}
+            path={fileHistoryTarget.path}
+            revision={fileHistoryTarget.revision}
+            onClose={() => setFileHistoryTarget(null)}
+            onJumpToCommit={jumpToSearchedCommit}
+            onOpenBlame={(targetPath, commitHash) =>
+              setBlameTarget({ path: targetPath, revision: commitHash })
             }
-            setNotice(
-              "Carpeta movida a la Papelera del sistema. No se eliminó el repositorio remoto.",
-            );
-          }}
-          currentPath={repo?.path}
-          onOpen={choose}
-          onClose={() => setLibraryOpen(false)}
-          onForgot={(path) => {
-            if (path === repo?.path) setPreferencesRepo(null);
-          }}
-        />
-      )}
-      {activityOpen && (
-        <ActivityDialog onClose={() => setActivityOpen(false)} />
-      )}
-      {repo && tagTarget && (
-        <TagDialog
-          key={`tag-${repo.id}`}
-          repoId={repo.id}
-          commit={tagTarget}
-          head={repo.head}
-          onPublish={(name) => {
-            setTagTarget(null);
-            setTagPublication(name);
-          }}
-          onClose={() => setTagTarget(null)}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {repo && tagPublication !== undefined && (
-        <TagPublishDialog
-          key={`tag-publish-${repo.id}`}
-          repoId={repo.id}
-          initialTag={tagPublication ?? undefined}
-          onClose={() => setTagPublication(undefined)}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {creation && (
-        <InitializeDialog
-          key={`creation:${creation}`}
-          mode={creation}
-          onClose={() => setCreation(null)}
-          onLock={setWriting}
-          onOpen={choose}
-        />
-      )}
-      {repo && restoreOpen && (
-        <ConflictRestoreDialog
-          key={`restore:${repo.id}`}
-          repoId={repo.id}
-          onClose={() => {
-            setRestoreOpen(false);
-            setChangesRevision((value) => value + 1);
-          }}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {repo && stashOpen && (
-        <StashDialog
-          key={`stash:${repo.id}`}
-          repoId={repo.id}
-          onClose={() => setStashOpen(false)}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {repo && replay !== undefined && (
-        <ReplayDialog
-          key={`replay:${repo.id}`}
-          repoId={repo.id}
-          initial={replay ?? undefined}
-          onClose={() => setReplay(undefined)}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
+          />
+        )}
+        {repo && blameTarget && (
+          <BlameDialog
+            key={`blame:${repo.id}:${blameTarget.path}:${blameTarget.revision ?? "HEAD"}`}
+            repoId={repo.id}
+            path={blameTarget.path}
+            revision={blameTarget.revision}
+            onClose={() => setBlameTarget(null)}
+            onJumpToCommitHash={(targetHash) =>
+              void jumpToCommitHash(targetHash)
+            }
+            onOpenHistory={(targetPath, rev) =>
+              setFileHistoryTarget({ path: targetPath, revision: rev ?? null })
+            }
+          />
+        )}
+        {repo && comparePair && (
+          <CompareDialog
+            key={`cmp:${repo.id}:${comparePair.base.hash}:${comparePair.target.hash}`}
+            repoId={repo.id}
+            base={comparePair.base}
+            target={comparePair.target}
+            onClose={() => setComparePair(null)}
+            onSwap={() =>
+              setComparePair((pair) =>
+                pair ? { base: pair.target, target: pair.base } : null,
+              )
+            }
+          />
+        )}
+        {repo && replay !== undefined && (
+          <ReplayDialog
+            key={`replay:${repo.id}`}
+            repoId={repo.id}
+            initial={replay ?? undefined}
+            onClose={() => setReplay(undefined)}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        )}
+        {shortcutsOpen && (
+          <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />
+        )}
+        {quickGuideOpen && (
+          <QuickGuideDialog
+            onClose={() => setQuickGuideOpen(false)}
+            onOpenShortcuts={() => {
+              setQuickGuideOpen(false);
+              setShortcutsOpen(true);
+            }}
+          />
+        )}
+        {repo && prDialogOpen && (
+          <PullRequestsDialog
+            key={`prs:${repo.id}`}
+            repoId={repo.id}
+            repoName={repo.name}
+            branches={branches.map((r) => r.name)}
+            cachedItems={pullRequestsByRepo[repo.id]}
+            onLoaded={(outcome) =>
+              setPullRequestsByRepo((current) => ({
+                ...current,
+                [repo.id]: outcome.items,
+              }))
+            }
+            onAuthorize={() => {
+              setPrDialogOpen(false);
+              setTrustPromptRepoId(repo.id);
+            }}
+            onJumpToBranch={(branchRef) => {
+              const found = branches.find((r) => r.name === branchRef);
+              if (found) jump(found.hash);
+            }}
+            onClose={() => setPrDialogOpen(false)}
+          />
+        )}
+      </Suspense>
       <div className="app-header">
         <a className="skip-navigation" href={`#${view}-content`}>
           Saltar al contenido
         </a>
         <CommandBar
           repo={repo}
+          tabs={tabs.map((item) => ({
+            id: item.snapshot.id,
+            name: item.snapshot.name,
+            path: item.snapshot.path,
+            branch: item.snapshot.branch,
+            dirtyCount: item.wip?.trusted ? item.wip.total : undefined,
+          }))}
+          activeTabId={activeTabId}
+          onSelectTab={activateTab}
+          onCloseTab={(id) => void closeTab(id)}
+          onReorderTabs={reorderTabs}
           locked={busy || loadingMore || writing}
           onOpen={() => void choose()}
           onRefresh={() => void refresh()}
@@ -739,6 +2848,28 @@ function App() {
             setView("history");
             requestAnimationFrame(() => searchInput.current?.focus());
           }}
+          onLibrary={() => setLibraryOpen(true)}
+          onAppearance={() => setAppearanceOpen(true)}
+          onCommandPalette={() => setPaletteOpen(true)}
+          onQuickGuide={() => setQuickGuideOpen(true)}
+          simpleMode={simpleMode}
+          onToggleSimpleMode={toggleSimpleMode}
+          themeSwatches={THEMES.find(
+            (item) => item.id === theme,
+          )?.swatches.slice(1, 4)}
+          externalSlot={
+            repo ? (
+              <OpenExternalMenu
+                repoId={repo.id}
+                disabled={busy || loadingMore || writing}
+                apps={externalApps}
+                onReloadApps={reloadExternalApps}
+                onSavePreferences={saveExternalPreferences}
+                onNotice={setNotice}
+                onError={setError}
+              />
+            ) : null
+          }
         />
         {syncing && (
           <nav className="sync-navigation" aria-label="Sincronización">
@@ -762,6 +2893,21 @@ function App() {
           </nav>
         )}
         <div className="global-notices" aria-label="Avisos del repositorio">
+          {envStatus && !envStatus.gitAvailable && !envDialogOpen && (
+            <div className="banner warning env-missing-banner" role="status">
+              <span>
+                Git CLI no detectado en el equipo. Algunas operaciones locales y
+                remotas requieren Git base.
+              </span>
+              <button
+                type="button"
+                className="button"
+                onClick={() => setEnvDialogOpen(true)}
+              >
+                Ver guía de instalación…
+              </button>
+            </div>
+          )}
           {operationResults.length > 0 && (
             <section
               className="operation-results"
@@ -800,164 +2946,49 @@ function App() {
           )}
         </div>
       </div>
-      <aside className="sidebar">
-        <button
-          className="library-launcher"
-          onClick={() => setLibraryOpen(true)}
-          disabled={busy || loadingMore || writing}
-        >
-          Repositorios <span aria-hidden="true">▾</span>
-        </button>
-        <button
-          className="button sidebar-create"
-          disabled={busy || loadingMore || writing}
-          onClick={() => setCreation("initialize")}
-        >
-          Nuevo repositorio…
-        </button>
-        <button
-          className="button sidebar-create"
-          disabled={busy || loadingMore || writing}
-          onClick={() => setCreation("clone")}
-        >
-          Clonar repositorio…
-        </button>
-        <div className="section-label">ESPACIO LOCAL</div>
-        <div className="workspace-name">
-          <OpenInNewWindowIcon />
-          <span>{repo?.name ?? "Tu primer repositorio"}</span>
-        </div>
-        {repo && (
-          <div className="repo-path" title={repo.path}>
-            {repo.path}
-          </div>
-        )}
-        <nav className="repo-navigation" aria-label="Vistas del repositorio">
-          <button
-            disabled={!repo || writing}
-            aria-current={view === "changes" ? "page" : undefined}
-            className={view === "changes" ? "nav-active" : "nav-button"}
-            onClick={() => setView("changes")}
-          >
-            <FileTextIcon />
-            Cambios
-          </button>
-          <button
-            disabled={writing}
-            aria-current={view === "history" ? "page" : undefined}
-            className={view === "history" ? "nav-active" : "nav-button"}
-            onClick={() => setView("history")}
-          >
-            <CommitIcon />
-            Historial<span>{commits.length || "—"}</span>
-          </button>
-          <button
-            disabled={!repo || writing}
-            aria-current={syncing ? "page" : undefined}
-            className={syncing ? "nav-active" : "nav-button"}
-            onClick={() => goSync(lastSyncView)}
-          >
-            <ArrowRightIcon />
-            Sincronizar
-          </button>
-        </nav>
-        <details
-          className="workspace-tools"
-          open={view === "branches" || undefined}
-        >
-          <summary>Herramientas</summary>
-          <nav
-            className="repo-navigation"
-            aria-label="Herramientas del repositorio"
-          >
-            <button
-              className="nav-button"
-              disabled={!repo || writing}
-              onClick={(event) => {
-                event.currentTarget.focus();
-                setRestoreOpen(true);
-              }}
-            >
-              Recuperar respaldo de conflicto…
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo?.head || writing}
-              onClick={() => repo?.head && setTagTarget(repo.head)}
-            >
-              Crear etiqueta…
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo || writing}
-              onClick={() => setTagPublication(null)}
-            >
-              Publicar etiqueta…
-            </button>
-            <button
-              className="nav-button"
-              disabled={!repo || writing}
-              onClick={() => setReplay(null)}
-            >
-              Operaciones de commit
-            </button>
-            <button
-              disabled={!repo || writing}
-              aria-current={view === "branches" ? "page" : undefined}
-              className={view === "branches" ? "nav-active" : "nav-button"}
-              onClick={() => setView("branches")}
-            >
-              Ramas
-            </button>
-            <button
-              className="nav-button"
-              disabled={writing}
-              onClick={() => setActivityOpen(true)}
-            >
-              Actividad y diagnóstico…
-            </button>
-          </nav>
-        </details>
-        <div className="sidebar-sections">
-          {[
-            { label: "RAMAS LOCALES", refs: branches },
-            { label: "REFERENCIAS REMOTAS", refs: remotes },
-            { label: "ETIQUETAS", refs: tags },
-          ].map((group) => (
-            <details key={group.label} open={group.label === "RAMAS LOCALES"}>
-              <summary>
-                {group.label}
-                <span>{group.refs.length}</span>
-              </summary>
-              {group.refs.length ? (
-                group.refs.map((r) => (
-                  <button
-                    className="branch-button"
-                    disabled={writing}
-                    key={r.name}
-                    onClick={() => jump(r.hash)}
-                    title={`Localizar ${refName(r.name)} en el historial; no cambia la rama activa`}
-                  >
-                    <span className={`branch-dot ${r.kind}`} />
-                    <span className="truncate">{refName(r.name)}</span>
-                    {refName(r.name) === repo?.branch && (
-                      <span className="current-indicator">actual</span>
-                    )}
-                  </button>
-                ))
-              ) : (
-                <p className="sidebar-empty">
-                  {repo ? "Sin referencias" : "Abre un repositorio"}
-                </p>
-              )}
-            </details>
-          ))}
-        </div>
-        <div className="sidebar-foot">
-          <LockClosedIcon />
-          <p>Control local. Conexiones sólo cuando las solicitas.</p>
-        </div>
-      </aside>
+      <Sidebar
+        repo={repo}
+        tabs={tabs}
+        view={view}
+        lastSyncView={lastSyncView}
+        syncing={syncing}
+        commitsCount={commits.length}
+        wip={wip}
+        branches={branches}
+        remotes={remotes}
+        tags={tags}
+        worktrees={worktrees}
+        busy={busy}
+        loadingMore={loadingMore}
+        writing={writing}
+        undoBusy={undoBusy}
+        undoState={undoState}
+        simpleMode={simpleMode}
+        onToggleSimpleMode={toggleSimpleMode}
+        onOpenLibrary={() => setLibraryOpen(true)}
+        onCreateRepo={(mode) => setCreation(mode)}
+        onSelectView={setView}
+        onGoSync={goSync}
+        onOpenRestore={() => setRestoreOpen(true)}
+        onOpenTagTarget={(hash) => setTagTarget(hash)}
+        onOpenTagPublication={() => setTagPublication(null)}
+        onOpenReplay={() => setReplay(null)}
+        onOpenWorktrees={() => setWorktreeOpen(true)}
+        onOpenActivity={() => setActivityOpen(true)}
+        onOpenAppearance={() => setAppearanceOpen(true)}
+        onOpenSnapshots={() => setSnapshotsOpen(true)}
+        onOpenLfsSubmodules={() => setLfsSubmodulesOpen(true)}
+        onOpenPullRequests={() => setPrDialogOpen(true)}
+        prCount={activePullRequests.length}
+        onOpenUndo={(direction) => void openUndoPreview(direction)}
+        onOpenEnvironment={() => setEnvDialogOpen(true)}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
+        onOpenQuickGuide={() => setQuickGuideOpen(true)}
+        onJumpToHash={jump}
+        onOpenRefContextMenu={openRefContextMenu}
+        onOpenRepositoryPath={(path) => void openRepositoryPath(path)}
+        onOpenWorktreeContextMenu={openWorktreeContextMenu}
+      />
       {repo && (
         <ChangesPanel
           key={repo.id}
@@ -967,46 +2998,56 @@ function App() {
           onLock={setWriting}
           onCommitted={refresh}
           onBranches={() => setView("branches")}
+          onTrustChange={(allowed) => updateRepoTrust(repo.id, allowed)}
+          onFileHistory={(targetPath) =>
+            setFileHistoryTarget({
+              path: targetPath,
+              revision: repo.head ?? null,
+            })
+          }
+          onFileBlame={(targetPath) =>
+            setBlameTarget({
+              path: targetPath,
+              revision: repo.head ?? null,
+            })
+          }
         />
       )}
       {repo && (
-        <RemotesPanel
-          key={`remotes-${repo.id}`}
-          active={view === "remotes"}
-          repoId={repo.id}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {repo && (
-        <PushPanel
-          key={`push-${repo.id}`}
-          repository={{ name: repo.name, path: repo.path }}
-          onResult={(result) => rememberResult(result, "push", repo.id)}
-          active={view === "push"}
-          repoId={repo.id}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
-      )}
-      {repo && (
-        <PullPanel
-          key={`pull-${repo.id}`}
-          active={view === "pull"}
-          repoId={repo.id}
-          onLock={setWriting}
-          onUpdated={refresh}
-          onBranches={() => setView("branches")}
-        />
-      )}
-      {repo && (
-        <BranchesPanel
-          key={`branches-${repo.id}`}
-          active={view === "branches"}
-          repoId={repo.id}
-          onLock={setWriting}
-          onUpdated={refresh}
-        />
+        <Suspense fallback={null}>
+          <RemotesPanel
+            key={`remotes-${repo.id}`}
+            active={view === "remotes"}
+            repoId={repo.id}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+          <PushPanel
+            key={`push-${repo.id}`}
+            repository={{ name: repo.name, path: repo.path }}
+            onResult={(result) => rememberResult(result, "push", repo.id)}
+            active={view === "push"}
+            repoId={repo.id}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+          <PullPanel
+            key={`pull-${repo.id}`}
+            active={view === "pull"}
+            repoId={repo.id}
+            onLock={setWriting}
+            onUpdated={refresh}
+            onBranches={() => setView("branches")}
+          />
+          <BranchesPanel
+            key={`branches-${repo.id}`}
+            active={view === "branches"}
+            repoId={repo.id}
+            initialBranch={branchPreselect}
+            onLock={setWriting}
+            onUpdated={refresh}
+          />
+        </Suspense>
       )}
       <section
         id="history-content"
@@ -1014,58 +3055,190 @@ function App() {
         hidden={!!repo && view !== "history"}
         className="history-panel"
         aria-label="Historial del repositorio"
+        style={{ "--refs-col-width": `${refsWidth}px` } as React.CSSProperties}
       >
-        <div className="panel-heading">
-          <div>
-            <div className="eyebrow">HISTORIAL</div>
-            <h1>Historial</h1>
+        <div className="history-toolbar">
+          <h1 className="sr-only">Historial</h1>
+          {repo && (
+            <div className="history-navigation">
+              <label className="sr-only" htmlFor="history-scope">
+                Mostrar
+              </label>
+              <select
+                id="history-scope"
+                title="Leer la ascendencia de una referencia sin cambiar de rama ni contactar remotos"
+                value={historyScope}
+                disabled={busy || loadingMore || writing}
+                onChange={(e) => void refresh(e.target.value, true)}
+              >
+                <option value="all">Todas las referencias</option>
+                <option value="HEAD" disabled={!repo.head}>
+                  Rama actual / HEAD
+                </option>
+                <optgroup label="Ramas locales">
+                  {branches.map((ref) => (
+                    <option key={ref.name} value={ref.name}>
+                      {refName(ref.name)}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Ramas remotas">
+                  {remotes.map((ref) => (
+                    <option key={ref.name} value={ref.name}>
+                      {refName(ref.name)}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+              <button
+                className="button"
+                disabled={!repo.head || busy || loadingMore || writing}
+                title="Localizar HEAD; si no está cargado, abrir su historial"
+                onClick={() => {
+                  if (commits.some((c) => c.hash === repo.head))
+                    jump(repo.head!);
+                  else void refresh("HEAD", true, true);
+                }}
+              >
+                Ir a HEAD
+              </button>
+              {busy && (
+                <span className="history-busy-badge" role="status">
+                  Leyendo historial…
+                </span>
+              )}
+            </div>
+          )}
+          <div className="searchbar history-search-inline">
+            <MagnifyingGlassIcon />
+            <label className="sr-only" htmlFor="history-search">
+              Buscar en commits cargados
+            </label>
+            <input
+              ref={searchInput}
+              id="history-search"
+              maxLength={500}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                scroll.current?.scrollTo({ top: 0 });
+              }}
+              placeholder="Buscar mensaje, autor o hash…"
+              disabled={!repo}
+            />
+            {query && (
+              <button
+                aria-label="Limpiar búsqueda"
+                onClick={() => setQuery("")}
+              >
+                ×
+              </button>
+            )}
+            <span role="status" aria-live="polite" aria-atomic="true">
+              {filtering
+                ? "Filtrando…"
+                : query
+                  ? `${visible.length} coincidencias`
+                  : `${commits.length} cargados`}
+            </span>
           </div>
+          {!simpleMode && (
+            <>
+              <button
+                type="button"
+                className="button history-deep-search-btn"
+                disabled={!repo || writing}
+                onClick={() => setSearchDialogMode("history")}
+                title="Buscar en todo el historial y en código fuente (⌘⇧F)"
+              >
+                Búsqueda avanzada…
+              </button>
+              {repo && (
+                <button
+                  type="button"
+                  className="button history-pr-btn"
+                  disabled={writing}
+                  onClick={() => setPrDialogOpen(true)}
+                  title="Consultar Pull Requests / Merge Requests bajo demanda"
+                >
+                  {activePullRequests.length > 0
+                    ? `PR / MR (${activePullRequests.length})`
+                    : "PR / MR"}
+                </button>
+              )}
+            </>
+          )}
           <div className="history-controls">
-            <details className="history-options">
-              <summary>Vista</summary>
-              <div className="history-options-body">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={showDate}
-                    onChange={(e) => setShowDate(e.target.checked)}
-                  />
-                  Fecha
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={showHash}
-                    onChange={(e) => setShowHash(e.target.checked)}
-                  />
-                  Hash del commit
-                </label>
-                <label>
-                  Ancho de autor · {authorWidth} px
-                  <input
-                    aria-label="Ancho de autor"
-                    type="range"
-                    min="120"
-                    max="240"
-                    step="10"
-                    value={authorWidth}
-                    onChange={(e) => setAuthorWidth(Number(e.target.value))}
-                  />
-                </label>
-                <label>
-                  Ancho del inspector · {inspectorSize} %
-                  <input
-                    aria-label="Ancho del inspector"
-                    type="range"
-                    min="30"
-                    max="60"
-                    step="2"
-                    value={inspectorSize}
-                    onChange={(e) => setInspectorSize(Number(e.target.value))}
-                  />
-                </label>
-              </div>
-            </details>
+            {!simpleMode && (
+              <details className="history-options">
+                <summary>Vista</summary>
+                <div className="history-options-body">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={showAuthor}
+                      onChange={(e) => setShowAuthor(e.target.checked)}
+                    />
+                    Autor
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={showDate}
+                      onChange={(e) => setShowDate(e.target.checked)}
+                    />
+                    Fecha
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={showHash}
+                      onChange={(e) => setShowHash(e.target.checked)}
+                    />
+                    Hash del commit
+                  </label>
+                  <label>
+                    Ancho de autor · {authorWidth} px
+                    <input
+                      aria-label="Ancho de autor"
+                      type="range"
+                      min="120"
+                      max="240"
+                      step="10"
+                      disabled={!showAuthor}
+                      value={authorWidth}
+                      onChange={(e) => setAuthorWidth(Number(e.target.value))}
+                    />
+                  </label>
+                  {isTributary && (
+                    <label>
+                      Ancho de Rama / Tag · {refsWidth} px
+                      <input
+                        aria-label="Ancho de Rama / Tag"
+                        type="range"
+                        min={MIN_REFS_COL_WIDTH}
+                        max={MAX_REFS_COL_WIDTH}
+                        step="8"
+                        value={refsWidth}
+                        onChange={(e) => setRefsWidth(Number(e.target.value))}
+                      />
+                    </label>
+                  )}
+                  <label>
+                    Ancho del inspector · {inspectorSize} %
+                    <input
+                      aria-label="Ancho del inspector"
+                      type="range"
+                      min="30"
+                      max="60"
+                      step="2"
+                      value={inspectorSize}
+                      onChange={(e) => setInspectorSize(Number(e.target.value))}
+                    />
+                  </label>
+                </div>
+              </details>
+            )}
             <button
               className="button"
               aria-expanded={inspectorOpen}
@@ -1086,79 +3259,22 @@ function App() {
             Repositorio shallow: Git sólo dispone de una parte del historial.
           </div>
         )}
-        {repo && (
-          <div className="history-navigation">
-            <label htmlFor="history-scope">Mostrar</label>
-            <select
-              id="history-scope"
-              title="Leer la ascendencia de una referencia sin cambiar de rama ni contactar remotos"
-              value={historyScope}
-              disabled={busy || loadingMore || writing}
-              onChange={(e) => void refresh(e.target.value, true)}
-            >
-              <option value="all">Todas las referencias</option>
-              <option value="HEAD" disabled={!repo.head}>
-                Rama actual / HEAD
-              </option>
-              <optgroup label="Ramas locales">
-                {branches.map((ref) => (
-                  <option key={ref.name} value={ref.name}>
-                    {refName(ref.name)}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Ramas remotas">
-                {remotes.map((ref) => (
-                  <option key={ref.name} value={ref.name}>
-                    {refName(ref.name)}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
+        {repo && compareAnchor && (
+          <div className="banner notice compare-anchor-banner" role="status">
+            <span>
+              Comparando desde <code>{short(compareAnchor.hash)}</code>: haz
+              clic en otro commit (o usa <code>Shift+Click</code>) para ver el
+              diff de rango.
+            </span>
             <button
+              type="button"
               className="button"
-              disabled={!repo.head || busy || loadingMore || writing}
-              title="Localizar HEAD; si no está cargado, abrir su historial"
-              onClick={() => {
-                if (commits.some((c) => c.hash === repo.head)) jump(repo.head!);
-                else void refresh("HEAD", true, true);
-              }}
+              onClick={() => setCompareAnchor(null)}
             >
-              Ir a HEAD
+              Cancelar
             </button>
-            {busy && <span role="status">Leyendo historial…</span>}
           </div>
         )}
-        <div className="searchbar">
-          <MagnifyingGlassIcon />
-          <label className="sr-only" htmlFor="history-search">
-            Buscar en commits cargados
-          </label>
-          <input
-            ref={searchInput}
-            id="history-search"
-            maxLength={500}
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              scroll.current?.scrollTo({ top: 0 });
-            }}
-            placeholder="Buscar mensaje, autor o hash en lo cargado"
-            disabled={!repo}
-          />
-          {query && (
-            <button aria-label="Limpiar búsqueda" onClick={() => setQuery("")}>
-              ×
-            </button>
-          )}
-          <span role="status" aria-live="polite" aria-atomic="true">
-            {filtering
-              ? "Filtrando…"
-              : query
-                ? `${visible.length} coincidencias`
-                : `${commits.length} cargados`}
-          </span>
-        </div>
         {repo && !query && (
           <div className="history-table-header">
             <div
@@ -1169,11 +3285,47 @@ function App() {
                 minWidth: historyMinWidth,
               }}
             >
-              <span>Grafo</span>
-              <span>Mensaje y referencias</span>
-              <span>Autor</span>
+              {isTributary ? (
+                <>
+                  <span className="heading-refs-col">
+                    Rama / Tag
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="Redimensionar columna Rama / Tag"
+                      aria-valuemin={MIN_REFS_COL_WIDTH}
+                      aria-valuemax={MAX_REFS_COL_WIDTH}
+                      aria-valuenow={refsWidth}
+                      tabIndex={0}
+                      className={`col-resizer${draggingRefsCol ? " active" : ""}`}
+                      onPointerDown={startRefsResize}
+                      onKeyDown={(e) => {
+                        if (e.key === "ArrowLeft") {
+                          e.preventDefault();
+                          setRefsWidth((w) =>
+                            Math.max(MIN_REFS_COL_WIDTH, w - 8),
+                          );
+                        } else if (e.key === "ArrowRight") {
+                          e.preventDefault();
+                          setRefsWidth((w) =>
+                            Math.min(MAX_REFS_COL_WIDTH, w + 8),
+                          );
+                        }
+                      }}
+                    />
+                  </span>
+                  <span>Grafo</span>
+                  <span>Mensaje</span>
+                </>
+              ) : (
+                <>
+                  <span>Grafo</span>
+                  <span>Mensaje y referencias</span>
+                </>
+              )}
+              {showAuthor && <span>Autor</span>}
               {showDate && <span>Fecha</span>}
-              {showHash && <span>Commit</span>}
+              {effectiveShowHash && <span>Commit</span>}
             </div>
           </div>
         )}
@@ -1182,8 +3334,22 @@ function App() {
           ref={scroll}
           aria-busy={busy || filtering}
           onScroll={(event) => {
+            const el = event.currentTarget;
             if (tableHeading.current)
-              tableHeading.current.style.transform = `translateX(-${event.currentTarget.scrollLeft}px)`;
+              tableHeading.current.style.transform = `translateX(-${el.scrollLeft}px)`;
+            if (
+              !query &&
+              view === "history" &&
+              repo &&
+              repo.page.nextOffset !== null &&
+              !loadingMore &&
+              !busy &&
+              el.clientHeight > 0 &&
+              el.scrollTop > 0 &&
+              el.scrollTop + el.clientHeight >= el.scrollHeight - 240
+            ) {
+              void more();
+            }
           }}
         >
           {busy && !repo ? (
@@ -1195,7 +3361,13 @@ function App() {
           ) : !repo ? (
             <div className="empty-state">
               <span className="empty-icon">
-                <CommitIcon width="28" height="28" />
+                <img
+                  src="/ravengit.svg"
+                  width="34"
+                  height="34"
+                  alt=""
+                  aria-hidden="true"
+                />
               </span>
               <div className="eyebrow">CADA RAMA TIENE UNA HISTORIA</div>
               <h2>Empieza por tu repositorio.</h2>
@@ -1203,14 +3375,39 @@ function App() {
                 Explora sus ramas, sigue los merges y revisa cada cambio desde
                 un mismo lugar.
               </p>
-              <button
-                className="button primary"
-                onClick={() => void choose()}
-                disabled={busy}
-              >
-                <OpenInNewWindowIcon />
-                Abrir repositorio local
-              </button>
+              <div className="empty-state-actions">
+                <button
+                  className="button primary"
+                  onClick={() => void choose()}
+                  disabled={busy}
+                >
+                  <OpenInNewWindowIcon />
+                  Abrir repositorio local
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={busy}
+                  onClick={() => setCreation("clone")}
+                >
+                  Clonar URL…
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={busy}
+                  onClick={() => setCreation("initialize")}
+                >
+                  Crear nuevo…
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => setQuickGuideOpen(true)}
+                >
+                  Guía rápida
+                </button>
+              </div>
               <span className="empty-note">
                 Sin cuentas. Sin conexión. Datos reales de Git.
               </span>
@@ -1255,6 +3452,14 @@ function App() {
                         aria-pressed={selected === commit.hash}
                         title={`${commit.subject}\n${commit.author}\n${commit.hash}`}
                         onClick={() => select(commit.hash)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          openCommitContextMenu(
+                            commit,
+                            event.clientX,
+                            event.clientY,
+                          );
+                        }}
                         onKeyDown={(event) => {
                           if (
                             !["ArrowDown", "ArrowUp", "Home", "End"].includes(
@@ -1308,24 +3513,63 @@ function App() {
               )}
             </div>
           ) : (
-            <div
-              className="virtual-list"
-              style={{
-                height: virtual.getTotalSize(),
-                minWidth: historyMinWidth,
-              }}
-            >
-              {virtual.getVirtualItems().map((item) =>
-                commitRow(item.index, {
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: item.size,
-                  transform: `translateY(${item.start}px)`,
-                }),
+            <>
+              {wip?.trusted && wip.total > 0 && wipMarker && (
+                <WipRow
+                  wip={wip}
+                  wipX={wipMarker.x}
+                  wipColor={wipMarker.color}
+                  isTributary={isTributary}
+                  writing={writing}
+                  graphWidth={graphWidth}
+                  activeRowHeight={activeRowHeight}
+                  historyMinWidth={historyMinWidth}
+                  historyColumns={historyColumns}
+                  onOpenChanges={() => setView("changes")}
+                />
               )}
-            </div>
+              <div
+                className="virtual-list"
+                style={{
+                  height: virtual.getTotalSize(),
+                  minWidth: historyMinWidth,
+                }}
+              >
+                {virtual.getVirtualItems().map((item) => {
+                  const posStyle: React.CSSProperties = {
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: item.size,
+                    transform: `translateY(${item.start}px)`,
+                  };
+                  if (tributaryLayout) {
+                    const entry = tributaryLayout.items[item.index];
+                    if (!entry) return null;
+                    if (entry.kind === "group") {
+                      return (
+                        <HistoryTimeSeparator
+                          key={entry.id}
+                          id={entry.id}
+                          label={entry.label}
+                          isFirst={entry.isFirst}
+                          throughLanes={entry.throughLanes}
+                          style={posStyle}
+                          historyColumns={historyColumns}
+                          graphWidth={graphWidth}
+                          groupHeight={TRIBUTARY_GROUP_HEIGHT}
+                          graphColors={graphColors}
+                          wipMarker={wipMarker}
+                        />
+                      );
+                    }
+                    return commitRow(entry.commitIndex, posStyle);
+                  }
+                  return commitRow(item.index, posStyle);
+                })}
+              </div>
+            </>
           )}
         </div>
         {repo && (
@@ -1353,213 +3597,55 @@ function App() {
           </div>
         )}
       </section>
-      <aside
-        id="commit-inspector"
-        hidden={(!!repo && view !== "history") || !inspectorOpen}
-        className="inspector history-inspector"
-        aria-label="Detalle del commit"
-      >
-        <div className="inspector-heading">
-          <FileTextIcon />
-          <h2>Detalle del commit</h2>
-          <div
-            className="commit-step-navigation"
-            role="group"
-            aria-label="Navegar por commits cargados"
-          >
-            <button
-              className="button"
-              aria-label="Commit anterior en la lista"
-              title="Commit anterior en la lista (orden topológico)"
-              disabled={!active || commits.indexOf(active) === 0}
-              onClick={() =>
-                active && jump(commits[commits.indexOf(active) - 1].hash)
-              }
-            >
-              ↑
-            </button>
-            <button
-              className="button"
-              aria-label="Commit siguiente en la lista"
-              title="Commit siguiente en la lista (orden topológico)"
-              disabled={
-                !active || commits.indexOf(active) === commits.length - 1
-              }
-              onClick={() =>
-                active && jump(commits[commits.indexOf(active) + 1].hash)
-              }
-            >
-              ↓
-            </button>
-          </div>
-        </div>
-        {active ? (
-          <>
-            <div className="commit-meta">
-              <h2>{active.subject || "(sin mensaje)"}</h2>
-              <div className="commit-actions">
-                <button
-                  className="button"
-                  disabled={writing}
-                  onClick={() => setTagTarget(active.hash)}
-                >
-                  Etiquetar commit…
-                </button>
-                <button
-                  className="button"
-                  disabled={writing}
-                  onClick={() =>
-                    setReplay({ kind: "cherryPick", commit: active.hash })
-                  }
-                >
-                  Cherry-pick
-                </button>
-                <button
-                  className="button"
-                  disabled={writing}
-                  onClick={() =>
-                    setReplay({ kind: "revert", commit: active.hash })
-                  }
-                >
-                  Revertir commit
-                </button>
-              </div>
-              <div className="selected-author">
-                <AuthorAvatar name={active.author} />
-                <span>{active.author || "Autor desconocido"}</span>
-                <time dateTime={active.date}>
-                  {formatCommitDate(active.date)}
-                </time>
-              </div>
-              <details className="commit-details" key={active.hash}>
-                <summary>Más detalles</summary>
-                <dl>
-                  <dt>Autor</dt>
-                  <dd>{active.author}</dd>
-                  <dt>Fecha</dt>
-                  <dd>{new Date(active.date).toLocaleString("es-MX")}</dd>
-                  <dt>Hash</dt>
-                  <dd className="full-hash">{active.hash}</dd>
-                  <dt>Padres</dt>
-                  <dd>
-                    {active.parents.length
-                      ? active.parents.map((p) => (
-                          <button
-                            key={p}
-                            className="parent-link"
-                            onClick={() => jump(p)}
-                            title={p}
-                          >
-                            {short(p)} <ArrowRightIcon />
-                          </button>
-                        ))
-                      : "Commit raíz"}
-                  </dd>
-                </dl>
-              </details>
-            </div>
-            {active.parents.length > 0 && (
-              <nav
-                className="commit-parent-navigation"
-                aria-label="Navegar por padres"
-              >
-                {active.parents.map((parent, index) => (
-                  <button
-                    className="button"
-                    key={parent}
-                    title={parent}
-                    onClick={() => jump(parent)}
-                  >
-                    Ir al padre {index + 1}
-                  </button>
-                ))}
-              </nav>
-            )}
-            <div className="diff-toolbar">
-              <span>Diff del commit</span>
-              {active.parents.length > 1 ? (
-                <label>
-                  Contra padre{" "}
-                  <select
-                    value={parentIndex}
-                    onChange={(e) => setParentIndex(Number(e.target.value))}
-                  >
-                    {active.parents.map((p, i) => (
-                      <option key={p} value={i}>
-                        {i + 1} · {short(p)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <code>
-                  {active.parents[0] ? short(active.parents[0]) : "árbol vacío"}{" "}
-                  → {short(active.hash)}
-                </code>
-              )}
-            </div>
-            <div className="diff-body" aria-busy={diffBusy}>
-              {diffBusy ? (
-                <div className="skeleton-list" aria-label="Leyendo diff">
-                  <div className="skeleton-row" />
-                  <div className="skeleton-row" />
-                  <div className="skeleton-row" />
-                </div>
-              ) : diffError ? (
-                <div className="banner error" role="alert">
-                  {diffError}
-                </div>
-              ) : diff?.text ? (
-                <DiffViewer text={diff.text} />
-              ) : (
-                <div className="diff-empty">
-                  Sin diferencias de contenido contra este padre.
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="inspector-empty">
-            <CommitIcon width="24" height="24" />
-            <h3>El contexto, a un clic.</h3>
-            <p>Selecciona un commit para ver su autor, sus padres y el diff.</p>
-          </div>
-        )}
-      </aside>
-      <footer className="statusbar">
-        <span>
-          <span className="status-dot" />
-          {busy || loadingMore
-            ? "Leyendo repositorio…"
-            : repo
-              ? "Repositorio local conectado"
-              : "Listo para abrir un repositorio"}
-        </span>
-        <span>
-          {writing
-            ? "Operación Git en curso…"
-            : "Cambios · Historial · Sincronizar"}
-        </span>
-        <span>
-          {repo && preferencesRepo === repo.id ? (
-            <>
-              {preferenceSave === "pending" ? (
-                "Guardando preferencias…"
-              ) : preferenceSave === "saved" ? (
-                "Preferencias guardadas"
-              ) : (
-                <button onClick={() => setSaveAttempt((value) => value + 1)}>
-                  Reintentar guardar preferencias
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              <CommitIcon /> Git local · Sin publicación automática
-            </>
-          )}
-        </span>
-      </footer>
+      <CommitInspector
+        repo={repo}
+        view={view}
+        inspectorOpen={inspectorOpen}
+        inspectorSize={inspectorSize}
+        draggingSplit={draggingSplit}
+        active={active}
+        commits={commits}
+        writing={writing}
+        parentIndex={parentIndex}
+        commitFiles={commitFiles}
+        filesBusy={filesBusy}
+        selectedFile={selectedFile}
+        commitIgnoreWhitespace={commitIgnoreWhitespace}
+        commitContextLines={commitContextLines}
+        diff={diff}
+        diffBusy={diffBusy}
+        diffError={diffError}
+        commitImageDiff={commitImageDiff}
+        preferTextForImage={preferTextForImage}
+        simpleMode={simpleMode}
+        onStartResize={startInspectorResize}
+        onChangeInspectorSize={setInspectorSize}
+        onCopyText={copyText}
+        onJump={jump}
+        onTagCommit={(hash) => setTagTarget(hash)}
+        onReplayCommit={(kind, commit) => setReplay({ kind, commit })}
+        onSelectFile={setSelectedFile}
+        onOpenFileHistory={(path, revision) =>
+          setFileHistoryTarget({ path, revision })
+        }
+        onOpenBlame={(path, revision) => setBlameTarget({ path, revision })}
+        onChangeParentIndex={setParentIndex}
+        onPreferTextForImage={setPreferTextForImage}
+        onIgnoreWhitespaceChange={setCommitIgnoreWhitespace}
+        onContextLinesChange={setCommitContextLines}
+      />
+      <StatusBar
+        repo={repo}
+        busy={busy}
+        loadingMore={loadingMore}
+        writing={writing}
+        preferencesRepo={preferencesRepo}
+        preferenceSave={preferenceSave}
+        simpleMode={simpleMode}
+        onToggleSimpleMode={toggleSimpleMode}
+        onAuthorizeRepo={(repoId) => setTrustPromptRepoId(repoId)}
+        onRetrySavePreferences={() => setSaveAttempt((value) => value + 1)}
+      />
     </main>
   );
 }

@@ -59,15 +59,15 @@ pub(crate) fn text(path: &Path, args: &[&str]) -> Result<String> {
         )
     })
 }
-fn oid(value: &str) -> bool {
+pub(crate) fn oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|v| v.is_ascii_hexdigit())
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Repository {
     pub id: String,
     pub path: PathBuf,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Commit {
     pub hash: String,
@@ -89,6 +89,7 @@ pub struct Snapshot {
     pub id: String,
     pub path: String,
     pub name: String,
+    pub trusted: bool,
     pub head: Option<String>,
     pub branch: Option<String>,
     pub shallow: bool,
@@ -110,6 +111,24 @@ pub struct CommitDiff {
     pub parent: Option<String>,
     pub parent_count: usize,
 }
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitFile {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub status: String,
+    pub additions: Option<u64>,
+    pub deletions: Option<u64>,
+    pub binary: bool,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitFiles {
+    pub hash: String,
+    pub parent: Option<String>,
+    pub parent_count: usize,
+    pub files: Vec<CommitFile>,
+}
 
 pub fn open(path: &Path, id: String) -> Result<(Repository, Snapshot)> {
     let path = path
@@ -126,11 +145,15 @@ pub fn open(path: &Path, id: String) -> Result<(Repository, Snapshot)> {
     Ok((repo, snapshot))
 }
 fn generation(path: &Path) -> Result<String> {
-    // Includes all refs (including unreachable-by-HEAD branches), tags and detached HEAD.
+    if let Some(fast) = crate::gix_engine::generation(path) {
+        return Ok(fast);
+    }
+    // Includes all refs (including unreachable-by-HEAD branches), tags, detached HEAD and current branch name.
     let refs = text(path, &["for-each-ref", "--format=%(objectname) %(refname)"])?;
     let head = text(path, &["rev-parse", "--verify", "HEAD"]).unwrap_or_default();
+    let branch = text(path, &["symbolic-ref", "--quiet", "--short", "HEAD"]).unwrap_or_default();
     let mut hash = 14695981039346656037u64;
-    for byte in refs.bytes().chain(head.bytes()) {
+    for byte in refs.bytes().chain(head.bytes()).chain(branch.bytes()) {
         hash ^= byte as u64;
         hash = hash.wrapping_mul(1099511628211);
     }
@@ -140,6 +163,9 @@ pub fn snapshot(repo: &Repository) -> Result<Snapshot> {
     snapshot_scoped(repo, None)
 }
 pub fn snapshot_scoped(repo: &Repository, scope: Option<&str>) -> Result<Snapshot> {
+    if let Some(fast) = crate::gix_engine::snapshot_scoped(repo, scope) {
+        return fast;
+    }
     let before = generation(&repo.path)?;
     let head = text(&repo.path, &["rev-parse", "--verify", "HEAD"])
         .ok()
@@ -192,6 +218,7 @@ pub fn snapshot_scoped(repo: &Repository, scope: Option<&str>) -> Result<Snapsho
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned(),
+        trusted: false,
         head,
         branch,
         shallow,
@@ -199,7 +226,7 @@ pub fn snapshot_scoped(repo: &Repository, scope: Option<&str>) -> Result<Snapsho
         page,
     })
 }
-fn parse_log(raw: &[u8]) -> Result<Vec<Commit>> {
+pub(crate) fn parse_log(raw: &[u8]) -> Result<Vec<Commit>> {
     if raw.is_empty() {
         return Ok(vec![]);
     }
@@ -243,6 +270,9 @@ pub fn history_scoped(
     expected: &str,
     scope: Option<&str>,
 ) -> Result<HistoryPage> {
+    if let Some(fast) = crate::gix_engine::history_scoped(repo, offset, expected, scope) {
+        return fast;
+    }
     let scope = scope.unwrap_or("all");
     if scope != "all"
         && scope != "HEAD"
@@ -344,7 +374,32 @@ pub fn history_scoped(
         generation: scoped_generation,
     })
 }
-pub fn diff(repo: &Repository, hash: &str, parent_index: usize) -> Result<CommitDiff> {
+pub(crate) fn validate_rel_path(path: &str) -> Result<()> {
+    if path.is_empty()
+        || path.len() > 4096
+        || path.contains('\0')
+        || path.starts_with('/')
+        || path.starts_with('\\')
+    {
+        return Err(GitError::new("INVALID_PATH", "Ruta de archivo inválida."));
+    }
+    if Path::new(path).components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::Prefix(_)
+                | std::path::Component::RootDir
+        )
+    }) {
+        return Err(GitError::new("INVALID_PATH", "Ruta de archivo inválida."));
+    }
+    Ok(())
+}
+pub(crate) fn resolve_parent(
+    repo: &Repository,
+    hash: &str,
+    parent_index: usize,
+) -> Result<(Option<String>, usize)> {
     if !oid(hash) {
         return Err(GitError::new(
             "INVALID_COMMIT",
@@ -372,43 +427,392 @@ pub fn diff(repo: &Repository, hash: &str, parent_index: usize) -> Result<Commit
             .to_string(),
         )
     };
-    let output = if let Some(p) = &parent {
-        text(
-            &repo.path,
-            &[
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--no-color",
-                "--no-renames",
-                "--unified=3",
-                p,
-                hash,
-                "--",
-            ],
-        )?
+    Ok((parent, parents.len()))
+}
+fn split_nul_records(raw: &[u8]) -> Result<Vec<String>> {
+    if raw.is_empty() {
+        return Ok(Vec::new());
+    }
+    let trimmed = raw.strip_suffix(b"\0").unwrap_or(raw);
+    trimmed
+        .split(|byte| *byte == 0)
+        .map(|slice| {
+            String::from_utf8(slice.to_vec()).map_err(|_| {
+                GitError::new(
+                    "ENCODING",
+                    "Hay rutas modificadas que no son UTF-8 válidas.",
+                )
+            })
+        })
+        .collect()
+}
+fn parse_commit_files(name_status: &[u8], numstat: &[u8]) -> Result<Vec<CommitFile>> {
+    use std::collections::HashMap;
+    let mut stats: HashMap<String, (Option<u64>, Option<u64>, bool)> = HashMap::new();
+    let stat_tokens = split_nul_records(numstat)?;
+    let mut i = 0;
+    while i < stat_tokens.len() {
+        let token = &stat_tokens[i];
+        let Some(first_tab) = token.find('\t') else {
+            i += 1;
+            continue;
+        };
+        let rest_after_first = &token[first_tab + 1..];
+        let Some(second_tab_rel) = rest_after_first.find('\t') else {
+            i += 1;
+            continue;
+        };
+        let add_str = &token[..first_tab];
+        let del_str = &rest_after_first[..second_tab_rel];
+        let path_part = &rest_after_first[second_tab_rel + 1..];
+        let binary = add_str == "-" || del_str == "-";
+        let additions = if binary {
+            None
+        } else {
+            add_str.parse::<u64>().ok()
+        };
+        let deletions = if binary {
+            None
+        } else {
+            del_str.parse::<u64>().ok()
+        };
+        if path_part.is_empty() {
+            // `-z` rename/copy entry: `<add>\t<del>\t\0<old_path>\0<new_path>\0`
+            if i + 2 < stat_tokens.len() {
+                let new_path = stat_tokens[i + 2].clone();
+                stats.insert(new_path, (additions, deletions, binary));
+                i += 3;
+            } else {
+                break;
+            }
+        } else {
+            stats.insert(path_part.to_string(), (additions, deletions, binary));
+            i += 1;
+        }
+    }
+
+    let status_tokens = split_nul_records(name_status)?;
+    let mut files = Vec::new();
+    let mut j = 0;
+    while j < status_tokens.len() {
+        let raw_status = &status_tokens[j];
+        let kind = raw_status.chars().next().unwrap_or('M');
+        let status = kind.to_string();
+        if kind == 'R' || kind == 'C' {
+            if j + 2 >= status_tokens.len() {
+                break;
+            }
+            let old_path = status_tokens[j + 1].clone();
+            let path = status_tokens[j + 2].clone();
+            let (additions, deletions, binary) =
+                stats.get(&path).copied().unwrap_or((None, None, false));
+            files.push(CommitFile {
+                path,
+                old_path: Some(old_path),
+                status,
+                additions,
+                deletions,
+                binary,
+            });
+            j += 3;
+        } else {
+            if j + 1 >= status_tokens.len() {
+                break;
+            }
+            let path = status_tokens[j + 1].clone();
+            let (additions, deletions, binary) =
+                stats.get(&path).copied().unwrap_or((None, None, false));
+            files.push(CommitFile {
+                path,
+                old_path: None,
+                status,
+                additions,
+                deletions,
+                binary,
+            });
+            j += 2;
+        }
+    }
+    Ok(files)
+}
+pub fn commit_files(repo: &Repository, hash: &str, parent_index: usize) -> Result<CommitFiles> {
+    let (parent, parent_count) = resolve_parent(repo, hash, parent_index)?;
+    let (name_status, numstat) = if let Some(ref p) = parent {
+        (
+            run(
+                &repo.path,
+                &[
+                    "diff",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--no-color",
+                    "-M",
+                    "-z",
+                    "--name-status",
+                    p,
+                    hash,
+                    "--",
+                ],
+            )?,
+            run(
+                &repo.path,
+                &[
+                    "diff",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--no-color",
+                    "-M",
+                    "-z",
+                    "--numstat",
+                    p,
+                    hash,
+                    "--",
+                ],
+            )?,
+        )
     } else {
-        text(
-            &repo.path,
-            &[
-                "show",
-                "--format=",
-                "--root",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--no-color",
-                "--no-renames",
-                "--unified=3",
-                hash,
-                "--",
-            ],
-        )?
+        (
+            run(
+                &repo.path,
+                &[
+                    "diff-tree",
+                    "--root",
+                    "--no-commit-id",
+                    "-r",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "-M",
+                    "-z",
+                    "--name-status",
+                    hash,
+                    "--",
+                ],
+            )?,
+            run(
+                &repo.path,
+                &[
+                    "diff-tree",
+                    "--root",
+                    "--no-commit-id",
+                    "-r",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "-M",
+                    "-z",
+                    "--numstat",
+                    hash,
+                    "--",
+                ],
+            )?,
+        )
     };
+    let files = parse_commit_files(&name_status, &numstat)?;
+    Ok(CommitFiles {
+        hash: hash.to_string(),
+        parent,
+        parent_count,
+        files,
+    })
+}
+#[cfg(test)]
+pub fn diff(repo: &Repository, hash: &str, parent_index: usize) -> Result<CommitDiff> {
+    diff_with_options(repo, hash, parent_index, None, None, false, 3)
+}
+pub fn diff_with_options(
+    repo: &Repository,
+    hash: &str,
+    parent_index: usize,
+    path: Option<&str>,
+    old_path: Option<&str>,
+    ignore_whitespace: bool,
+    context_lines: usize,
+) -> Result<CommitDiff> {
+    if let Some(target) = path {
+        validate_rel_path(target)?;
+    }
+    if let Some(source) = old_path {
+        validate_rel_path(source)?;
+    }
+    if old_path.is_some() && path.is_none() {
+        return Err(GitError::new("INVALID_PATH", "Ruta de archivo inválida."));
+    }
+    let (parent, parent_count) = resolve_parent(repo, hash, parent_index)?;
+    let unified = format!("--unified={}", context_lines.min(50));
+    let mut args: Vec<&str> = Vec::new();
+    if path.is_some() {
+        args.push("--literal-pathspecs");
+    }
+    if let Some(ref p) = parent {
+        args.extend([
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            if old_path.is_some() {
+                "-M"
+            } else {
+                "--no-renames"
+            },
+            &unified,
+        ]);
+        if ignore_whitespace {
+            args.push("-w");
+        }
+        args.push(p);
+        args.push(hash);
+    } else {
+        args.extend([
+            "show",
+            "--format=",
+            "--root",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            if old_path.is_some() {
+                "-M"
+            } else {
+                "--no-renames"
+            },
+            &unified,
+        ]);
+        if ignore_whitespace {
+            args.push("-w");
+        }
+        args.push(hash);
+    }
+    args.push("--");
+    if let Some(target) = path {
+        if let Some(source) = old_path {
+            args.push(source);
+        }
+        args.push(target);
+    }
+    let output = text(&repo.path, &args)?;
     Ok(CommitDiff {
         hash: hash.to_string(),
         text: output,
         parent,
-        parent_count: parents.len(),
+        parent_count,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RangeFiles {
+    pub base: String,
+    pub target: String,
+    pub files: Vec<CommitFile>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RangeDiff {
+    pub base: String,
+    pub target: String,
+    pub text: String,
+}
+
+pub fn range_files(repo: &Repository, base: &str, target: &str) -> Result<RangeFiles> {
+    if !oid(base) || !oid(target) {
+        return Err(GitError::new(
+            "INVALID_COMMIT",
+            "Selecciona dos hashes de commit completos para comparar.",
+        ));
+    }
+    let name_status = run(
+        &repo.path,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "-M",
+            "-z",
+            "--name-status",
+            base,
+            target,
+            "--",
+        ],
+    )?;
+    let numstat = run(
+        &repo.path,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "-M",
+            "-z",
+            "--numstat",
+            base,
+            target,
+            "--",
+        ],
+    )?;
+    let files = parse_commit_files(&name_status, &numstat)?;
+    Ok(RangeFiles {
+        base: base.to_string(),
+        target: target.to_string(),
+        files,
+    })
+}
+
+pub fn range_diff(
+    repo: &Repository,
+    base: &str,
+    target: &str,
+    path: Option<&str>,
+    old_path: Option<&str>,
+    ignore_whitespace: bool,
+    context_lines: usize,
+) -> Result<RangeDiff> {
+    if !oid(base) || !oid(target) {
+        return Err(GitError::new(
+            "INVALID_COMMIT",
+            "Selecciona dos hashes de commit completos para comparar.",
+        ));
+    }
+    if let Some(file_path) = path {
+        validate_rel_path(file_path)?;
+    }
+    if let Some(source) = old_path {
+        validate_rel_path(source)?;
+    }
+    if old_path.is_some() && path.is_none() {
+        return Err(GitError::new("INVALID_PATH", "Ruta de archivo inválida."));
+    }
+    let unified = format!("--unified={}", context_lines.min(50));
+    let mut args: Vec<&str> = Vec::new();
+    if path.is_some() {
+        args.push("--literal-pathspecs");
+    }
+    args.extend([
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        if old_path.is_some() {
+            "-M"
+        } else {
+            "--no-renames"
+        },
+        &unified,
+    ]);
+    if ignore_whitespace {
+        args.push("-w");
+    }
+    args.extend([base, target, "--"]);
+    if let Some(file_path) = path {
+        if let Some(source) = old_path {
+            args.push(source);
+        }
+        args.push(file_path);
+    }
+    let output = text(&repo.path, &args)?;
+    Ok(RangeDiff {
+        base: base.to_string(),
+        target: target.to_string(),
+        text: output,
     })
 }
 
@@ -643,5 +1047,176 @@ mod tests {
         assert!(!f.0.join(".git/FETCH_HEAD").exists());
         let packs = f.0.join(".git/objects/pack");
         assert_eq!(fs::read_dir(packs).unwrap().count(), 0);
+    }
+    #[test]
+    fn commit_files_reports_add_modify_delete_rename_binary_unicode_and_merge() {
+        let f = Fixture::new();
+        f.commit("archivo ü.txt", "uno\ndos\ntres\n", "raíz");
+        let root_hash = f.git(&["rev-parse", "HEAD"]).trim().to_string();
+        let root_files = commit_files(&f.repo(), &root_hash, 0).unwrap();
+        assert_eq!(root_files.parent_count, 0);
+        assert_eq!(root_files.files.len(), 1);
+        assert_eq!(root_files.files[0].status, "A");
+        assert_eq!(root_files.files[0].path, "archivo ü.txt");
+        assert_eq!(root_files.files[0].additions, Some(3));
+        assert_eq!(root_files.files[0].deletions, Some(0));
+
+        // Modificación + archivo binario + renombrar y eliminar en commits posteriores
+        fs::write(
+            f.0.join("archivo ü.txt"),
+            "uno\ndos editado\ntres\ncuatro\n",
+        )
+        .unwrap();
+        fs::write(f.0.join("mover.txt"), "a\nb\nc\nd\ne\nf\n").unwrap();
+        fs::write(f.0.join("borrar.txt"), "adios\n").unwrap();
+        fs::write(f.0.join("imagen.bin"), b"\x00\x01\x02PNG\x00").unwrap();
+        f.git(&["add", "--all"]);
+        f.git(&["commit", "-m", "prepara cambios"]);
+
+        fs::rename(f.0.join("mover.txt"), f.0.join("movido.txt")).unwrap();
+        fs::remove_file(f.0.join("borrar.txt")).unwrap();
+        fs::write(f.0.join("archivo ü.txt"), "uno\ndos editado\ncuatro\n").unwrap();
+        fs::write(f.0.join("imagen.bin"), b"\x00\x01\x02JPG\x00\x03").unwrap();
+        f.git(&["add", "--all"]);
+        f.git(&["commit", "-m", "modifica renombra elimina"]);
+        let change_hash = f.git(&["rev-parse", "HEAD"]).trim().to_string();
+        let listed = commit_files(&f.repo(), &change_hash, 0).unwrap();
+
+        let unicode = listed
+            .files
+            .iter()
+            .find(|item| item.path == "archivo ü.txt")
+            .unwrap();
+        assert_eq!(unicode.status, "M");
+        assert_eq!(unicode.deletions, Some(1));
+
+        let deleted = listed
+            .files
+            .iter()
+            .find(|item| item.path == "borrar.txt")
+            .unwrap();
+        assert_eq!(deleted.status, "D");
+        assert_eq!(deleted.deletions, Some(1));
+
+        let renamed = listed
+            .files
+            .iter()
+            .find(|item| item.path == "movido.txt")
+            .unwrap();
+        assert_eq!(renamed.status, "R");
+        assert_eq!(renamed.old_path.as_deref(), Some("mover.txt"));
+
+        let bin = listed
+            .files
+            .iter()
+            .find(|item| item.path == "imagen.bin")
+            .unwrap();
+        assert!(bin.binary);
+        assert_eq!(bin.additions, None);
+        assert_eq!(bin.deletions, None);
+
+        // Merge commit con 2 padres
+        f.git(&["switch", "-c", "lado"]);
+        f.commit("rama_lado.txt", "desde lado\n", "commit en lado");
+        f.git(&["switch", "main"]);
+        f.commit("rama_main.txt", "desde main\n", "commit en main");
+        f.git(&["merge", "--no-ff", "lado", "-m", "merge lado"]);
+        let merge_hash = f.git(&["rev-parse", "HEAD"]).trim().to_string();
+        let vs_parent0 = commit_files(&f.repo(), &merge_hash, 0).unwrap();
+        let vs_parent1 = commit_files(&f.repo(), &merge_hash, 1).unwrap();
+        assert_eq!(vs_parent0.parent_count, 2);
+        assert!(
+            vs_parent0
+                .files
+                .iter()
+                .any(|item| item.path == "rama_lado.txt")
+        );
+        assert!(
+            vs_parent1
+                .files
+                .iter()
+                .any(|item| item.path == "rama_main.txt")
+        );
+    }
+    #[test]
+    fn diff_with_options_supports_single_file_whitespace_context_and_rejects_bad_paths() {
+        let f = Fixture::new();
+        f.commit(
+            "peque.txt",
+            "linea 1\nlinea 2\nlinea 3\nlinea 4\nlinea 5\n",
+            "base",
+        );
+        let huge = "contenido muy largo en bloque grande\n".repeat(80_000);
+        fs::write(f.0.join("grande.txt"), &huge).unwrap();
+        fs::write(
+            f.0.join("peque.txt"),
+            "linea 1\nlinea 2   \nlinea 3\nlinea 4\nlinea 5 editada\n",
+        )
+        .unwrap();
+        f.git(&["add", "--all"]);
+        f.git(&["commit", "-m", "commit con archivo gigante y pequeño"]);
+        let head = f.git(&["rev-parse", "HEAD"]).trim().to_string();
+
+        // El diff completo excede 2 MiB, pero por archivo individual funciona.
+        assert_eq!(diff(&f.repo(), &head, 0).unwrap_err().code, "OUTPUT_LIMIT");
+        let single =
+            diff_with_options(&f.repo(), &head, 0, Some("peque.txt"), None, false, 3).unwrap();
+        assert!(single.text.contains("-linea 2"));
+        assert!(single.text.contains("+linea 2   "));
+        assert!(single.text.contains("+linea 5 editada"));
+
+        // Con `-w` se ignora el cambio de espacios en linea 2.
+        let ignore_ws =
+            diff_with_options(&f.repo(), &head, 0, Some("peque.txt"), None, true, 1).unwrap();
+        assert!(!ignore_ws.text.contains("linea 2   "));
+        assert!(ignore_ws.text.contains("+linea 5 editada"));
+
+        // Rechazo de rutas inseguras.
+        for bad in ["../secreto", "/etc/passwd", "dir/\0a", ""] {
+            assert_eq!(
+                diff_with_options(&f.repo(), &head, 0, Some(bad), None, false, 3)
+                    .unwrap_err()
+                    .code,
+                "INVALID_PATH"
+            );
+        }
+    }
+
+    #[test]
+    fn reads_range_files_and_diff_across_multiple_commits() {
+        let f = Fixture::new();
+        f.commit("a.txt", "uno\ndos\n", "c1");
+        let h1 = f.git(&["rev-parse", "HEAD"]).trim().to_string();
+        f.commit("b.txt", "hola\n", "c2");
+        f.commit("a.txt", "uno\ndos modificado\n", "c3");
+        let h3 = f.git(&["rev-parse", "HEAD"]).trim().to_string();
+
+        assert_eq!(
+            range_files(&f.repo(), "abc", &h3).unwrap_err().code,
+            "INVALID_COMMIT"
+        );
+
+        let files = range_files(&f.repo(), &h1, &h3).unwrap();
+        assert_eq!(files.files.len(), 2);
+        assert!(
+            files
+                .files
+                .iter()
+                .any(|item| item.path == "a.txt" && item.status == "M")
+        );
+        assert!(
+            files
+                .files
+                .iter()
+                .any(|item| item.path == "b.txt" && item.status == "A")
+        );
+
+        let diff_all = range_diff(&f.repo(), &h1, &h3, None, None, false, 3).unwrap();
+        assert!(diff_all.text.contains("+dos modificado"));
+        assert!(diff_all.text.contains("+hola"));
+
+        let diff_only_a = range_diff(&f.repo(), &h1, &h3, Some("a.txt"), None, false, 3).unwrap();
+        assert!(diff_only_a.text.contains("+dos modificado"));
+        assert!(!diff_only_a.text.contains("+hola"));
     }
 }

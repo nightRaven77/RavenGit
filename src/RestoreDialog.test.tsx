@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
-import RestoreDialog, { type RestorePlan, type RestoreOutcome } from "./RestoreDialog";
+import RestoreDialog, {
+  type RestorePlan,
+  type RestoreOutcome,
+} from "./RestoreDialog";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const api = vi.mocked(invoke);
@@ -26,7 +29,8 @@ const sampleOutcome: RestoreOutcome = {
   },
   backup: samplePlan.backupId,
   isRedo: false,
-  message: "Archivo restaurado con éxito. Se guardó una copia de seguridad para rehacer.",
+  message:
+    "Archivo restaurado con éxito. Se guardó una copia de seguridad para rehacer.",
 };
 
 describe("RestoreDialog", () => {
@@ -55,16 +59,20 @@ describe("RestoreDialog", () => {
         onClose={vi.fn()}
         onLock={vi.fn()}
         onRestored={vi.fn()}
-      />
+      />,
     );
 
-    expect(screen.getByText(/Calculando vista previa de restauración/i)).toBeTruthy();
+    expect(
+      screen.getByText(/Calculando vista previa de restauración/i),
+    ).toBeTruthy();
 
     await waitFor(() => {
       expect(screen.getByText("lineas.txt")).toBeTruthy();
     });
 
-    const confirmBtn = screen.getByRole("button", { name: /Confirmar restauración/i });
+    const confirmBtn = screen.getByRole("button", {
+      name: /Confirmar restauración/i,
+    });
     expect(confirmBtn).toHaveProperty("disabled", true);
 
     const checkbox = screen.getByRole("checkbox", {
@@ -90,7 +98,7 @@ describe("RestoreDialog", () => {
         onClose={onClose}
         onLock={vi.fn()}
         onRestored={onRestored}
-      />
+      />,
     );
 
     await waitFor(() => {
@@ -102,7 +110,9 @@ describe("RestoreDialog", () => {
     });
     await userEvent.click(checkbox);
 
-    const confirmBtn = screen.getByRole("button", { name: /Confirmar restauración/i });
+    const confirmBtn = screen.getByRole("button", {
+      name: /Confirmar restauración/i,
+    });
     await userEvent.click(confirmBtn);
 
     expect(api).toHaveBeenCalledWith("confirm_worktree_restore", {
@@ -120,7 +130,8 @@ describe("RestoreDialog", () => {
     api.mockResolvedValueOnce(samplePlan);
     api.mockRejectedValueOnce({
       code: "STALE_RESTORE",
-      message: "El archivo o repositorio cambió desde la vista previa. Actualiza antes de continuar.",
+      message:
+        "El archivo o repositorio cambió desde la vista previa. Actualiza antes de continuar.",
     });
 
     const onRestored = vi.fn();
@@ -134,7 +145,7 @@ describe("RestoreDialog", () => {
         onClose={onClose}
         onLock={vi.fn()}
         onRestored={onRestored}
-      />
+      />,
     );
 
     await waitFor(() => {
@@ -146,12 +157,18 @@ describe("RestoreDialog", () => {
     });
     await userEvent.click(checkbox);
 
-    const confirmBtn = screen.getByRole("button", { name: /Confirmar restauración/i });
+    const confirmBtn = screen.getByRole("button", {
+      name: /Confirmar restauración/i,
+    });
     await userEvent.click(confirmBtn);
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeTruthy();
-      expect(screen.getByText(/El archivo o repositorio cambió desde la vista previa/i)).toBeTruthy();
+      expect(
+        screen.getByText(
+          /El archivo o repositorio cambió desde la vista previa/i,
+        ),
+      ).toBeTruthy();
     });
 
     expect(onRestored).not.toHaveBeenCalled();
@@ -170,7 +187,7 @@ describe("RestoreDialog", () => {
         onClose={vi.fn()}
         onLock={vi.fn()}
         onRestored={vi.fn()}
-      />
+      />,
     );
 
     await waitFor(() => {
@@ -181,7 +198,9 @@ describe("RestoreDialog", () => {
       name: /Confirmo rehacer los cambios respaldados/i,
     });
     expect(checkbox).toBeTruthy();
-    const confirmBtn = screen.getByRole("button", { name: /Confirmar rehacer/i });
+    const confirmBtn = screen.getByRole("button", {
+      name: /Confirmar rehacer/i,
+    });
     expect(confirmBtn).toHaveProperty("disabled", true);
   });
 });

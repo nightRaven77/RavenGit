@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -10,7 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import ChangesPanel from "./ChangesPanel";
-import type { ChangesState, FileDiff } from "./types";
+import type { ChangesState, FileDiff, MutationResult } from "./types";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const api = vi.mocked(invoke);
 const entry = {
@@ -691,5 +692,243 @@ describe("Cambios y commits", () => {
     expect(api.mock.calls.some(([c]) => c === "create_commit")).toBe(false);
     const prepared = screen.getByRole("region", { name: "Preparados" });
     expect(within(prepared).getByText(entry.path)).toBeTruthy();
+  });
+
+  it("permite alternar -w, seleccionar líneas con Shift+Click, preparar y descartar por rango", async () => {
+    const multiHunk: FileDiff = {
+      previewToken: "multi-token",
+      token: base.token,
+      path: entry.path,
+      area: "unstaged",
+      text: "@@ -1,3 +1,3 @@\n contexto\n-uno\n+uno nuevo\n+dos nuevo\n",
+      hunks: [
+        {
+          index: 0,
+          header: "@@ -1,3 +1,3 @@",
+          text: "@@ -1,3 +1,3 @@\n contexto\n-uno\n+uno nuevo\n+dos nuevo\n",
+        },
+      ],
+      partialAllowed: true,
+      partialReason: null,
+    };
+    const partialChanges: ChangesState = {
+      ...base,
+      token: "state-partial",
+      entries: [{ ...entry, indexStatus: "M", worktreeStatus: "M" }],
+    };
+    api.mockImplementation(async (command, args) => {
+      if (command === "read_changes") return base;
+      if (command === "read_file_diff") {
+        const payload = args as { ignoreWhitespace?: boolean; token?: string };
+        if (payload.ignoreWhitespace) {
+          return {
+            ...multiHunk,
+            hunks: [],
+            partialAllowed: false,
+            partialReason:
+              "Desactiva «Ignorar espacios» para preparar bloques o líneas parciales.",
+          };
+        }
+        return {
+          ...multiHunk,
+          token: payload.token ?? base.token,
+        };
+      }
+      if (command === "change_file")
+        return { changes: partialChanges, commitHash: null, warning: null };
+      if (command === "discard_file_lines")
+        return { changes: partialChanges, commitHash: null, warning: null };
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const user = userEvent.setup();
+    mount();
+
+    const wsToggle = await screen.findByRole("button", {
+      name: "Ignorar espacios",
+    });
+    await user.click(wsToggle);
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("read_file_diff", {
+        id: "repo-1",
+        token: base.token,
+        path: entry.path,
+        area: "unstaged",
+        ignoreWhitespace: true,
+      }),
+    );
+    expect(screen.getByText(/Desactiva «Ignorar espacios»/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Ignorar espacios" }));
+
+    const lineDel = await screen.findByRole("button", {
+      name: /Seleccionar línea -2:/,
+    });
+    const lineAdd2 = screen.getByRole("button", {
+      name: /Seleccionar línea \+4:/,
+    });
+
+    await user.click(lineDel);
+    await user.keyboard("{Shift>}");
+    await user.click(lineAdd2);
+    await user.keyboard("{/Shift}");
+
+    await user.click(screen.getByRole("button", { name: "Preparar 3 líneas" }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("change_file", {
+        id: "repo-1",
+        token: base.token,
+        path: entry.path,
+        area: "unstaged",
+        hunkIndex: 0,
+        previewToken: "multi-token",
+        lineIndices: [1, 2, 3],
+      }),
+    );
+
+    const freshLine = await screen.findByRole("button", {
+      name: /Seleccionar línea \+4:/,
+    });
+    await user.click(freshLine);
+    await user.click(
+      screen.getByRole("button", { name: "Descartar 1 línea…" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Confirmar descarte" }),
+    );
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("discard_file_lines", {
+        id: "repo-1",
+        token: "state-partial",
+        path: entry.path,
+        hunkIndex: 0,
+        previewToken: "multi-token",
+        lineIndices: [3],
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Rehacer cambios" }),
+    ).toBeTruthy();
+  });
+
+  it("muestra badges semánticos de estado incluyendo conflictos", async () => {
+    const statusEntries: ChangesState = {
+      ...base,
+      entries: [
+        {
+          path: "src/nuevo.ts",
+          indexStatus: "A",
+          worktreeStatus: " ",
+          untracked: false,
+          conflict: false,
+          submodule: false,
+        },
+        {
+          path: "src/editado.ts",
+          indexStatus: " ",
+          worktreeStatus: "M",
+          untracked: false,
+          conflict: false,
+          submodule: false,
+        },
+        {
+          path: "src/borrado.ts",
+          indexStatus: " ",
+          worktreeStatus: "D",
+          untracked: false,
+          conflict: false,
+          submodule: false,
+        },
+        {
+          path: "src/sin_seguimiento.ts",
+          indexStatus: "?",
+          worktreeStatus: "?",
+          untracked: true,
+          conflict: false,
+          submodule: false,
+        },
+        {
+          path: "src/conflicto.ts",
+          indexStatus: "U",
+          worktreeStatus: "U",
+          untracked: false,
+          conflict: true,
+          submodule: false,
+        },
+      ],
+    };
+    api.mockImplementation(async (command) => {
+      if (command === "read_changes") return statusEntries;
+      if (command === "read_file_diff") return preview;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    mount();
+    await screen.findByRole("button", { name: /src\/nuevo\.ts/ });
+    const badges = Array.from(document.querySelectorAll(".file-status")).map(
+      (el) => ({
+        text: el.textContent,
+        classes: [...el.classList],
+      }),
+    );
+    expect(
+      badges.some((b) => b.text === "A" && b.classes.includes("added")),
+    ).toBe(true);
+    expect(
+      badges.some((b) => b.text === "M" && b.classes.includes("modified")),
+    ).toBe(true);
+    expect(
+      badges.some((b) => b.text === "D" && b.classes.includes("deleted")),
+    ).toBe(true);
+    expect(
+      badges.some((b) => b.text === "?" && b.classes.includes("untracked")),
+    ).toBe(true);
+    expect(
+      badges.some((b) => b.text === "!" && b.classes.includes("conflict")),
+    ).toBe(true);
+  });
+
+  it("muestra contador 50/72 y envía commit con Ctrl+Enter", async () => {
+    const resolveCommitRef: { fn?: (value: MutationResult) => void } = {};
+    api.mockImplementation(async (command) => {
+      if (command === "read_changes") return staged;
+      if (command === "read_file_diff") return preview;
+      if (command === "create_commit") {
+        return new Promise<MutationResult>((resolve) => {
+          resolveCommitRef.fn = resolve;
+        });
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const user = userEvent.setup();
+    const { onCommitted } = mount();
+
+    await screen.findByRole("button", { name: /archivo ü\.txt/ });
+    const summary = screen.getByLabelText("Resumen del commit");
+    const counter = document.querySelector(".commit-char-count") as HTMLElement;
+    expect(counter.textContent).toBe("0 / 72");
+
+    await user.type(summary, "a".repeat(55));
+    expect(counter.textContent).toBe("55 / 72");
+    expect(counter.classList.contains("warning")).toBe(true);
+
+    await user.type(summary, "b".repeat(20));
+    expect(counter.textContent).toBe("75 / 72");
+    expect(counter.classList.contains("danger")).toBe(true);
+
+    fireEvent.keyDown(summary, { key: "Enter", ctrlKey: true });
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("create_commit", {
+        id: "repo-1",
+        token: staged.token,
+        message: "a".repeat(55) + "b".repeat(20),
+      }),
+    );
+    resolveCommitRef.fn?.({
+      commitHash: "c".repeat(40),
+      changes: { ...staged, token: "after-ctrl-enter", entries: [] },
+      warning: null,
+    });
+    await waitFor(() => expect(onCommitted).toHaveBeenCalledTimes(1));
   });
 });

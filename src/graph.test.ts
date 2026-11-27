@@ -63,4 +63,40 @@ it("calcula el ancho de un millón de filas sin expandir argumentos", () => {
   }));
   expect(graphPixelWidth(rows)).toBe(208);
   expect(graphPixelWidth([])).toBe(92);
+  expect(graphPixelWidth(rows, "tributary")).toBe(342);
+  expect(graphPixelWidth([], "tributary")).toBe(104);
+});
+
+describe("colores y tipos de nodo del grafo", () => {
+  it("asigna colores distintos a ramas integradas, identifica merges y raíces, y mantiene color por linaje", () => {
+    const commits = [
+      c("merge", ["main2", "feat1"]),
+      c("feat1", ["base"]),
+      c("main2", ["base"]),
+      c("base", []),
+    ];
+    const rows = layoutGraph(commits);
+    expect(rows[0].isMerge).toBe(true);
+    expect(rows[0].isRoot).toBe(false);
+    expect(rows[3].isRoot).toBe(true);
+    expect(rows[3].isMerge).toBe(false);
+    expect(rows[1].color).not.toBe(rows[0].color);
+    expect(rows[2].color).toBe(rows[0].color);
+  });
+
+  it("conserva el color de una rama cuando cambia de carril al cerrarse otra rama", () => {
+    const commits = [
+      c("side_tip", ["side_parent"]),
+      c("other_tip", ["other_parent"]),
+      c("side_parent", []),
+      c("other_parent", []),
+    ];
+    const rows = layoutGraph(commits);
+    expect(rows[0].lane).toBe(0);
+    expect(rows[2].lane).toBe(0);
+    expect(rows[2].color).toBe(rows[0].color);
+    expect(rows[1].lane).toBe(1);
+    expect(rows[3].color).toBe(rows[1].color);
+    expect(rows[1].color).not.toBe(rows[0].color);
+  });
 });

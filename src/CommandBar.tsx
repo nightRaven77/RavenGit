@@ -1,15 +1,28 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { PlusIcon } from "@radix-ui/react-icons";
 import {
-  OpenInNewWindowIcon,
-  DownloadIcon,
-  ReloadIcon,
-  ArrowDownIcon,
-  ArrowUpIcon,
-  Share2Icon,
-  ArchiveIcon,
-  MagnifyingGlassIcon,
-} from "@radix-ui/react-icons";
+  AnimBranchIcon,
+  AnimFetchIcon,
+  AnimHelpIcon,
+  AnimLibraryIcon,
+  AnimPaletteIcon,
+  AnimPullIcon,
+  AnimPushIcon,
+  AnimRefreshIcon,
+  AnimSearchIcon,
+  AnimStashIcon,
+} from "./AnimatedIcons";
 import type { Snapshot } from "./types";
+
+export interface RepoTabItem {
+  id: string;
+  name: string;
+  path: string;
+  branch: string | null;
+  dirtyCount?: number;
+  busy?: boolean;
+}
+
 type Props = {
   repo: Pick<Snapshot, "name" | "path" | "branch" | "head"> | null;
   locked: boolean;
@@ -22,7 +35,21 @@ type Props = {
   onBranches: () => void;
   onSearch: () => void;
   onStash: () => void;
+  onLibrary?: () => void;
+  onAppearance?: () => void;
+  onCommandPalette?: () => void;
+  onQuickGuide?: () => void;
+  simpleMode?: boolean;
+  onToggleSimpleMode?: () => void;
+  themeSwatches?: readonly string[];
+  externalSlot?: ReactNode;
+  tabs?: RepoTabItem[];
+  activeTabId?: string | null;
+  onSelectTab?: (id: string) => void;
+  onCloseTab?: (id: string) => void;
+  onReorderTabs?: (fromId: string, toId: string) => void;
 };
+
 type Action = {
   label: string;
   icon: ComponentType;
@@ -32,6 +59,7 @@ type Action = {
   group: number;
   accent?: boolean;
 };
+
 export default function CommandBar({
   repo,
   locked,
@@ -43,8 +71,24 @@ export default function CommandBar({
   onBranches,
   onStash,
   onSearch,
+  onLibrary,
+  onAppearance,
+  onCommandPalette,
+  onQuickGuide,
+  simpleMode = false,
+  onToggleSimpleMode,
+  themeSwatches,
+  externalSlot,
+  tabs,
+  activeTabId,
+  onSelectTab,
+  onCloseTab,
+  onReorderTabs,
 }: Props) {
   const [hint, setHint] = useState("");
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
+
   useEffect(() => {
     const dismiss = (event: KeyboardEvent) => {
       if (event.key === "Escape") setHint("");
@@ -55,139 +99,406 @@ export default function CommandBar({
 
   const actions: Action[] = [
     {
-      label: "Abrir",
-      icon: OpenInNewWindowIcon,
-      description: "Abrir un repositorio local",
-      run: onOpen,
-      group: 0,
-    },
-    {
-      label: "Actualizar",
-      icon: ReloadIcon,
-      description:
-        "Releer historial y referencias locales; no contacta con servidores",
-      run: onRefresh,
-      needsRepo: true,
-      group: 2,
-    },
-    {
       label: "Fetch",
-      icon: ArrowDownIcon,
+      icon: AnimFetchIcon,
       description: "Abrir Remotos para elegir el destino y confirmar Fetch",
       run: onFetch,
       needsRepo: true,
-      group: 3,
+      group: 1,
     },
     {
       label: "Pull",
-      icon: DownloadIcon,
+      icon: AnimPullIcon,
       description:
         "Abrir Pull para revisar el upstream, confirmar Fetch e integrar con merge",
       run: onPull,
       needsRepo: true,
-      group: 3,
+      group: 1,
     },
     {
       label: "Push",
-      icon: ArrowUpIcon,
+      icon: AnimPushIcon,
       description:
         "Abrir Publicar para revisar remoto, ramas y commits antes de enviar",
       run: onPush,
       needsRepo: true,
-      group: 3,
+      group: 1,
       accent: true,
     },
     {
       label: "Rama",
-      icon: Share2Icon,
+      icon: AnimBranchIcon,
       description: "Crear, cambiar o renombrar ramas locales",
       run: onBranches,
       needsRepo: true,
-      group: 4,
+      group: 2,
     },
     {
       label: "Stash",
-      icon: ArchiveIcon,
+      icon: AnimStashIcon,
       description:
         "Guardar cambios temporalmente o restaurar un stash conservando su entrada",
       run: onStash,
       needsRepo: true,
-      group: 4,
+      group: 2,
     },
     {
       label: "Buscar",
-      icon: MagnifyingGlassIcon,
+      icon: AnimSearchIcon,
       description: "Buscar mensaje, autor o hash en el historial cargado",
       run: onSearch,
       needsRepo: true,
-      group: 5,
+      group: 3,
+    },
+    {
+      label: "Actualizar",
+      icon: AnimRefreshIcon,
+      description:
+        "Releer historial y referencias locales; no contacta con servidores",
+      run: onRefresh,
+      needsRepo: true,
+      group: 3,
     },
   ];
+  const visibleActions = simpleMode
+    ? actions.filter((action) =>
+        ["Fetch", "Pull", "Push", "Rama", "Actualizar"].includes(action.label),
+      )
+    : actions;
+
+  const openDescription = locked
+    ? "Hay una operación en curso. Espera a que termine."
+    : "Abrir un repositorio local";
+  const branchText =
+    repo?.branch ?? (repo?.head ? "HEAD separado" : "Sin commits");
+
   return (
     <header className="topbar command-bar" onMouseLeave={() => setHint("")}>
-      <div className="command-brand">
-        <img
-          className="brand-icon"
-          src="/ravengit.svg"
-          alt=""
-          width="32"
-          height="32"
-          aria-hidden="true"
-        />
-        <strong>RavenGit</strong>
-      </div>
-      <div className="command-context">
-        <div title={repo?.path ?? "Sin repositorio abierto"}>
-          <span className="command-context-label">Repositorio</span>
-          <strong>{repo?.name ?? "Sin repositorio"}</strong>
+      <div className="header-tabstrip">
+        <div className="command-brand">
+          <img
+            className="brand-icon"
+            src="/ravengit.svg"
+            alt=""
+            width="20"
+            height="20"
+            aria-hidden="true"
+          />
+          <strong>RavenGit</strong>
         </div>
-        <div title={repo?.branch ?? repo?.head ?? "Sin commits"}>
-          <span className="command-context-label">Rama</span>
-          <strong>
-            {repo?.branch ?? (repo?.head ? "HEAD separado" : "Sin commits")}
-          </strong>
+        <div className="repo-tabs-bar">
+          <div
+            className="repo-tabs"
+            role="tablist"
+            aria-label="Repositorios abiertos"
+          >
+            {tabs && tabs.length > 0 ? (
+              tabs.map((tab) => {
+                const isActive = tab.id === activeTabId;
+                return (
+                  <div
+                    key={tab.id}
+                    className={`repo-tab-wrap${isActive ? " active" : ""}${
+                      dragOverTabId === tab.id && draggedTabId !== tab.id
+                        ? " drag-over"
+                        : ""
+                    }`}
+                    onDragOver={(event) => {
+                      if (!onReorderTabs || locked || !draggedTabId) return;
+                      event.preventDefault();
+                      setDragOverTabId(tab.id);
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverTabId === tab.id) setDragOverTabId(null);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const sourceId =
+                        draggedTabId ||
+                        event.dataTransfer.getData("text/plain");
+                      setDraggedTabId(null);
+                      setDragOverTabId(null);
+                      if (
+                        !locked &&
+                        sourceId &&
+                        sourceId !== tab.id &&
+                        onReorderTabs
+                      ) {
+                        onReorderTabs(sourceId, tab.id);
+                      }
+                    }}
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      className={`repo-tab${isActive ? " active" : ""}`}
+                      disabled={locked}
+                      title={`${tab.path}${tab.branch ? ` · ${tab.branch}` : ""}`}
+                      draggable={!locked && !!onReorderTabs}
+                      onDragStart={(event) => {
+                        if (locked || !onReorderTabs) return;
+                        setDraggedTabId(tab.id);
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", tab.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedTabId(null);
+                        setDragOverTabId(null);
+                      }}
+                      onClick={() => {
+                        if (!locked) onSelectTab?.(tab.id);
+                      }}
+                      onAuxClick={(event) => {
+                        if (event.button === 1 && !locked) {
+                          event.preventDefault();
+                          onCloseTab?.(tab.id);
+                        }
+                      }}
+                    >
+                      <svg
+                        className="repo-tab-icon"
+                        viewBox="0 0 16 16"
+                        width="13"
+                        height="13"
+                        aria-hidden="true"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M1.75 2.5A1.75 1.75 0 0 1 3.5.75h3.1c.46 0 .9.18 1.24.51l.65.65c.1.1.24.16.38.16h3.63a1.75 1.75 0 0 1 1.75 1.75v7.93a1.75 1.75 0 0 1-1.75 1.75h-9a1.75 1.75 0 0 1-1.75-1.75V2.5Zm1.75-.25a.25.25 0 0 0-.25.25v9.25c0 .14.11.25.25.25h9a.25.25 0 0 0 .25-.25V3.82a.25.25 0 0 0-.25-.25H8.87a1.75 1.75 0 0 1-1.24-.51l-.65-.65a.25.25 0 0 0-.18-.07H3.5Z"
+                        />
+                      </svg>
+                      <strong className="truncate">{tab.name}</strong>
+                      {typeof tab.dirtyCount === "number" &&
+                        tab.dirtyCount > 0 && (
+                          <span
+                            className="repo-tab-dirty"
+                            aria-label={`${tab.dirtyCount} cambios`}
+                          >
+                            {tab.dirtyCount}
+                          </span>
+                        )}
+                    </button>
+                    {onCloseTab && (
+                      <button
+                        type="button"
+                        className="repo-tab-close"
+                        disabled={locked}
+                        aria-label={`Cerrar ${tab.name}`}
+                        title={`Cerrar ${tab.name} (⌘W / Ctrl+W)`}
+                        onClick={() => {
+                          if (!locked) onCloseTab(tab.id);
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div
+                className="repo-tab active"
+                role="tab"
+                aria-selected="true"
+                title={repo?.path ?? "Sin repositorio abierto"}
+              >
+                <svg
+                  className="repo-tab-icon"
+                  viewBox="0 0 16 16"
+                  width="13"
+                  height="13"
+                  aria-hidden="true"
+                >
+                  <path
+                    fill="currentColor"
+                    d="M1.75 2.5A1.75 1.75 0 0 1 3.5.75h3.1c.46 0 .9.18 1.24.51l.65.65c.1.1.24.16.38.16h3.63a1.75 1.75 0 0 1 1.75 1.75v7.93a1.75 1.75 0 0 1-1.75 1.75h-9a1.75 1.75 0 0 1-1.75-1.75V2.5Zm1.75-.25a.25.25 0 0 0-.25.25v9.25c0 .14.11.25.25.25h9a.25.25 0 0 0 .25-.25V3.82a.25.25 0 0 0-.25-.25H8.87a1.75 1.75 0 0 1-1.24-.51l-.65-.65a.25.25 0 0 0-.18-.07H3.5Z"
+                  />
+                </svg>
+                <strong className="truncate">
+                  {repo?.name ?? "Sin repositorio"}
+                </strong>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className="repo-tab-add"
+            disabled={locked}
+            aria-label="Abrir"
+            title={openDescription}
+            aria-describedby={
+              hint === openDescription ? "command-help" : undefined
+            }
+            onFocus={() => setHint(openDescription)}
+            onBlur={() => setHint("")}
+            onMouseEnter={() => setHint(openDescription)}
+            onClick={() => {
+              if (!locked) onOpen();
+            }}
+          >
+            <PlusIcon aria-hidden="true" />
+          </button>
         </div>
+        {(onLibrary ||
+          onAppearance ||
+          onCommandPalette ||
+          onQuickGuide ||
+          onToggleSimpleMode) && (
+          <div className="header-utilities">
+            {onToggleSimpleMode && (
+              <button
+                type="button"
+                className={`header-mode-btn${simpleMode ? " active" : ""}`}
+                disabled={locked}
+                aria-pressed={!!simpleMode}
+                aria-label={
+                  simpleMode ? "Modo Simple activo" : "Activar Modo Simple"
+                }
+                title={
+                  simpleMode
+                    ? "Modo Simple activo: pulsa para volver a Modo Completo"
+                    : "Modo Simple: oculta herramientas avanzadas para enfocarte en cambios, commits y sincronización"
+                }
+                onClick={() => {
+                  if (!locked) onToggleSimpleMode();
+                }}
+              >
+                {simpleMode ? "Simple" : "Completo"}
+              </button>
+            )}
+            {onCommandPalette && (
+              <button
+                type="button"
+                className="header-kbd-btn"
+                disabled={locked}
+                aria-label="Paleta de comandos"
+                title="Abrir paleta de comandos (⌘K / Ctrl+K)"
+                onClick={() => {
+                  if (!locked) onCommandPalette();
+                }}
+              >
+                <kbd>⌘K</kbd>
+              </button>
+            )}
+            {onAppearance && (
+              <button
+                type="button"
+                className="header-appearance-btn"
+                disabled={locked}
+                aria-label="Apariencia"
+                title="Ajustes de apariencia y colores"
+                onClick={() => {
+                  if (!locked) onAppearance();
+                }}
+              >
+                <AnimPaletteIcon width={14} height={14} />
+                <span className="header-appearance-label">Apariencia</span>
+                {themeSwatches && themeSwatches.length > 0 && (
+                  <span className="appearance-swatches" aria-hidden="true">
+                    {themeSwatches.map((hex) => (
+                      <span
+                        key={hex}
+                        className="appearance-swatch-dot"
+                        style={{ backgroundColor: hex }}
+                      />
+                    ))}
+                  </span>
+                )}
+              </button>
+            )}
+            {onLibrary && (
+              <button
+                type="button"
+                className="header-icon-btn"
+                disabled={locked}
+                aria-label="Biblioteca de repositorios"
+                title="Biblioteca de repositorios"
+                onClick={() => {
+                  if (!locked) onLibrary();
+                }}
+              >
+                <AnimLibraryIcon width={14} height={14} />
+              </button>
+            )}
+            {onQuickGuide && (
+              <button
+                type="button"
+                className="header-icon-btn"
+                disabled={locked}
+                aria-label="Guía rápida de RavenGit"
+                title="Guía rápida de RavenGit"
+                onClick={() => {
+                  if (!locked) onQuickGuide();
+                }}
+              >
+                <AnimHelpIcon width={14} height={14} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
-      <div
-        className="command-strip"
-        role="group"
-        aria-label="Comandos Git básicos"
-      >
-        {actions.map((action, index) => {
-          const unavailable = !action.run || !!(action.needsRepo && !repo);
-          const description = locked
-            ? "Hay una operación en curso. Espera a que termine."
-            : !action.run
-              ? action.description
-              : action.needsRepo && !repo
-                ? "Abre un repositorio para utilizar esta acción."
-                : action.description;
-          const Icon = action.icon;
-          return (
-            <button
-              key={action.label}
-              type="button"
-              className={`command-action ${action.accent ? "command-accent" : ""} ${index > 0 && action.group !== actions[index - 1].group ? "command-group-start" : ""}`}
-              disabled={locked}
-              aria-disabled={unavailable || locked}
-              aria-label={action.label}
-              title={description}
-              aria-describedby={
-                hint === description ? "command-help" : undefined
-              }
-              onFocus={() => setHint(description)}
-              onBlur={() => setHint("")}
-              onMouseEnter={() => setHint(description)}
-              onClick={() => {
-                if (!unavailable && !locked) action.run?.();
-              }}
-            >
-              <span>{action.label}</span>
-              <Icon />
-            </button>
-          );
-        })}
+
+      <div className="header-toolbar">
+        <div className="toolbar-left">
+          <div
+            className="toolbar-branch"
+            title={repo?.branch ?? repo?.head ?? "Sin commits"}
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M5 3.25a1.75 1.75 0 1 1-1 1.58V9.2a1.75 1.75 0 1 1-1.5 0V4.83A1.75 1.75 0 0 1 5 3.25Zm6 0a1.75 1.75 0 1 1-1 1.58v1.02A2.9 2.9 0 0 1 7.1 8.75H5.5a1.4 1.4 0 0 0-1.4 1.4v.02a1.75 1.75 0 1 1-1.6 0v-.02A2.9 2.9 0 0 1 5.4 7.25h1.7a1.4 1.4 0 0 0 1.4-1.4V4.83A1.75 1.75 0 0 1 11 3.25Z"
+              />
+            </svg>
+            <span className="truncate">{branchText}</span>
+          </div>
+        </div>
+
+        <div
+          className="toolbar-center command-strip"
+          role="group"
+          aria-label="Comandos Git básicos"
+        >
+          {visibleActions.map((action, index) => {
+            const unavailable = !action.run || !!(action.needsRepo && !repo);
+            const description = locked
+              ? "Hay una operación en curso. Espera a que termine."
+              : !action.run
+                ? action.description
+                : action.needsRepo && !repo
+                  ? "Abre un repositorio para utilizar esta acción."
+                  : action.description;
+            const Icon = action.icon;
+            return (
+              <button
+                key={action.label}
+                type="button"
+                className={`command-action ${action.accent ? "command-accent" : ""} ${index > 0 && action.group !== visibleActions[index - 1].group ? "command-group-start" : ""}`}
+                disabled={locked}
+                aria-disabled={unavailable || locked}
+                aria-label={action.label}
+                title={description}
+                aria-describedby={
+                  hint === description ? "command-help" : undefined
+                }
+                onFocus={() => setHint(description)}
+                onBlur={() => setHint("")}
+                onMouseEnter={() => setHint(description)}
+                onClick={() => {
+                  if (!unavailable && !locked) action.run?.();
+                }}
+              >
+                <Icon />
+                <span>{action.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="toolbar-right">{externalSlot}</div>
       </div>
+
       {hint && (
         <div id="command-help" className="command-help" role="tooltip">
           {hint}

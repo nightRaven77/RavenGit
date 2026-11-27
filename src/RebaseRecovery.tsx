@@ -53,9 +53,9 @@ export default function RebaseRecovery({
         </p>
         {state.backup ? (
           <p>
-            Respaldo confirmado: <code>{state.backup}</code>. Retirar el registro
-            permite revisar otro intento; no vuelve a ejecutar Git ni elimina el
-            respaldo.
+            Respaldo confirmado: <code>{state.backup}</code>. Retirar el
+            registro permite revisar otro intento; no vuelve a ejecutar Git ni
+            elimina el respaldo.
           </p>
         ) : (
           <p>

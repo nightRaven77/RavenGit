@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DiffContent, DiffModeControl, type DiffMode } from "./DiffViewer";
+import ImageDiffViewer, { isImageAssetPath } from "./ImageDiffViewer";
 import { splitDiff } from "./splitDiff";
 import { invoke } from "@tauri-apps/api/core";
 import AmendDialog from "./AmendDialog";
@@ -19,6 +20,7 @@ import type {
   ChangeEntry,
   ChangesState,
   FileDiff,
+  ImageDiff,
   MutationResult,
 } from "./types";
 import {
@@ -33,6 +35,9 @@ interface Props {
   onLock: (locked: boolean) => void;
   onCommitted: () => Promise<boolean>;
   onBranches?: () => void;
+  onTrustChange?: (trusted: boolean) => void;
+  onFileHistory?: (path: string) => void;
+  onFileBlame?: (path: string) => void;
 }
 interface Selection {
   path: string;
@@ -57,6 +62,9 @@ export default function ChangesPanel({
   onLock,
   onCommitted,
   onBranches,
+  onTrustChange,
+  onFileHistory,
+  onFileBlame,
 }: Props) {
   const [state, setState] = useState<ChangesState | null>(null);
   const [amendOpen, setAmendOpen] = useState(false);
@@ -71,7 +79,22 @@ export default function ChangesPanel({
     () => new Set(),
   );
   const [diff, setDiff] = useState<FileDiff | null>(null);
+  const [imageDiff, setImageDiff] = useState<ImageDiff | null>(null);
+  const [preferTextForImage, setPreferTextForImage] = useState(false);
+  const imageDiffRequest = useRef(0);
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
+  const [wrapLines, setWrapLines] = useState(true);
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [contextLines, setContextLines] = useState(3);
+  const [lineSelection, setLineSelection] = useState<{
+    hunkIndex: number;
+    lines: number[];
+    anchor: number | null;
+  } | null>(null);
+  const [confirmDiscardLines, setConfirmDiscardLines] = useState<{
+    hunkIndex: number;
+    lines: number[];
+  } | null>(null);
   const splitAvailable = useMemo(
     () => !!diff && splitDiff(diff.text) !== null,
     [diff],
@@ -174,6 +197,18 @@ export default function ChangesPanel({
     };
   }, [repoId, active, refreshKey]);
   useEffect(() => {
+    setLineSelection(null);
+    setConfirmDiscardLines(null);
+  }, [
+    repoId,
+    selected?.path,
+    selected?.area,
+    state?.token,
+    ignoreWhitespace,
+    contextLines,
+    effectiveDiffMode,
+  ]);
+  useEffect(() => {
     const token = ++diffRequest.current;
     setDiff(null);
     setDiffError("");
@@ -182,12 +217,15 @@ export default function ChangesPanel({
       return;
     }
     setDiffLoading(true);
-    invoke<FileDiff>("read_file_diff", {
+    const payload: Record<string, unknown> = {
       id: repoId,
       token: state.token,
       path: selected.path,
       area: selected.area,
-    })
+    };
+    if (ignoreWhitespace) payload.ignoreWhitespace = true;
+    if (contextLines !== 3) payload.contextLines = contextLines;
+    invoke<FileDiff>("read_file_diff", payload)
       .then((next) => {
         if (token === diffRequest.current) setDiff(next);
       })
@@ -200,7 +238,55 @@ export default function ChangesPanel({
     return () => {
       diffRequest.current++;
     };
-  }, [repoId, active, loading, state?.token, selected?.path, selected?.area]);
+  }, [
+    repoId,
+    active,
+    loading,
+    state?.token,
+    selected?.path,
+    selected?.area,
+    ignoreWhitespace,
+    contextLines,
+  ]);
+  useEffect(() => {
+    const token = ++imageDiffRequest.current;
+    setImageDiff(null);
+    setPreferTextForImage(false);
+    if (
+      !active ||
+      loading ||
+      !state?.trusted ||
+      !selected ||
+      !isImageAssetPath(selected.path)
+    ) {
+      return;
+    }
+    invoke<ImageDiff>("read_image_diff", {
+      id: repoId,
+      source: {
+        kind: "worktree",
+        path: selected.path,
+        area: selected.area,
+      },
+    })
+      .then((next) => {
+        if (token === imageDiffRequest.current) setImageDiff(next);
+      })
+      .catch(() => {
+        if (token === imageDiffRequest.current) setImageDiff(null);
+      });
+    return () => {
+      imageDiffRequest.current++;
+    };
+  }, [
+    repoId,
+    active,
+    loading,
+    state?.token,
+    state?.trusted,
+    selected?.path,
+    selected?.area,
+  ]);
   async function execute(
     action: () => Promise<void>,
     failure?: Omit<OperationReport, "status" | "message">,
@@ -232,6 +318,7 @@ export default function ChangesPanel({
         accept(
           await invoke<ChangesState>("authorize_repository", { id: repoId }),
         );
+        onTrustChange?.(true);
         emitOperation({
           id,
           repoId,
@@ -261,6 +348,7 @@ export default function ChangesPanel({
             id: repoId,
           }),
         );
+        onTrustChange?.(false);
         emitOperation({
           id,
           repoId,
@@ -281,7 +369,48 @@ export default function ChangesPanel({
       },
     );
   }
-  async function apply(hunkIndex: number | null) {
+  function handleLineClick(
+    hunkIndex: number,
+    bodyLineIndex: number,
+    shiftKey: boolean,
+  ) {
+    const hunk = diff?.hunks.find((item) => item.index === hunkIndex);
+    if (!hunk) return;
+    setConfirmDiscardLines(null);
+    const body = hunk.text.split("\n").slice(1);
+    const isModifiedLine = (idx: number) =>
+      body[idx]?.startsWith("+") || body[idx]?.startsWith("-");
+    if (!isModifiedLine(bodyLineIndex)) return;
+
+    setLineSelection((current) => {
+      if (current && current.hunkIndex === hunkIndex) {
+        const nextSet = new Set(current.lines);
+        if (shiftKey && current.anchor !== null) {
+          const lo = Math.min(current.anchor, bodyLineIndex);
+          const hi = Math.max(current.anchor, bodyLineIndex);
+          for (let i = lo; i <= hi; i++) {
+            if (isModifiedLine(i)) nextSet.add(i);
+          }
+          return {
+            hunkIndex,
+            lines: [...nextSet].sort((a, b) => a - b),
+            anchor: bodyLineIndex,
+          };
+        }
+        if (nextSet.has(bodyLineIndex)) nextSet.delete(bodyLineIndex);
+        else nextSet.add(bodyLineIndex);
+        return nextSet.size > 0
+          ? {
+              hunkIndex,
+              lines: [...nextSet].sort((a, b) => a - b),
+              anchor: bodyLineIndex,
+            }
+          : null;
+      }
+      return { hunkIndex, lines: [bodyLineIndex], anchor: bodyLineIndex };
+    });
+  }
+  async function apply(hunkIndex: number | null, lines?: number[]) {
     if (!state || !selected || !canWrite) return;
     const token = state.token,
       selection = selected;
@@ -291,26 +420,38 @@ export default function ChangesPanel({
       selection.area === "unstaged"
         ? "Preparando cambios"
         : "Quitando de preparados";
+    const destination =
+      hunkIndex === null
+        ? "Archivo"
+        : lines && lines.length > 0
+          ? `${lines.length} ${lines.length === 1 ? "línea" : "líneas"}`
+          : "Bloque";
     emitOperation({
       id,
       repoId,
       operation,
       status: "progress",
       title,
-      destination: hunkIndex === null ? "Archivo" : "Bloque",
+      destination,
       message: "Aplicando la revisión al índice…",
     });
     await execute(
       async () => {
-        const result = await invoke<MutationResult>("change_file", {
+        const payload: Record<string, unknown> = {
           id: repoId,
           token,
           path: selection.path,
           area: selection.area,
           hunkIndex,
           previewToken: hunkIndex === null ? null : diff?.previewToken,
-        });
+        };
+        if (lines && lines.length > 0) payload.lineIndices = lines;
+        if (contextLines !== 3 && hunkIndex !== null)
+          payload.contextLines = contextLines;
+        const result = await invoke<MutationResult>("change_file", payload);
         accept(result.changes);
+        setLineSelection(null);
+        setConfirmDiscardLines(null);
         const text =
           result.warning ??
           (selection.area === "unstaged"
@@ -326,7 +467,7 @@ export default function ChangesPanel({
             selection.area === "unstaged"
               ? "Cambios preparados"
               : "Cambios retirados de preparados",
-          destination: hunkIndex === null ? "Archivo" : "Bloque",
+          destination,
           message: text,
           warning: result.warning ?? undefined,
         });
@@ -336,7 +477,65 @@ export default function ChangesPanel({
         repoId,
         operation,
         title: "No se modificó el índice",
-        destination: hunkIndex === null ? "Archivo" : "Bloque",
+        destination,
+      },
+    );
+  }
+  async function discardSelectedLines(hunkIndex: number, lines: number[]) {
+    if (!state || !selected || !diff || !canWrite || !lines.length) return;
+    const token = state.token,
+      selection = selected;
+    const id = nextOperationId();
+    const destination = `${lines.length} ${lines.length === 1 ? "línea" : "líneas"}`;
+    emitOperation({
+      id,
+      repoId,
+      operation: "unstage",
+      status: "progress",
+      title: "Descartando líneas seleccionadas",
+      destination,
+      message: "Guardando respaldo y revirtiendo líneas del árbol de trabajo…",
+    });
+    await execute(
+      async () => {
+        const payload: Record<string, unknown> = {
+          id: repoId,
+          token,
+          path: selection.path,
+          hunkIndex,
+          previewToken: diff.previewToken,
+          lineIndices: lines,
+        };
+        if (contextLines !== 3) payload.contextLines = contextLines;
+        const result = await invoke<MutationResult>(
+          "discard_file_lines",
+          payload,
+        );
+        accept(result.changes);
+        setLastRestored(selection.path);
+        setLineSelection(null);
+        setConfirmDiscardLines(null);
+        const text =
+          result.warning ??
+          `Se descartaron ${destination} con copia de seguridad previa.`;
+        setNotice(text);
+        emitOperation({
+          id,
+          repoId,
+          operation: "unstage",
+          status: result.warning ? "warning" : "confirmed",
+          title: "Líneas descartadas con respaldo",
+          destination,
+          message: text,
+          warning: result.warning ?? undefined,
+        });
+      },
+      {
+        id,
+        repoId,
+        operation: "unstage",
+        title: "No se descartaron líneas",
+        destination,
       },
     );
   }
@@ -733,6 +932,24 @@ export default function ChangesPanel({
                   group.entries.map((e) => {
                     const current =
                       selected?.path === e.path && selected.area === group.area;
+                    const statusCode = e.conflict
+                      ? "!"
+                      : e.untracked
+                        ? "?"
+                        : group.area === "staged"
+                          ? e.indexStatus
+                          : e.worktreeStatus;
+                    const statusClass = e.conflict
+                      ? "conflict"
+                      : e.untracked
+                        ? "untracked"
+                        : statusCode === "A"
+                          ? "added"
+                          : statusCode === "D"
+                            ? "deleted"
+                            : statusCode === "R" || statusCode === "C"
+                              ? "renamed"
+                              : "modified";
                     return (
                       <div
                         className={`change-file-row ${current ? "selected" : ""}`}
@@ -764,16 +981,8 @@ export default function ChangesPanel({
                           }
                           title={e.path}
                         >
-                          <span
-                            className={`file-status ${e.conflict ? "conflict" : ""}`}
-                          >
-                            {e.conflict
-                              ? "!"
-                              : e.untracked
-                                ? "?"
-                                : group.area === "staged"
-                                  ? e.indexStatus
-                                  : e.worktreeStatus}
+                          <span className={`file-status ${statusClass}`}>
+                            {statusCode}
                           </span>
                           <span className="change-path">{e.path}</span>
                           {e.submodule && <small>submódulo</small>}
@@ -809,11 +1018,39 @@ export default function ChangesPanel({
                 : (state.branch ?? "Sin rama activa")}
             </span>
           </div>
-          <label htmlFor="commit-summary">Resumen del commit</label>
+          <div className="commit-field-head">
+            <label htmlFor="commit-summary">Resumen del commit</label>
+            <span
+              className={`commit-char-count${
+                summary.length > 72
+                  ? " danger"
+                  : summary.length > 50
+                    ? " warning"
+                    : ""
+              }`}
+              aria-live="polite"
+            >
+              {summary.length} / 72
+            </span>
+          </div>
           <input
             id="commit-summary"
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                (e.metaKey || e.ctrlKey) &&
+                e.key === "Enter" &&
+                canWrite &&
+                state?.author &&
+                state.branch &&
+                staged.length > 0 &&
+                summary.trim().length > 0
+              ) {
+                e.preventDefault();
+                void createCommit();
+              }
+            }}
             placeholder="Describe el cambio que vas a guardar"
             maxLength={500}
             disabled={writing}
@@ -825,6 +1062,20 @@ export default function ChangesPanel({
             id="commit-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                (e.metaKey || e.ctrlKey) &&
+                e.key === "Enter" &&
+                canWrite &&
+                state?.author &&
+                state.branch &&
+                staged.length > 0 &&
+                summary.trim().length > 0
+              ) {
+                e.preventDefault();
+                void createCommit();
+              }
+            }}
             placeholder="Contexto y motivo del cambio"
             maxLength={60000}
             rows={3}
@@ -842,30 +1093,33 @@ export default function ChangesPanel({
             Sólo se incluirán los archivos y bloques de «Preparados». Los hooks
             de Git pueden validar o modificar el contenido.
           </p>
-          <button
-            type="submit"
-            className="button primary"
-            disabled={
-              !canWrite ||
-              !state?.author ||
-              !state.branch ||
-              !staged.length ||
-              !summary.trim()
-            }
-          >
-            <CheckIcon />
-            {writing ? "Procesando…" : "Crear commit"}
-          </button>
-          <button
-            type="button"
-            className="button"
-            disabled={
-              !canWrite || !state?.head || !state.branch || !state.author
-            }
-            onClick={() => setAmendOpen(true)}
-          >
-            Reemplazar último commit…
-          </button>
+          <div className="commit-form-actions">
+            <button
+              type="button"
+              className="button"
+              disabled={
+                !canWrite || !state?.head || !state.branch || !state.author
+              }
+              onClick={() => setAmendOpen(true)}
+            >
+              Reemplazar último commit…
+            </button>
+            <button
+              type="submit"
+              className="button primary"
+              title="Crear commit (Ctrl+Enter / Cmd+Enter)"
+              disabled={
+                !canWrite ||
+                !state?.author ||
+                !state.branch ||
+                !staged.length ||
+                !summary.trim()
+              }
+            >
+              <CheckIcon />
+              {writing ? "Procesando…" : "Crear commit"}
+            </button>
+          </div>
         </form>
       </section>
       <aside
@@ -885,54 +1139,90 @@ export default function ChangesPanel({
           <>
             <div className="change-diff-header">
               <code>{selected.path}</code>
-              {selectedEntry?.conflict && (
+              <div className="change-diff-actions">
+                {selectedEntry?.conflict && (
+                  <button
+                    className="button"
+                    disabled={writing || loading || !state?.trusted}
+                    onClick={() => setConflictPath(selected.path)}
+                  >
+                    Consultar conflicto…
+                  </button>
+                )}
                 <button
                   className="button"
-                  disabled={writing || loading || !state?.trusted}
-                  onClick={() => setConflictPath(selected.path)}
+                  disabled={
+                    !canWrite ||
+                    !!selectedEntry?.conflict ||
+                    !!selectedEntry?.submodule
+                  }
+                  onClick={() => apply(null)}
                 >
-                  Consultar conflicto…
+                  {selected.area === "staged" ? <MinusIcon /> : <PlusIcon />}
+                  {selected.area === "staged"
+                    ? "Quitar archivo de preparados"
+                    : "Preparar archivo"}
                 </button>
-              )}
-              <button
-                className="button"
-                disabled={
-                  !canWrite ||
-                  !!selectedEntry?.conflict ||
-                  !!selectedEntry?.submodule
-                }
-                onClick={() => apply(null)}
-              >
-                {selected.area === "staged" ? <MinusIcon /> : <PlusIcon />}
-                {selected.area === "staged"
-                  ? "Quitar archivo de preparados"
-                  : "Preparar archivo"}
-              </button>
-              {selected.area === "unstaged" &&
-                !selectedEntry?.conflict &&
-                !selectedEntry?.submodule &&
-                !selectedEntry?.untracked && (
+                {selected.area === "unstaged" &&
+                  !selectedEntry?.conflict &&
+                  !selectedEntry?.submodule &&
+                  !selectedEntry?.untracked && (
+                    <>
+                      <button
+                        className="button"
+                        disabled={!canWrite}
+                        onClick={() =>
+                          setRestoreTarget({
+                            path: selected.path,
+                            isRedo: false,
+                          })
+                        }
+                      >
+                        Restaurar archivo…
+                      </button>
+                      <button
+                        className="button"
+                        disabled={!canWrite}
+                        onClick={() =>
+                          setRestoreTarget({
+                            path: selected.path,
+                            isRedo: true,
+                          })
+                        }
+                      >
+                        Rehacer…
+                      </button>
+                    </>
+                  )}
+                {!selectedEntry?.untracked && !selectedEntry?.submodule && (
                   <>
-                    <button
-                      className="button"
-                      disabled={!canWrite}
-                      onClick={() =>
-                        setRestoreTarget({ path: selected.path, isRedo: false })
-                      }
-                    >
-                      Restaurar archivo…
-                    </button>
-                    <button
-                      className="button"
-                      disabled={!canWrite}
-                      onClick={() =>
-                        setRestoreTarget({ path: selected.path, isRedo: true })
-                      }
-                    >
-                      Rehacer…
-                    </button>
+                    {onFileHistory && (
+                      <button
+                        type="button"
+                        className="button"
+                        disabled={writing}
+                        aria-label="Historial del archivo"
+                        title={`Ver historial de ${selected.path}`}
+                        onClick={() => onFileHistory(selected.path)}
+                      >
+                        Historial
+                      </button>
+                    )}
+                    {onFileBlame && (
+                      <button
+                        type="button"
+                        className="button"
+                        disabled={writing}
+                        aria-label="Blame del archivo"
+                        title={`Ver blame de ${selected.path}`}
+                        onClick={() => onFileBlame(selected.path)}
+                      >
+                        Blame
+                      </button>
+                    )}
                   </>
                 )}
+              </div>
             </div>
             <div className="diff-body" aria-busy={diffLoading}>
               {diffLoading ? (
@@ -947,44 +1237,190 @@ export default function ChangesPanel({
                 <div className="banner error" role="alert">
                   {diffError}
                 </div>
+              ) : selected &&
+                isImageAssetPath(selected.path) &&
+                imageDiff &&
+                !preferTextForImage ? (
+                <ImageDiffViewer
+                  diff={imageDiff}
+                  onToggleText={
+                    imageDiff.mime === "image/svg+xml"
+                      ? () => setPreferTextForImage(true)
+                      : undefined
+                  }
+                  toggleTextLabel="Ver diff de texto"
+                />
               ) : diff ? (
                 <>
+                  {selected && isImageAssetPath(selected.path) && imageDiff && (
+                    <div className="image-diff-switch-row">
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() => setPreferTextForImage(false)}
+                      >
+                        Ver diff visual
+                      </button>
+                    </div>
+                  )}
                   <DiffModeControl
                     mode={effectiveDiffMode}
                     onChange={setDiffMode}
                     available={splitAvailable}
+                    wrapLines={wrapLines}
+                    onWrapLinesChange={setWrapLines}
+                    ignoreWhitespace={ignoreWhitespace}
+                    onIgnoreWhitespaceChange={
+                      selectedEntry?.untracked ? undefined : setIgnoreWhitespace
+                    }
+                    contextLines={contextLines}
+                    onContextLinesChange={
+                      selectedEntry?.untracked ? undefined : setContextLines
+                    }
                   />
                   {diff.partialReason && (
                     <p className="partial-note">{diff.partialReason}</p>
                   )}
                   {diff.partialAllowed ? (
-                    diff.hunks.map((hunk) => (
-                      <section
-                        className="diff-hunk"
-                        key={hunk.index}
-                        aria-label={`Bloque ${hunk.index + 1}`}
-                      >
-                        <div className="hunk-action">
-                          <span>Bloque {hunk.index + 1}</span>
-                          <button
-                            className="button"
-                            disabled={!canWrite}
-                            onClick={() => apply(hunk.index)}
-                          >
-                            {selected.area === "staged"
-                              ? "Quitar bloque de preparados"
-                              : "Preparar bloque"}
-                          </button>
-                        </div>
-                        <DiffContent
-                          text={hunk.text}
-                          mode={effectiveDiffMode}
-                        />
-                      </section>
-                    ))
+                    diff.hunks.map((hunk) => {
+                      const selectedInHunk =
+                        lineSelection?.hunkIndex === hunk.index
+                          ? lineSelection.lines
+                          : [];
+                      const selectedSet = selectedInHunk.length
+                        ? new Set(selectedInHunk)
+                        : undefined;
+                      const confirmingDiscard =
+                        confirmDiscardLines?.hunkIndex === hunk.index;
+                      const lineNoun =
+                        selectedInHunk.length === 1 ? "línea" : "líneas";
+                      return (
+                        <section
+                          className="diff-hunk"
+                          key={hunk.index}
+                          aria-label={`Bloque ${hunk.index + 1}`}
+                        >
+                          <div className="hunk-action">
+                            <span>
+                              Bloque {hunk.index + 1}
+                              {selectedInHunk.length > 0 &&
+                                ` · ${selectedInHunk.length} ${lineNoun} selec.`}
+                            </span>
+                            <div className="hunk-buttons">
+                              {selectedInHunk.length > 0 && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="button"
+                                    disabled={!canWrite}
+                                    onClick={() =>
+                                      void apply(hunk.index, selectedInHunk)
+                                    }
+                                  >
+                                    {selected.area === "staged"
+                                      ? `Quitar ${selectedInHunk.length} ${lineNoun}`
+                                      : `Preparar ${selectedInHunk.length} ${lineNoun}`}
+                                  </button>
+                                  {selected.area === "unstaged" &&
+                                    !selectedEntry?.untracked && (
+                                      <button
+                                        type="button"
+                                        className="button"
+                                        disabled={!canWrite}
+                                        onClick={() =>
+                                          setConfirmDiscardLines({
+                                            hunkIndex: hunk.index,
+                                            lines: selectedInHunk,
+                                          })
+                                        }
+                                      >
+                                        Descartar {selectedInHunk.length}{" "}
+                                        {lineNoun}…
+                                      </button>
+                                    )}
+                                  <button
+                                    type="button"
+                                    className="button"
+                                    disabled={writing}
+                                    onClick={() => {
+                                      setLineSelection(null);
+                                      setConfirmDiscardLines(null);
+                                    }}
+                                  >
+                                    Limpiar selección
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                className="button"
+                                disabled={!canWrite}
+                                onClick={() => void apply(hunk.index)}
+                              >
+                                {selected.area === "staged"
+                                  ? "Quitar bloque de preparados"
+                                  : "Preparar bloque"}
+                              </button>
+                            </div>
+                          </div>
+                          {confirmingDiscard && confirmDiscardLines && (
+                            <div
+                              className="banner warning hunk-discard-confirm"
+                              role="region"
+                              aria-label="Confirmar descarte de líneas"
+                            >
+                              <span>
+                                Se guardará una copia de seguridad antes de
+                                descartar {confirmDiscardLines.lines.length}{" "}
+                                {confirmDiscardLines.lines.length === 1
+                                  ? "línea"
+                                  : "líneas"}{" "}
+                                del árbol de trabajo.
+                              </span>
+                              <div className="hunk-buttons">
+                                <button
+                                  type="button"
+                                  className="button primary"
+                                  disabled={!canWrite}
+                                  onClick={() =>
+                                    void discardSelectedLines(
+                                      hunk.index,
+                                      confirmDiscardLines.lines,
+                                    )
+                                  }
+                                >
+                                  Confirmar descarte
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button"
+                                  disabled={writing}
+                                  onClick={() => setConfirmDiscardLines(null)}
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          <DiffContent
+                            text={hunk.text}
+                            mode={effectiveDiffMode}
+                            filePath={selected.path}
+                            wrapLines={wrapLines}
+                            selectable={effectiveDiffMode === "unified"}
+                            selectedLines={selectedSet}
+                            onLineClick={(bodyIdx, shiftKey) =>
+                              handleLineClick(hunk.index, bodyIdx, shiftKey)
+                            }
+                          />
+                        </section>
+                      );
+                    })
                   ) : (
                     <DiffContent
                       mode={effectiveDiffMode}
+                      filePath={selected.path}
+                      wrapLines={wrapLines}
                       text={diff.text || "Sin diferencias de contenido."}
                     />
                   )}
@@ -1015,7 +1451,7 @@ export default function ChangesPanel({
             setNotice(
               restoreTarget.isRedo
                 ? "Cambios rehechos exitosamente desde el respaldo."
-                : "Archivo restaurado con éxito. Se guardó una copia de seguridad para rehacer."
+                : "Archivo restaurado con éxito. Se guardó una copia de seguridad para rehacer.",
             );
             setLastRestored(restoreTarget.isRedo ? null : restoreTarget.path);
             await reload();

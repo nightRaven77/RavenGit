@@ -47,6 +47,7 @@ pub struct OpenExternalOutcome {
 }
 
 fn find_in_path(bins: &[&str]) -> Option<PathBuf> {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|raw| std::env::split_paths(&raw).collect())
         .unwrap_or_default();

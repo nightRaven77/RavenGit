@@ -25,6 +25,7 @@ Este directorio reúne documentación de usuario, producto, arquitectura, distri
 
 ## Entregas y publicación
 
+- [Notas de RavenGit 2.0.0](releases/2.0.0.md): novedades de 2.0.0, actualización desde `1.0.x` y distribución.
 - [Notas de RavenGit 1.0.0-beta.1](releases/1.0.0-beta.1.md): alcance y límites conocidos de la beta.
 - [Plan de beta](releases/PLAN_BETA_1.md) y [matriz de Windows](releases/MATRIZ_BETA_1_WINDOWS.md): preparación y aceptación pendiente.
 - [Empaquetado por tag](releases/TAGS_BETA.md): condiciones de los workflows de entrega.

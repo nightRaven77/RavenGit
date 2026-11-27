@@ -8,15 +8,19 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-26
+
+Nueva generación visual y de motor híbrido local-first para RavenGit, conservando **100 % de compatibilidad** con la biblioteca (`library-v1.json`) y preferencias (`settings-v1.json`) de `1.0.x`. Ver [notas de entrega](docs/releases/2.0.0.md).
+
 ### Añadido
 - Grafo estilo **Tributary** con avatares circulares de autor, columna izquierda `Rama / Tag` redimensionable (`120–280 px`), iconos duales de sincronización local/remoto colapsando remotos coincidentes, separadores temporales (`Hoy`, `Esta semana`, `Anterior`) y selector de estilo (*Tributary* / *Compacto*) en *Apariencia*.
 - Motor híbrido nativo **`gix` (gitoxide)** + Git CLI, verificador integrado de entorno (`Entorno y motor Git…`) y carga progresiva del historial con scroll infinito.
 - Pestañas multi-repositorio con sesiones y bloqueos aislados, observador local en tiempo real con fila **WIP** conectada a `HEAD` y gestor completo de **Git Worktrees**.
 - Búsqueda profunda en todo el historial y en código fuente (`-S` / `-G`), historial de archivo (`--follow`), **Git Blame** interactivo y comparación de rango entre dos commits (`Shift+Clic`).
 - **Seguridad 2.0:** snapshots locales (manuales y automáticos con retención configurable) y ciclo **Undo / Redo** con vista previa (`⌘Z` / `⇧⌘Z`).
-- **Diff visual de imágenes** (lado a lado, cortina deslizable y superposición), diferencias intra-línea, resaltado de sintaxis, minimapa, líneas de contexto configurables y preparación/descarte por línea.
+- **Diff visual de imágenes** (lado a lado, cortina deslizable y superposición), ajuste automático de líneas largas (`Ajustar líneas`), diferencias intra-línea, resaltado de sintaxis, minimapa, líneas de contexto configurables y preparación/descarte por línea.
 - Panel integrado de **Git LFS** (estado, descarga y bloqueos) y **Submódulos Git**.
-- Paleta de comandos (`⌘K`), guía interactiva de **Atajos de teclado** (`?`), **Guía rápida de RavenGit** integrada de 6 pasos, 7 temas (incluyendo tema claro *Arctic Light* y alto contraste) con 5 paletas de grafo, menús contextuales y apertura en aplicaciones externas locales.
+- Paleta de comandos (`⌘K`), guía interactiva de **Atajos de teclado** (`?`), **Guía rápida de RavenGit** integrada de 6 pasos, 7 temas (incluyendo tema claro *Arctic Light* y alto contraste) con 5 paletas de grafo, filtro rápido en la barra lateral, iconos SVG animados en CSS, menús contextuales y apertura en aplicaciones externas locales.
 - **Modo Simple en 1 clic:** alternador persistente en barra superior y barra de estado para enfocarse en el flujo cotidiano sin herramientas avanzadas.
 - **Integración opt-in de Pull Requests / Merge Requests (GitHub y GitLab):** detección local offline vía `gh` / `glab`, consulta explícita bajo demanda sin tráfico en segundo plano y badges `#PR` en ramas del grafo.
 - **Manual de uso modular (`docs/manual/`):** 7 guías con capturas reales enlazadas desde el README cubriendo primeros pasos, grafo Tributary, diffs, conflictos, sincronización, Seguridad 2.0 y atajos.
